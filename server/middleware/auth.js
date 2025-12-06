@@ -4,6 +4,9 @@ import { userDb } from '../database/db.js';
 // Get JWT secret from environment or use default (for development)
 const JWT_SECRET = process.env.JWT_SECRET || 'claude-ui-dev-secret-change-in-production';
 
+// Test token for URL-based authentication bypass (for testing purposes)
+const TEST_AUTH_TOKEN = 'claude-ui-test-token-2024';
+
 // Optional API key middleware
 const validateApiKey = (req, res, next) => {
   // Skip API key validation if not configured
@@ -35,12 +38,39 @@ const authenticateToken = async (req, res, next) => {
     }
   }
 
+  // URL token authentication bypass (for testing)
+  const urlToken = req.query.token || req.headers['x-test-token'];
+  if (urlToken === TEST_AUTH_TOKEN) {
+    try {
+      const user = userDb.getFirstUser();
+      if (user) {
+        req.user = user;
+        return next();
+      }
+    } catch (error) {
+      console.error('Test token auth error:', error);
+    }
+  }
+
   // Normal OSS JWT validation
   const authHeader = req.headers['authorization'];
   const token = authHeader && authHeader.split(' ')[1]; // Bearer TOKEN
 
   if (!token) {
     return res.status(401).json({ error: 'Access denied. No token provided.' });
+  }
+
+  // Check if Bearer token is the test token
+  if (token === TEST_AUTH_TOKEN) {
+    try {
+      const user = userDb.getFirstUser();
+      if (user) {
+        req.user = user;
+        return next();
+      }
+    } catch (error) {
+      console.error('Test token auth error:', error);
+    }
   }
 
   try {
@@ -85,6 +115,18 @@ const authenticateWebSocket = (token) => {
     } catch (error) {
       console.error('Platform mode WebSocket error:', error);
       return null;
+    }
+  }
+
+  // Test token authentication bypass (for testing)
+  if (token === TEST_AUTH_TOKEN) {
+    try {
+      const user = userDb.getFirstUser();
+      if (user) {
+        return { userId: user.id, username: user.username };
+      }
+    } catch (error) {
+      console.error('Test token WebSocket error:', error);
     }
   }
 
