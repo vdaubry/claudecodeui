@@ -10,7 +10,7 @@
   },
   "files": [
     "server/",
-    "dist/",
+    "src/",
     "README.md"
   ],
   "homepage": "https://claudecodeui.siteboon.ai",
@@ -24,11 +24,7 @@
   "scripts": {
     "dev": "concurrently --kill-others \"npm run server\" \"npm run client\"",
     "server": "node server/index.js",
-    "client": "vite --host",
-    "build": "vite build",
-    "preview": "vite preview",
-    "start": "npm run build && npm run server",
-    "release": "./release.sh"
+    "client": "vite --host"
   },
   "keywords": [
     "claude coode",

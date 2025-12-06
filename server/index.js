@@ -78,6 +78,8 @@ import { validateApiKey, authenticateToken, authenticateWebSocket } from './midd
 // File system watcher for projects folder
 let projectsWatcher = null;
 const connectedClients = new Set();
+// Track which session each client is subscribed to for targeted message delivery
+const clientSubscriptions = new Map(); // Map<WebSocket, { sessionId: string | null, provider: string }>
 
 // Setup file system watcher for Claude projects folder using chokidar
 async function setupProjectsWatcher() {
@@ -263,22 +265,6 @@ app.use('/api/agent', agentRoutes);
 
 // Serve public files (like api-docs.html)
 app.use(express.static(path.join(__dirname, '../public')));
-
-// Static files served after API routes
-// Add cache control: HTML files should not be cached, but assets can be cached
-app.use(express.static(path.join(__dirname, '../dist'), {
-  setHeaders: (res, filePath) => {
-    if (filePath.endsWith('.html')) {
-      // Prevent HTML caching to avoid service worker issues after builds
-      res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
-      res.setHeader('Pragma', 'no-cache');
-      res.setHeader('Expires', '0');
-    } else if (filePath.match(/\.(js|css|woff2?|ttf|eot|svg|png|jpg|jpeg|gif|ico)$/)) {
-      // Cache static assets for 1 year (they have hashed names)
-      res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
-    }
-  }
-}));
 
 // API Routes (protected)
 // /api/config endpoint removed - no longer needed
@@ -790,6 +776,31 @@ function handleChatConnection(ws) {
                     type: 'active-sessions',
                     sessions: activeSessions
                 }));
+            } else if (data.type === 'subscribe-session') {
+                // Subscribe client to a specific session for targeted message delivery
+                const { sessionId, provider } = data;
+                console.log('[DEBUG] Client subscribing to session:', sessionId, 'provider:', provider || 'claude');
+
+                clientSubscriptions.set(ws, {
+                    sessionId: sessionId || null,
+                    provider: provider || 'claude'
+                });
+
+                ws.send(JSON.stringify({
+                    type: 'session-subscribed',
+                    sessionId,
+                    provider: provider || 'claude',
+                    success: true
+                }));
+            } else if (data.type === 'unsubscribe-session') {
+                // Unsubscribe client from current session
+                console.log('[DEBUG] Client unsubscribing from session');
+                clientSubscriptions.delete(ws);
+
+                ws.send(JSON.stringify({
+                    type: 'session-unsubscribed',
+                    success: true
+                }));
             }
         } catch (error) {
             console.error('[ERROR] Chat WebSocket error:', error.message);
@@ -802,8 +813,9 @@ function handleChatConnection(ws) {
 
     ws.on('close', () => {
         console.log('🔌 Chat client disconnected');
-        // Remove from connected clients
+        // Remove from connected clients and clean up subscription
         connectedClients.delete(ws);
+        clientSubscriptions.delete(ws);
     });
 }
 
@@ -1420,29 +1432,7 @@ app.get('/api/projects/:projectName/sessions/:sessionId/token-usage', authentica
   }
 });
 
-// Serve React app for all other routes (excluding static files)
-app.get('*', (req, res) => {
-  // Skip requests for static assets (files with extensions)
-  if (path.extname(req.path)) {
-    return res.status(404).send('Not found');
-  }
-
-  // Only serve index.html for HTML routes, not for static assets
-  // Static assets should already be handled by express.static middleware above
-  const indexPath = path.join(__dirname, '../dist/index.html');
-
-  // Check if dist/index.html exists (production build available)
-  if (fs.existsSync(indexPath)) {
-    // Set no-cache headers for HTML to prevent service worker issues
-    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
-    res.setHeader('Pragma', 'no-cache');
-    res.setHeader('Expires', '0');
-    res.sendFile(indexPath);
-  } else {
-    // In development, redirect to Vite dev server only if dist doesn't exist
-    res.redirect(`http://localhost:${process.env.VITE_PORT || 5173}`);
-  }
-});
+// Backend only serves API routes - frontend is handled by Vite on port 5173
 
 // Helper function to convert permissions to rwx format
 function permToRwx(perm) {
@@ -1533,17 +1523,9 @@ async function startServer() {
         // Initialize authentication database
         await initializeDatabase();
 
-        // Check if running in production mode (dist folder exists)
-        const distIndexPath = path.join(__dirname, '../dist/index.html');
-        const isProduction = fs.existsSync(distIndexPath);
-
-        // Log Claude implementation mode
+        // Log startup info
         console.log(`${c.info('[INFO]')} Using Claude Agents SDK for Claude integration`);
-        console.log(`${c.info('[INFO]')} Running in ${c.bright(isProduction ? 'PRODUCTION' : 'DEVELOPMENT')} mode`);
-
-        if (!isProduction) {
-            console.log(`${c.warn('[WARN]')} Note: Requests will be proxied to Vite dev server at ${c.dim('http://localhost:' + (process.env.VITE_PORT || 5173))}`);
-        }
+        console.log(`${c.info('[INFO]')} Frontend served by Vite at ${c.dim('http://localhost:' + (process.env.VITE_PORT || 5173))}`)
 
         server.listen(PORT, '0.0.0.0', async () => {
             const appInstallPath = path.join(__dirname, '..');

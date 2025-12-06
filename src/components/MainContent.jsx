@@ -1,14 +1,12 @@
 /*
- * MainContent.jsx - Main Content Area with Session Protection Props Passthrough
- * 
- * SESSION PROTECTION PASSTHROUGH:
- * ===============================
- * 
- * This component serves as a passthrough layer for Session Protection functions:
- * - Receives session management functions from App.jsx
- * - Passes them down to ChatInterface.jsx
- * 
- * No session protection logic is implemented here - it's purely a props bridge.
+ * MainContent.jsx - Main Content Area
+ *
+ * This component serves as the main content container, rendering:
+ * - ChatInterface for chat functionality
+ * - FileTree for file browsing
+ * - StandaloneShell for terminal
+ * - GitPanel for git operations
+ * - TaskList and TaskDetail for task management
  */
 
 import React, { useState, useEffect, useRef } from 'react';
@@ -33,30 +31,16 @@ function MainContent({
   selectedSession,
   activeTab,
   setActiveTab,
-  ws,
-  sendMessage,
-  messages,
   isMobile,
   isPWA,
   onMenuClick,
   isLoading,
   onInputFocusChange,
-  // Session Protection Props: Functions passed down from App.jsx to manage active session state
-  // These functions control when project updates are paused during active conversations
-  onSessionActive,        // Mark session as active when user sends message
-  onSessionInactive,      // Mark session as inactive when conversation completes/aborts
-  onSessionProcessing,    // Mark session as processing (thinking/working)
-  onSessionNotProcessing, // Mark session as not processing (finished thinking)
-  processingSessions,     // Set of session IDs currently processing
-  onReplaceTemporarySession, // Replace temporary session ID with real session ID from WebSocket
-  onNavigateToSession,    // Navigate to a specific session (for Claude CLI session duplication workaround)
-  onShowSettings,         // Show tools settings panel
-  autoExpandTools,        // Auto-expand tool accordions
-  showRawParameters,      // Show raw parameters in tool accordions
-  showThinking,           // Show thinking/reasoning sections
-  autoScrollToBottom,     // Auto-scroll to bottom when new messages arrive
-  sendByCtrlEnter,        // Send by Ctrl+Enter mode for East Asian language input
-  externalMessageUpdate   // Trigger for external CLI updates to current session
+  onNavigateToSession,
+  onShowSettings,
+  autoExpandTools,
+  showRawParameters,
+  showThinking
 }) {
   const [editingFile, setEditingFile] = useState(null);
   const [selectedTask, setSelectedTask] = useState(null);
@@ -471,30 +455,17 @@ function MainContent({
           <div className={`h-full ${activeTab === 'chat' ? 'block' : 'hidden'}`}>
             <ErrorBoundary showDetails={true}>
               <ChatInterface
-              selectedProject={selectedProject}
-              selectedSession={selectedSession}
-              ws={ws}
-              sendMessage={sendMessage}
-              messages={messages}
-              onFileOpen={handleFileOpen}
-              onInputFocusChange={onInputFocusChange}
-              onSessionActive={onSessionActive}
-              onSessionInactive={onSessionInactive}
-              onSessionProcessing={onSessionProcessing}
-              onSessionNotProcessing={onSessionNotProcessing}
-              processingSessions={processingSessions}
-              onReplaceTemporarySession={onReplaceTemporarySession}
-              onNavigateToSession={onNavigateToSession}
-              onShowSettings={onShowSettings}
-              autoExpandTools={autoExpandTools}
-              showRawParameters={showRawParameters}
-              showThinking={showThinking}
-              autoScrollToBottom={autoScrollToBottom}
-              sendByCtrlEnter={sendByCtrlEnter}
-              externalMessageUpdate={externalMessageUpdate}
-              onShowAllTasks={tasksEnabled ? () => setActiveTab('tasks') : null}
-            />
-          </ErrorBoundary>
+                selectedProject={selectedProject}
+                selectedSession={selectedSession}
+                onFileOpen={handleFileOpen}
+                onNavigateToSession={onNavigateToSession}
+                onShowSettings={onShowSettings}
+                autoExpandTools={autoExpandTools}
+                showRawParameters={showRawParameters}
+                showThinking={showThinking}
+                onShowAllTasks={tasksEnabled ? () => setActiveTab('tasks') : null}
+              />
+            </ErrorBoundary>
         </div>
         {activeTab === 'files' && (
           <div className="h-full overflow-hidden">
