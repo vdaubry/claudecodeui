@@ -32,7 +32,7 @@ const MessageInput = memo(function MessageInput({
   input,
   setInput,
   handleSubmit,
-  ws,
+  isConnected,
   isSending,
   isStreaming,
   selectedProject,
@@ -221,18 +221,18 @@ const MessageInput = memo(function MessageInput({
             placeholder="Type / for commands, @ for files, or ask Claude anything..."
             className="flex-1 resize-none rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-4 py-2 text-sm text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
             rows={5}
-            disabled={!ws || isSending || isStreaming}
+            disabled={!isConnected || isSending || isStreaming}
           />
           <button
             type="submit"
-            disabled={!input.trim() || !ws || isSending || isStreaming}
+            disabled={!input.trim() || !isConnected || isSending || isStreaming}
             className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
             {isSending || isStreaming ? 'Responding...' : 'Send'}
           </button>
         </div>
       </form>
-      {!ws && (
+      {!isConnected && (
         <p className="text-xs text-yellow-600 dark:text-yellow-500 mt-2">
           Connecting to server...
         </p>

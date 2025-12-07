@@ -20,7 +20,9 @@ import { ThemeProvider } from './contexts/ThemeContext';
 import { AuthProvider } from './contexts/AuthContext';
 import { TaskMasterProvider } from './contexts/TaskMasterContext';
 import { TasksSettingsProvider } from './contexts/TasksSettingsContext';
+import { WebSocketProvider } from './contexts/WebSocketContext';
 import ProtectedRoute from './components/ProtectedRoute';
+import NewSessionModal from './components/NewSessionModal';
 import { useVersionCheck } from './hooks/useVersionCheck';
 import useLocalStorage from './hooks/useLocalStorage';
 import { api, authenticatedFetch } from './utils/api';
@@ -51,6 +53,9 @@ function AppContent() {
   const [autoScrollToBottom, setAutoScrollToBottom] = useLocalStorage('autoScrollToBottom', true);
   const [sendByCtrlEnter, setSendByCtrlEnter] = useLocalStorage('sendByCtrlEnter', false);
   const [sidebarVisible, setSidebarVisible] = useLocalStorage('sidebarVisible', true);
+
+  // New Session Modal state
+  const [newSessionModal, setNewSessionModal] = useState({ isOpen: false, project: null });
 
   // Detect if running as PWA
   const [isPWA, setIsPWA] = useState(false);
@@ -245,10 +250,48 @@ function AppContent() {
   };
 
   const handleNewSession = (project) => {
-    setSelectedProject(project);
-    setSelectedSession(null);
+    // Open modal to collect first message instead of navigating to empty chat
+    setNewSessionModal({ isOpen: true, project });
+  };
+
+  // Handle session creation from modal
+  const handleSessionCreatedFromModal = (sessionId, initialMessage) => {
+    const session = {
+      id: sessionId,
+      summary: 'New Conversation',
+      messageCount: 1,
+      lastActivity: new Date().toISOString(),
+      __provider: 'claude',
+      __initialMessage: initialMessage  // Store the initial message for ChatInterface
+    };
+
+    // Optimistically add session to local state (with duplicate check)
+    setProjects(prevProjects =>
+      prevProjects.map(p => {
+        if (p.name === newSessionModal.project.name) {
+          // Check if session already exists (prevents double-add)
+          const exists = p.sessions?.some(s => s.id === sessionId);
+          if (exists) return p;
+
+          return {
+            ...p,
+            sessions: [session, ...(p.sessions || [])],
+            sessionMeta: {
+              ...p.sessionMeta,
+              total: (p.sessionMeta?.total || 0) + 1
+            }
+          };
+        }
+        return p;
+      })
+    );
+
+    setSelectedProject(newSessionModal.project);
+    setSelectedSession(session);
     setActiveTab('chat');
-    navigate('/');
+    navigate(`/session/${sessionId}`);
+    setNewSessionModal({ isOpen: false, project: null });
+
     if (isMobile) {
       setSidebarOpen(false);
     }
@@ -314,6 +357,10 @@ function AppContent() {
           if (selectedSession) {
             const refreshedSession = refreshedProject.sessions?.find(s => s.id === selectedSession.id);
             if (refreshedSession && JSON.stringify(refreshedSession) !== JSON.stringify(selectedSession)) {
+              // Preserve __initialMessage if it exists on current session
+              if (selectedSession.__initialMessage && !refreshedSession.__initialMessage) {
+                refreshedSession.__initialMessage = selectedSession.__initialMessage;
+              }
               setSelectedSession(refreshedSession);
             }
           }
@@ -676,7 +723,40 @@ function AppContent() {
           onMenuClick={() => setSidebarOpen(true)}
           isLoading={isLoadingProjects}
           onInputFocusChange={setIsInputFocused}
-          onNavigateToSession={(sessionId) => navigate(`/session/${sessionId}`)}
+          onNavigateToSession={(sessionId, sessionData = null) => {
+            const session = sessionData || {
+              id: sessionId,
+              summary: 'New Conversation',
+              __provider: 'claude'
+            };
+
+            setSelectedSession(session);
+            navigate(`/session/${sessionId}`);
+
+            // Optimistically add session if not already present
+            if (selectedProject) {
+              setProjects(prevProjects =>
+                prevProjects.map(p => {
+                  if (p.name === selectedProject.name) {
+                    // Duplicate check - prevent double-add from file watcher refresh
+                    const exists = p.sessions?.some(s => s.id === sessionId);
+                    if (exists) return p;
+
+                    return {
+                      ...p,
+                      sessions: [session, ...(p.sessions || [])],
+                      sessionMeta: {
+                        ...p.sessionMeta,
+                        total: (p.sessionMeta?.total || 0) + 1
+                      }
+                    };
+                  }
+                  return p;
+                })
+              );
+            }
+            // NO window.refreshProjects() - avoid full refresh
+          }}
           onShowSettings={() => setShowSettings(true)}
           autoExpandTools={autoExpandTools}
           showRawParameters={showRawParameters}
@@ -719,6 +799,14 @@ function AppContent() {
         initialTab={settingsInitialTab}
       />
 
+      {/* New Session Modal */}
+      <NewSessionModal
+        isOpen={newSessionModal.isOpen}
+        onClose={() => setNewSessionModal({ isOpen: false, project: null })}
+        project={newSessionModal.project}
+        onSessionCreated={handleSessionCreatedFromModal}
+      />
+
       {/* Version Upgrade Modal */}
       <VersionUpgradeModal />
     </div>
@@ -730,18 +818,20 @@ function App() {
   return (
     <ThemeProvider>
       <AuthProvider>
-        <TasksSettingsProvider>
-          <TaskMasterProvider>
-            <ProtectedRoute>
-              <Router>
-                <Routes>
-                  <Route path="/" element={<AppContent />} />
-                  <Route path="/session/:sessionId" element={<AppContent />} />
-                </Routes>
-              </Router>
-            </ProtectedRoute>
-          </TaskMasterProvider>
-        </TasksSettingsProvider>
+        <WebSocketProvider>
+          <TasksSettingsProvider>
+            <TaskMasterProvider>
+              <ProtectedRoute>
+                <Router>
+                  <Routes>
+                    <Route path="/" element={<AppContent />} />
+                    <Route path="/session/:sessionId" element={<AppContent />} />
+                  </Routes>
+                </Router>
+              </ProtectedRoute>
+            </TaskMasterProvider>
+          </TasksSettingsProvider>
+        </WebSocketProvider>
       </AuthProvider>
     </ThemeProvider>
   );

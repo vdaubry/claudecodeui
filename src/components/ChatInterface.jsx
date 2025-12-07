@@ -15,6 +15,7 @@ import ClaudeLogo from './ClaudeLogo.jsx';
 import CursorLogo from './CursorLogo.jsx';
 import MessageInput from './MessageInput.jsx';
 import { api } from '../utils/api';
+import { useWebSocket } from '../contexts/WebSocketContext';
 
 // Code block component for syntax highlighting
 const CodeBlock = ({ children, className }) => {
@@ -252,9 +253,11 @@ function ChatInterface({
 }) {
   const [sessionMessages, setSessionMessages] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
-  const [ws, setWs] = useState(null);
   const [input, setInput] = useState('');
   const [isSending, setIsSending] = useState(false);
+
+  // Use shared WebSocket connection
+  const { ws, isConnected, sendMessage, subscribe, unsubscribe } = useWebSocket();
 
   // Streaming state for real-time message updates
   const [streamingMessages, setStreamingMessages] = useState([]);
@@ -332,17 +335,6 @@ function ChatInterface({
     }
   }, [selectedSession?.id, transformStreamingMessage]);
 
-  // Handle session-created event
-  const handleSessionCreated = useCallback((sessionId) => {
-    console.log('[ChatInterface] New session created:', sessionId);
-    subscribedSessionRef.current = sessionId;
-
-    // Notify parent to navigate to the new session
-    if (onNavigateToSession) {
-      onNavigateToSession(sessionId);
-    }
-  }, [onNavigateToSession]);
-
   // Refresh session messages from REST API
   const refreshSessionMessages = useCallback(async () => {
     if (!selectedSession || !selectedProject) {
@@ -365,7 +357,6 @@ function ChatInterface({
 
   // Handle claude-complete event
   const handleClaudeComplete = useCallback(async (message) => {
-    console.log('[ChatInterface] Stream complete for session:', message.sessionId);
     setIsStreaming(false);
     setIsSending(false);
 
@@ -382,83 +373,36 @@ function ChatInterface({
     setIsSending(false);
   }, []);
 
-  // Main WebSocket message handler
-  const handleWebSocketMessage = useCallback((message) => {
-    switch (message.type) {
-      case 'claude-response':
-        handleClaudeResponse(message.data);
-        break;
-      case 'session-created':
-        handleSessionCreated(message.sessionId);
-        break;
-      case 'claude-complete':
-        handleClaudeComplete(message);
-        break;
-      case 'claude-error':
-        handleClaudeError(message.error);
-        break;
-      case 'session-subscribed':
-        console.log('[ChatInterface] Subscribed to session:', message.sessionId);
-        break;
-      case 'session-unsubscribed':
-        console.log('[ChatInterface] Unsubscribed from session');
-        break;
-      default:
-        // Ignore other message types (projects_updated, etc.)
-        break;
-    }
-  }, [handleClaudeResponse, handleSessionCreated, handleClaudeComplete, handleClaudeError]);
-
-  // Connect to WebSocket when component mounts
+  // Subscribe to WebSocket messages using shared context
   useEffect(() => {
-    const isPlatform = import.meta.env.VITE_IS_PLATFORM === 'true';
-    let wsUrl;
+    if (!selectedSession) return; // Don't subscribe if no session
 
-    if (isPlatform) {
-      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      wsUrl = `${protocol}//${window.location.host}/ws`;
-    } else {
-      const token = localStorage.getItem('auth-token');
-      if (!token) return;
+    const handleResponse = (msg) => handleClaudeResponse(msg.data);
+    const handleComplete = (msg) => handleClaudeComplete(msg);
+    const handleError = (msg) => handleClaudeError(msg.error);
+    const handleSubscribed = (msg) => console.log('[ChatInterface] Subscribed to session:', msg.sessionId);
+    const handleUnsubscribed = () => console.log('[ChatInterface] Unsubscribed from session');
+    // NOTE: Don't subscribe to session-created - modal handles new sessions now
 
-      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      wsUrl = `${protocol}//${window.location.host}/ws?token=${encodeURIComponent(token)}`;
-    }
-
-    const websocket = new WebSocket(wsUrl);
-
-    websocket.onopen = () => {
-      console.log('[ChatInterface] WebSocket connected');
-      setWs(websocket);
-    };
-
-    websocket.onclose = () => {
-      console.log('[ChatInterface] WebSocket disconnected');
-      setWs(null);
-    };
-
-    websocket.onerror = (err) => {
-      console.error('[ChatInterface] WebSocket error:', err);
-    };
-
-    websocket.onmessage = (event) => {
-      try {
-        const message = JSON.parse(event.data);
-        handleWebSocketMessage(message);
-      } catch (error) {
-        console.error('[ChatInterface] Error parsing WebSocket message:', error);
-      }
-    };
+    subscribe('claude-response', handleResponse);
+    subscribe('claude-complete', handleComplete);
+    subscribe('claude-error', handleError);
+    subscribe('session-subscribed', handleSubscribed);
+    subscribe('session-unsubscribed', handleUnsubscribed);
 
     return () => {
-      websocket.close();
+      unsubscribe('claude-response', handleResponse);
+      unsubscribe('claude-complete', handleComplete);
+      unsubscribe('claude-error', handleError);
+      unsubscribe('session-subscribed', handleSubscribed);
+      unsubscribe('session-unsubscribed', handleUnsubscribed);
     };
-  }, [handleWebSocketMessage]);
+  }, [selectedSession, subscribe, unsubscribe, handleClaudeResponse, handleClaudeComplete, handleClaudeError]);
 
   // Handle message submission
   const handleSubmit = useCallback((e) => {
     e.preventDefault();
-    if (!input.trim() || isSending || !selectedProject || !ws) return;
+    if (!input.trim() || isSending || !selectedProject || !isConnected) return;
 
     const messageText = input.trim();
     setIsSending(true);
@@ -472,24 +416,17 @@ function ChatInterface({
     };
     setStreamingMessages([userMessage]);
 
-    try {
-      ws.send(JSON.stringify({
-        type: 'claude-command',
-        command: messageText,
-        options: {
-          projectPath: selectedProject.path,
-          cwd: selectedProject.fullPath || selectedProject.path,
-          sessionId: selectedSession?.id,
-          resume: !!selectedSession?.id
-        }
-      }));
-    } catch (error) {
-      console.error('[ChatInterface] Failed to send message:', error);
-      setIsSending(false);
-      setStreamingMessages([]);
-    }
+    sendMessage('claude-command', {
+      command: messageText,
+      options: {
+        projectPath: selectedProject.path,
+        cwd: selectedProject.fullPath || selectedProject.path,
+        sessionId: selectedSession?.id,
+        resume: !!selectedSession?.id
+      }
+    });
     // Note: isSending is cleared when claude-complete is received
-  }, [input, isSending, selectedProject, selectedSession, ws]);
+  }, [input, isSending, selectedProject, selectedSession, isConnected, sendMessage]);
 
   // Convert raw messages to displayable format, including streaming messages
   const displayMessages = useMemo(() => {
@@ -531,34 +468,46 @@ function ChatInterface({
     loadMessages();
   }, [selectedSession?.id, selectedProject?.name]);
 
+  // Initialize streaming messages with user's initial message from NewSessionModal
+  useEffect(() => {
+    if (selectedSession?.__initialMessage) {
+      setStreamingMessages([{
+        type: 'user',
+        content: selectedSession.__initialMessage,
+        timestamp: new Date().toISOString()
+      }]);
+    }
+  }, [selectedSession?.id, selectedSession?.__initialMessage]);
+
   // Manage session subscription when session or WebSocket changes
   useEffect(() => {
-    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    if (!isConnected) return;
 
     const newSessionId = selectedSession?.id;
     const currentSubscription = subscribedSessionRef.current;
 
     // Unsubscribe from previous session
     if (currentSubscription && currentSubscription !== newSessionId) {
-      ws.send(JSON.stringify({ type: 'unsubscribe-session' }));
+      sendMessage('unsubscribe-session', {});
     }
 
     // Subscribe to new session
     if (newSessionId) {
-      ws.send(JSON.stringify({
-        type: 'subscribe-session',
+      sendMessage('subscribe-session', {
         sessionId: newSessionId,
         provider: selectedSession?.__provider || 'claude'
-      }));
+      });
       subscribedSessionRef.current = newSessionId;
     } else {
       subscribedSessionRef.current = null;
     }
 
-    // Clear streaming state when switching sessions
-    setStreamingMessages([]);
+    // Clear streaming state when switching to a different session (without initial message)
+    if (currentSubscription !== newSessionId && !selectedSession?.__initialMessage) {
+      setStreamingMessages([]);
+    }
     setIsStreaming(false);
-  }, [selectedSession?.id, selectedSession?.__provider, ws]);
+  }, [selectedSession?.id, selectedSession?.__provider, selectedSession?.__initialMessage, isConnected, sendMessage]);
 
   // Handle scroll events to track if user is at bottom
   const handleScroll = useCallback(() => {
@@ -607,23 +556,8 @@ function ChatInterface({
     }
   }, [displayMessages.length, isAtBottom]);
 
-  // Empty state - no session selected
-  if (!selectedSession) {
-    return (
-      <div className="h-full flex flex-col items-center justify-center text-gray-500 dark:text-gray-400 p-6">
-        <div className="w-16 h-16 mb-4">
-          <ClaudeLogo className="w-full h-full opacity-50" />
-        </div>
-        <h2 className="text-xl font-semibold mb-2 text-gray-900 dark:text-white">Select a Conversation</h2>
-        <p className="text-center max-w-md">
-          Choose a conversation from the sidebar to view the message history.
-        </p>
-      </div>
-    );
-  }
-
-  // Loading state
-  if (isLoading) {
+  // Loading state - but skip if we have an initial message to display
+  if (isLoading && !selectedSession?.__initialMessage) {
     return (
       <div className="h-full flex items-center justify-center">
         <div className="text-center text-gray-500 dark:text-gray-400">
@@ -632,19 +566,6 @@ function ChatInterface({
           </div>
           <p>Loading messages...</p>
         </div>
-      </div>
-    );
-  }
-
-  // No messages - show empty state with input
-  if (displayMessages.length === 0) {
-    return (
-      <div className="h-full flex flex-col">
-        <div className="flex-1 flex flex-col items-center justify-center text-gray-500 dark:text-gray-400 p-6">
-          <h2 className="text-lg font-semibold mb-2 text-gray-900 dark:text-white">No Messages</h2>
-          <p className="text-center">Start a conversation by typing a message below.</p>
-        </div>
-        <MessageInput input={input} setInput={setInput} handleSubmit={handleSubmit} ws={ws} isSending={isSending} isStreaming={isStreaming} selectedProject={selectedProject} />
       </div>
     );
   }
@@ -692,7 +613,7 @@ function ChatInterface({
         </button>
       )}
 
-      <MessageInput input={input} setInput={setInput} handleSubmit={handleSubmit} ws={ws} isSending={isSending} isStreaming={isStreaming} selectedProject={selectedProject} />
+      <MessageInput input={input} setInput={setInput} handleSubmit={handleSubmit} isConnected={isConnected} isSending={isSending} isStreaming={isStreaming} selectedProject={selectedProject} />
     </div>
   );
 }
