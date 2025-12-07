@@ -93,6 +93,13 @@ export const api = {
       headers: {}, // Let browser set Content-Type for FormData
     }),
 
+  // Slash commands endpoint
+  getCommands: (projectPath) =>
+    authenticatedFetch('/api/commands/list', {
+      method: 'POST',
+      body: JSON.stringify({ projectPath: projectPath || '' }),
+    }),
+
   // TaskMaster endpoints
   taskmaster: {
     // Initialize TaskMaster in a project

@@ -14,7 +14,8 @@ import remarkGfm from 'remark-gfm';
 import ClaudeLogo from './ClaudeLogo.jsx';
 import CursorLogo from './CursorLogo.jsx';
 import MessageInput from './MessageInput.jsx';
-import { api } from '../utils/api';
+import CommandMenu from './CommandMenu';
+import { api, authenticatedFetch } from '../utils/api';
 import { useWebSocket } from '../contexts/WebSocketContext';
 
 // Code block component for syntax highlighting
@@ -256,6 +257,22 @@ function ChatInterface({
   const [input, setInput] = useState('');
   const [isSending, setIsSending] = useState(false);
 
+  // Permission mode state
+  const [permissionMode, setPermissionMode] = useState('default');
+
+  // Token usage state (will be populated from backend responses)
+  const [tokenBudget, setTokenBudget] = useState(null);
+
+  // Slash commands state
+  const [slashCommands, setSlashCommands] = useState([]);
+  const [showCommandMenu, setShowCommandMenu] = useState(false);
+  const [slashPosition, setSlashPosition] = useState(-1);
+  const [commandQuery, setCommandQuery] = useState('');
+  const [selectedCommandIndex, setSelectedCommandIndex] = useState(-1);
+
+  // Ref for textarea positioning (forwarded to MessageInput)
+  const inputTextareaRef = useRef(null);
+
   // Use shared WebSocket connection
   const { ws, isConnected, sendMessage, subscribe, unsubscribe } = useWebSocket();
 
@@ -364,13 +381,93 @@ function ChatInterface({
     // Then clear streaming messages
     await refreshSessionMessages();
     setStreamingMessages([]);
-  }, [refreshSessionMessages]);
+
+    // Fetch updated token usage after message completes
+    if (selectedProject && selectedSession?.id) {
+      try {
+        const url = `/api/projects/${selectedProject.name}/sessions/${selectedSession.id}/token-usage`;
+        const response = await authenticatedFetch(url);
+        if (response.ok) {
+          const data = await response.json();
+          setTokenBudget(data);
+        }
+      } catch (error) {
+        console.error('Failed to fetch updated token usage:', error);
+      }
+    }
+  }, [refreshSessionMessages, selectedProject, selectedSession?.id]);
 
   // Handle errors
   const handleClaudeError = useCallback((error) => {
     console.error('[ChatInterface] Claude error:', error);
     setIsStreaming(false);
     setIsSending(false);
+  }, []);
+
+  // Handler to change permission mode
+  const handleModeChange = useCallback((newMode) => {
+    setPermissionMode(newMode);
+    if (selectedSession?.id) {
+      localStorage.setItem(`permissionMode-${selectedSession.id}`, newMode);
+    }
+  }, [selectedSession?.id]);
+
+  // Handler to toggle command menu
+  const handleToggleCommandMenu = useCallback(() => {
+    const isOpening = !showCommandMenu;
+    setShowCommandMenu(isOpening);
+    if (isOpening) {
+      // Reset command query when opening via button
+      setCommandQuery('');
+      setSelectedCommandIndex(-1);
+    }
+  }, [showCommandMenu]);
+
+  // Filtered commands based on query
+  const filteredCommands = useMemo(() => {
+    if (!commandQuery) return slashCommands;
+    return slashCommands.filter(cmd =>
+      cmd.name.toLowerCase().includes(commandQuery.toLowerCase())
+    );
+  }, [slashCommands, commandQuery]);
+
+  // Handler for command selection from CommandMenu
+  const handleCommandSelect = useCallback((command, index, isHover) => {
+    if (isHover) {
+      setSelectedCommandIndex(index);
+      return;
+    }
+    // Insert command into input
+    const beforeSlash = slashPosition >= 0 ? input.slice(0, slashPosition) : input;
+    const afterCursor = slashPosition >= 0 ? input.slice(slashPosition + 1 + commandQuery.length) : '';
+    const newInput = beforeSlash + '/' + command.name + ' ' + afterCursor.trim();
+    setInput(newInput.trim() + ' ');
+    setShowCommandMenu(false);
+    setSlashPosition(-1);
+    setCommandQuery('');
+    setSelectedCommandIndex(-1);
+  }, [input, slashPosition, commandQuery]);
+
+  // Handler for slash detection from MessageInput
+  const handleSlashDetected = useCallback((position, query) => {
+    if (position >= 0) {
+      setSlashPosition(position);
+      setCommandQuery(query);
+      setShowCommandMenu(true);
+      setSelectedCommandIndex(-1);
+    } else {
+      setSlashPosition(-1);
+      setCommandQuery('');
+      setShowCommandMenu(false);
+    }
+  }, []);
+
+  // Handler to close command menu
+  const handleCloseCommandMenu = useCallback(() => {
+    setShowCommandMenu(false);
+    setSlashPosition(-1);
+    setCommandQuery('');
+    setSelectedCommandIndex(-1);
   }, []);
 
   // Subscribe to WebSocket messages using shared context
@@ -422,11 +519,12 @@ function ChatInterface({
         projectPath: selectedProject.path,
         cwd: selectedProject.fullPath || selectedProject.path,
         sessionId: selectedSession?.id,
-        resume: !!selectedSession?.id
+        resume: !!selectedSession?.id,
+        permissionMode: permissionMode
       }
     });
     // Note: isSending is cleared when claude-complete is received
-  }, [input, isSending, selectedProject, selectedSession, isConnected, sendMessage]);
+  }, [input, isSending, selectedProject, selectedSession, isConnected, sendMessage, permissionMode]);
 
   // Convert raw messages to displayable format, including streaming messages
   const displayMessages = useMemo(() => {
@@ -478,6 +576,61 @@ function ChatInterface({
       }]);
     }
   }, [selectedSession?.id, selectedSession?.__initialMessage]);
+
+  // Load permission mode from localStorage when session changes
+  useEffect(() => {
+    if (selectedSession?.id) {
+      const savedMode = localStorage.getItem(`permissionMode-${selectedSession.id}`);
+      setPermissionMode(savedMode || 'default');
+    } else {
+      setPermissionMode('default');
+    }
+  }, [selectedSession?.id]);
+
+  // Fetch slash commands when project changes
+  useEffect(() => {
+    const fetchCommands = async () => {
+      if (!selectedProject) return;
+      try {
+        const response = await api.getCommands(selectedProject.path || selectedProject.fullPath);
+        if (response.ok) {
+          const data = await response.json();
+          // Combine built-in and custom commands
+          const allCommands = [...(data.builtIn || []), ...(data.custom || [])];
+          setSlashCommands(allCommands);
+        }
+      } catch (error) {
+        console.error('Error fetching commands:', error);
+      }
+    };
+    fetchCommands();
+  }, [selectedProject?.path]);
+
+  // Load token usage when session changes
+  useEffect(() => {
+    if (!selectedProject || !selectedSession?.id) {
+      setTokenBudget(null);
+      return;
+    }
+
+    const fetchTokenUsage = async () => {
+      try {
+        const url = `/api/projects/${selectedProject.name}/sessions/${selectedSession.id}/token-usage`;
+        const response = await authenticatedFetch(url);
+        if (response.ok) {
+          const data = await response.json();
+          setTokenBudget(data);
+        } else {
+          setTokenBudget(null);
+        }
+      } catch (error) {
+        console.error('Failed to fetch token usage:', error);
+        setTokenBudget(null);
+      }
+    };
+
+    fetchTokenUsage();
+  }, [selectedSession?.id, selectedProject?.name]);
 
   // Manage session subscription when session or WebSocket changes
   useEffect(() => {
@@ -613,7 +766,49 @@ function ChatInterface({
         </button>
       )}
 
-      <MessageInput input={input} setInput={setInput} handleSubmit={handleSubmit} isConnected={isConnected} isSending={isSending} isStreaming={isStreaming} selectedProject={selectedProject} />
+      <MessageInput
+        input={input}
+        setInput={setInput}
+        handleSubmit={handleSubmit}
+        isConnected={isConnected}
+        isSending={isSending}
+        isStreaming={isStreaming}
+        selectedProject={selectedProject}
+        permissionMode={permissionMode}
+        onModeChange={handleModeChange}
+        tokenBudget={tokenBudget}
+        slashCommands={slashCommands}
+        showCommandMenu={showCommandMenu}
+        onToggleCommandMenu={handleToggleCommandMenu}
+        isUserScrolledUp={!isAtBottom}
+        onScrollToBottom={scrollToBottom}
+        onSlashDetected={handleSlashDetected}
+        textareaRef={inputTextareaRef}
+        selectedCommandIndex={selectedCommandIndex}
+        filteredCommands={filteredCommands}
+        onCommandSelect={handleCommandSelect}
+        onCloseCommandMenu={handleCloseCommandMenu}
+      />
+
+      {/* Command Menu - positioned above input */}
+      <CommandMenu
+        commands={filteredCommands}
+        selectedIndex={selectedCommandIndex}
+        onSelect={handleCommandSelect}
+        onClose={handleCloseCommandMenu}
+        position={{
+          top: inputTextareaRef.current
+            ? Math.max(16, inputTextareaRef.current.getBoundingClientRect().top - 316)
+            : 0,
+          left: inputTextareaRef.current
+            ? inputTextareaRef.current.getBoundingClientRect().left
+            : 16,
+          bottom: inputTextareaRef.current
+            ? window.innerHeight - inputTextareaRef.current.getBoundingClientRect().top + 8
+            : 90
+        }}
+        isOpen={showCommandMenu && filteredCommands.length > 0}
+      />
     </div>
   );
 }
