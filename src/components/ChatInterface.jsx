@@ -644,7 +644,7 @@ function ChatInterface({
           <h2 className="text-lg font-semibold mb-2 text-gray-900 dark:text-white">No Messages</h2>
           <p className="text-center">Start a conversation by typing a message below.</p>
         </div>
-        <MessageInput input={input} setInput={setInput} handleSubmit={handleSubmit} ws={ws} isSending={isSending} isStreaming={isStreaming} />
+        <MessageInput input={input} setInput={setInput} handleSubmit={handleSubmit} ws={ws} isSending={isSending} isStreaming={isStreaming} selectedProject={selectedProject} />
       </div>
     );
   }
@@ -692,7 +692,7 @@ function ChatInterface({
         </button>
       )}
 
-      <MessageInput input={input} setInput={setInput} handleSubmit={handleSubmit} ws={ws} isSending={isSending} isStreaming={isStreaming} />
+      <MessageInput input={input} setInput={setInput} handleSubmit={handleSubmit} ws={ws} isSending={isSending} isStreaming={isStreaming} selectedProject={selectedProject} />
     </div>
   );
 }
