@@ -568,14 +568,18 @@ function ChatInterface({
 
   // Initialize streaming messages with user's initial message from NewSessionModal
   useEffect(() => {
-    if (selectedSession?.__initialMessage) {
+    if (selectedSession?.__initialMessage && sessionMessages.length === 0) {
+      // Only add initialMessage to streaming if we don't have messages from DB yet
       setStreamingMessages([{
         type: 'user',
         content: selectedSession.__initialMessage,
         timestamp: new Date().toISOString()
       }]);
+    } else if (sessionMessages.length > 0) {
+      // Clear streaming messages if we have DB messages (prevents duplication)
+      setStreamingMessages([]);
     }
-  }, [selectedSession?.id, selectedSession?.__initialMessage]);
+  }, [selectedSession?.id, selectedSession?.__initialMessage, sessionMessages.length]);
 
   // Load permission mode from localStorage when session changes
   useEffect(() => {
