@@ -261,6 +261,11 @@ function ChatInterface({
   const [isStreaming, setIsStreaming] = useState(false);
   const subscribedSessionRef = useRef(null);
 
+  // Scroll state for smart auto-scroll behavior
+  const messagesContainerRef = useRef(null);
+  const [isAtBottom, setIsAtBottom] = useState(true);
+  const [hasNewMessages, setHasNewMessages] = useState(false);
+
   // Transform streaming SDK message to display format
   const transformStreamingMessage = useCallback((sdkMessage) => {
     const timestamp = new Date().toISOString();
@@ -555,6 +560,53 @@ function ChatInterface({
     setIsStreaming(false);
   }, [selectedSession?.id, selectedSession?.__provider, ws]);
 
+  // Handle scroll events to track if user is at bottom
+  const handleScroll = useCallback(() => {
+    const container = messagesContainerRef.current;
+    if (!container) return;
+
+    // In column-reverse, scrollTop is 0 when at bottom (newest messages)
+    // scrollTop becomes negative as user scrolls up to older messages
+    const atBottom = container.scrollTop >= -50; // 50px threshold
+
+    setIsAtBottom(atBottom);
+    if (atBottom) {
+      setHasNewMessages(false);
+    }
+  }, []);
+
+  // Attach scroll listener to messages container
+  useEffect(() => {
+    const container = messagesContainerRef.current;
+    if (container) {
+      container.addEventListener('scroll', handleScroll);
+      return () => container.removeEventListener('scroll', handleScroll);
+    }
+  }, [handleScroll]);
+
+  // Track new messages when user is scrolled up
+  useEffect(() => {
+    if (streamingMessages.length > 0 && !isAtBottom) {
+      setHasNewMessages(true);
+    }
+  }, [streamingMessages.length, isAtBottom]);
+
+  // Scroll to bottom function
+  const scrollToBottom = useCallback(() => {
+    const container = messagesContainerRef.current;
+    if (container) {
+      container.scrollTop = 0; // In column-reverse, 0 is the bottom
+    }
+    setHasNewMessages(false);
+  }, []);
+
+  // Auto-scroll to bottom when new messages arrive AND user is at bottom
+  useEffect(() => {
+    if (isAtBottom && messagesContainerRef.current) {
+      messagesContainerRef.current.scrollTop = 0;
+    }
+  }, [displayMessages.length, isAtBottom]);
+
   // Empty state - no session selected
   if (!selectedSession) {
     return (
@@ -599,27 +651,46 @@ function ChatInterface({
 
   // Render messages
   return (
-    <div className="h-full flex flex-col">
-      {/* Messages container */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-4">
-        {displayMessages.map((message, index) => {
-          const prevMessage = index > 0 ? displayMessages[index - 1] : null;
-          const isGrouped = prevMessage && prevMessage.type === message.type;
+    <div className="h-full flex flex-col relative">
+      {/* Messages container - uses flex-col-reverse so newest messages are at bottom and scroll origin is bottom */}
+      <div
+        ref={messagesContainerRef}
+        className="flex-1 overflow-y-auto p-4 space-y-4 flex flex-col-reverse"
+      >
+        {/* Wrap messages in a div to maintain correct order within reversed flex container */}
+        <div className="space-y-4">
+          {displayMessages.map((message, index) => {
+            const prevMessage = index > 0 ? displayMessages[index - 1] : null;
+            const isGrouped = prevMessage && prevMessage.type === message.type;
 
-          // Skip thinking messages if showThinking is false
-          if (message.type === 'thinking' && !showThinking) {
-            return null;
-          }
+            // Skip thinking messages if showThinking is false
+            if (message.type === 'thinking' && !showThinking) {
+              return null;
+            }
 
-          return (
-            <MessageComponent
-              key={index}
-              message={message}
-              isGrouped={isGrouped}
-            />
-          );
-        })}
+            return (
+              <MessageComponent
+                key={index}
+                message={message}
+                isGrouped={isGrouped}
+              />
+            );
+          })}
+        </div>
       </div>
+
+      {/* New messages indicator - appears when user has scrolled up and new messages arrive */}
+      {hasNewMessages && (
+        <button
+          onClick={scrollToBottom}
+          className="absolute bottom-20 left-1/2 -translate-x-1/2 px-4 py-2 bg-blue-600 text-white rounded-full shadow-lg flex items-center gap-2 hover:bg-blue-700 transition-colors z-10"
+        >
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 14l-7 7m0 0l-7-7m7 7V3" />
+          </svg>
+          New messages
+        </button>
+      )}
 
       <MessageInput input={input} setInput={setInput} handleSubmit={handleSubmit} ws={ws} isSending={isSending} isStreaming={isStreaming} />
     </div>
