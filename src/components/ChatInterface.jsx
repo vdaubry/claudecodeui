@@ -1,17 +1,19 @@
 /*
- * ChatInterface.jsx - Minimal View-Only Chat Component
+ * ChatInterface.jsx - Chat Component with Message Sending
  *
- * Stateless architecture:
+ * Architecture:
  * - Load messages via REST API when session selected
  * - Display messages (user, assistant, tool calls)
- * - No sending, no streaming, no WebSocket
+ * - Send messages via WebSocket
+ * - User refreshes to see responses
  */
 
-import React, { useState, useEffect, useMemo, memo } from 'react';
+import React, { useState, useEffect, useMemo, memo, useCallback, useRef } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import ClaudeLogo from './ClaudeLogo.jsx';
 import CursorLogo from './CursorLogo.jsx';
+import MessageInput from './MessageInput.jsx';
 import { api } from '../utils/api';
 
 // Code block component for syntax highlighting
@@ -250,11 +252,249 @@ function ChatInterface({
 }) {
   const [sessionMessages, setSessionMessages] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [ws, setWs] = useState(null);
+  const [input, setInput] = useState('');
+  const [isSending, setIsSending] = useState(false);
 
-  // Convert raw messages to displayable format
+  // Streaming state for real-time message updates
+  const [streamingMessages, setStreamingMessages] = useState([]);
+  const [isStreaming, setIsStreaming] = useState(false);
+  const subscribedSessionRef = useRef(null);
+
+  // Transform streaming SDK message to display format
+  const transformStreamingMessage = useCallback((sdkMessage) => {
+    const timestamp = new Date().toISOString();
+
+    // Handle assistant messages with content array
+    if (sdkMessage.type === 'assistant' && sdkMessage.message?.content) {
+      const content = sdkMessage.message.content;
+      const messages = [];
+
+      if (Array.isArray(content)) {
+        for (const block of content) {
+          if (block.type === 'text') {
+            messages.push({ type: 'assistant', content: block.text, timestamp });
+          } else if (block.type === 'thinking') {
+            messages.push({ type: 'thinking', content: block.thinking, timestamp });
+          } else if (block.type === 'tool_use') {
+            messages.push({
+              type: 'tool',
+              isToolUse: true,
+              toolName: block.name,
+              toolId: block.id,
+              toolInput: JSON.stringify(block.input, null, 2),
+              timestamp
+            });
+          }
+        }
+      } else if (typeof content === 'string') {
+        messages.push({ type: 'assistant', content, timestamp });
+      }
+
+      return messages;
+    }
+
+    // Handle user messages (for tool results)
+    if (sdkMessage.type === 'user' && sdkMessage.message?.content) {
+      const content = sdkMessage.message.content;
+      if (Array.isArray(content)) {
+        // Tool results come as user messages - we can update existing tool entries
+        // For now, we'll skip these as they're handled in tool_use display
+        return [];
+      }
+    }
+
+    return [];
+  }, []);
+
+  // Handle incoming claude-response messages
+  const handleClaudeResponse = useCallback((data) => {
+    const currentSessionId = selectedSession?.id;
+    const messageSessionId = data.session_id;
+
+    // Filter: ignore messages for different sessions
+    if (currentSessionId && messageSessionId && messageSessionId !== currentSessionId) {
+      console.log('[ChatInterface] Ignoring message for different session:', messageSessionId);
+      return;
+    }
+
+    setIsStreaming(true);
+
+    // Transform and append streaming messages
+    const transformed = transformStreamingMessage(data);
+    if (transformed.length > 0) {
+      setStreamingMessages(prev => [...prev, ...transformed]);
+    }
+  }, [selectedSession?.id, transformStreamingMessage]);
+
+  // Handle session-created event
+  const handleSessionCreated = useCallback((sessionId) => {
+    console.log('[ChatInterface] New session created:', sessionId);
+    subscribedSessionRef.current = sessionId;
+
+    // Notify parent to navigate to the new session
+    if (onNavigateToSession) {
+      onNavigateToSession(sessionId);
+    }
+  }, [onNavigateToSession]);
+
+  // Refresh session messages from REST API
+  const refreshSessionMessages = useCallback(async () => {
+    if (!selectedSession || !selectedProject) {
+      setSessionMessages([]);
+      return;
+    }
+
+    try {
+      const response = await api.sessionMessages(selectedProject.name, selectedSession.id, 1000, 0);
+      if (response.ok) {
+        const data = await response.json();
+        setSessionMessages(data.messages || []);
+      } else {
+        console.error('Failed to load messages');
+      }
+    } catch (error) {
+      console.error('Error loading messages:', error);
+    }
+  }, [selectedSession?.id, selectedProject?.name]);
+
+  // Handle claude-complete event
+  const handleClaudeComplete = useCallback(async (message) => {
+    console.log('[ChatInterface] Stream complete for session:', message.sessionId);
+    setIsStreaming(false);
+    setIsSending(false);
+
+    // Refresh messages from REST API to get persisted messages
+    // Then clear streaming messages
+    await refreshSessionMessages();
+    setStreamingMessages([]);
+  }, [refreshSessionMessages]);
+
+  // Handle errors
+  const handleClaudeError = useCallback((error) => {
+    console.error('[ChatInterface] Claude error:', error);
+    setIsStreaming(false);
+    setIsSending(false);
+  }, []);
+
+  // Main WebSocket message handler
+  const handleWebSocketMessage = useCallback((message) => {
+    switch (message.type) {
+      case 'claude-response':
+        handleClaudeResponse(message.data);
+        break;
+      case 'session-created':
+        handleSessionCreated(message.sessionId);
+        break;
+      case 'claude-complete':
+        handleClaudeComplete(message);
+        break;
+      case 'claude-error':
+        handleClaudeError(message.error);
+        break;
+      case 'session-subscribed':
+        console.log('[ChatInterface] Subscribed to session:', message.sessionId);
+        break;
+      case 'session-unsubscribed':
+        console.log('[ChatInterface] Unsubscribed from session');
+        break;
+      default:
+        // Ignore other message types (projects_updated, etc.)
+        break;
+    }
+  }, [handleClaudeResponse, handleSessionCreated, handleClaudeComplete, handleClaudeError]);
+
+  // Connect to WebSocket when component mounts
+  useEffect(() => {
+    const isPlatform = import.meta.env.VITE_IS_PLATFORM === 'true';
+    let wsUrl;
+
+    if (isPlatform) {
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      wsUrl = `${protocol}//${window.location.host}/ws`;
+    } else {
+      const token = localStorage.getItem('auth-token');
+      if (!token) return;
+
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      wsUrl = `${protocol}//${window.location.host}/ws?token=${encodeURIComponent(token)}`;
+    }
+
+    const websocket = new WebSocket(wsUrl);
+
+    websocket.onopen = () => {
+      console.log('[ChatInterface] WebSocket connected');
+      setWs(websocket);
+    };
+
+    websocket.onclose = () => {
+      console.log('[ChatInterface] WebSocket disconnected');
+      setWs(null);
+    };
+
+    websocket.onerror = (err) => {
+      console.error('[ChatInterface] WebSocket error:', err);
+    };
+
+    websocket.onmessage = (event) => {
+      try {
+        const message = JSON.parse(event.data);
+        handleWebSocketMessage(message);
+      } catch (error) {
+        console.error('[ChatInterface] Error parsing WebSocket message:', error);
+      }
+    };
+
+    return () => {
+      websocket.close();
+    };
+  }, [handleWebSocketMessage]);
+
+  // Handle message submission
+  const handleSubmit = useCallback((e) => {
+    e.preventDefault();
+    if (!input.trim() || isSending || !selectedProject || !ws) return;
+
+    const messageText = input.trim();
+    setIsSending(true);
+    setInput('');
+
+    // Add optimistic user message to streaming messages
+    const userMessage = {
+      type: 'user',
+      content: messageText,
+      timestamp: new Date().toISOString()
+    };
+    setStreamingMessages([userMessage]);
+
+    try {
+      ws.send(JSON.stringify({
+        type: 'claude-command',
+        command: messageText,
+        options: {
+          projectPath: selectedProject.path,
+          cwd: selectedProject.fullPath || selectedProject.path,
+          sessionId: selectedSession?.id,
+          resume: !!selectedSession?.id
+        }
+      }));
+    } catch (error) {
+      console.error('[ChatInterface] Failed to send message:', error);
+      setIsSending(false);
+      setStreamingMessages([]);
+    }
+    // Note: isSending is cleared when claude-complete is received
+  }, [input, isSending, selectedProject, selectedSession, ws]);
+
+  // Convert raw messages to displayable format, including streaming messages
   const displayMessages = useMemo(() => {
-    return convertSessionMessages(sessionMessages);
-  }, [sessionMessages]);
+    const historyMessages = convertSessionMessages(sessionMessages);
+    // Append streaming messages during active streaming
+    if (streamingMessages.length > 0) {
+      return [...historyMessages, ...streamingMessages];
+    }
+    return historyMessages;
+  }, [sessionMessages, streamingMessages]);
 
   // Load messages when session changes
   useEffect(() => {
@@ -286,6 +526,35 @@ function ChatInterface({
     loadMessages();
   }, [selectedSession?.id, selectedProject?.name]);
 
+  // Manage session subscription when session or WebSocket changes
+  useEffect(() => {
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+
+    const newSessionId = selectedSession?.id;
+    const currentSubscription = subscribedSessionRef.current;
+
+    // Unsubscribe from previous session
+    if (currentSubscription && currentSubscription !== newSessionId) {
+      ws.send(JSON.stringify({ type: 'unsubscribe-session' }));
+    }
+
+    // Subscribe to new session
+    if (newSessionId) {
+      ws.send(JSON.stringify({
+        type: 'subscribe-session',
+        sessionId: newSessionId,
+        provider: selectedSession?.__provider || 'claude'
+      }));
+      subscribedSessionRef.current = newSessionId;
+    } else {
+      subscribedSessionRef.current = null;
+    }
+
+    // Clear streaming state when switching sessions
+    setStreamingMessages([]);
+    setIsStreaming(false);
+  }, [selectedSession?.id, selectedSession?.__provider, ws]);
+
   // Empty state - no session selected
   if (!selectedSession) {
     return (
@@ -315,12 +584,15 @@ function ChatInterface({
     );
   }
 
-  // No messages
+  // No messages - show empty state with input
   if (displayMessages.length === 0) {
     return (
-      <div className="h-full flex flex-col items-center justify-center text-gray-500 dark:text-gray-400 p-6">
-        <h2 className="text-lg font-semibold mb-2">No Messages</h2>
-        <p className="text-center">This conversation doesn't have any messages yet.</p>
+      <div className="h-full flex flex-col">
+        <div className="flex-1 flex flex-col items-center justify-center text-gray-500 dark:text-gray-400 p-6">
+          <h2 className="text-lg font-semibold mb-2 text-gray-900 dark:text-white">No Messages</h2>
+          <p className="text-center">Start a conversation by typing a message below.</p>
+        </div>
+        <MessageInput input={input} setInput={setInput} handleSubmit={handleSubmit} ws={ws} isSending={isSending} isStreaming={isStreaming} />
       </div>
     );
   }
@@ -349,12 +621,7 @@ function ChatInterface({
         })}
       </div>
 
-      {/* View-only indicator */}
-      <div className="flex-shrink-0 p-4 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50">
-        <div className="text-center text-sm text-gray-500 dark:text-gray-400">
-          View-only mode — {displayMessages.length} messages
-        </div>
-      </div>
+      <MessageInput input={input} setInput={setInput} handleSubmit={handleSubmit} ws={ws} isSending={isSending} isStreaming={isStreaming} />
     </div>
   );
 }
