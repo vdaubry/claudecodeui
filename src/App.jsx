@@ -255,14 +255,15 @@ function AppContent() {
   };
 
   // Handle session creation from modal
-  const handleSessionCreatedFromModal = (sessionId, initialMessage) => {
+  const handleSessionCreatedFromModal = (sessionId, initialMessage, permissionMode) => {
     const session = {
       id: sessionId,
       summary: 'New Conversation',
       messageCount: 1,
       lastActivity: new Date().toISOString(),
       __provider: 'claude',
-      __initialMessage: initialMessage  // Store the initial message for ChatInterface
+      __initialMessage: initialMessage,  // Store the initial message for ChatInterface
+      __permissionMode: permissionMode   // Store the permission mode for ChatInterface
     };
 
     // Optimistically add session to local state (with duplicate check)
