@@ -397,6 +397,11 @@ function ChatInterface({
     }
   }, [refreshSessionMessages, selectedProject, selectedSession?.id]);
 
+  // Handle token budget updates
+  const handleTokenBudget = useCallback((message) => {
+    setTokenBudget(message.data);
+  }, []);
+
   // Handle errors
   const handleClaudeError = useCallback((error) => {
     console.error('[ChatInterface] Claude error:', error);
@@ -477,6 +482,7 @@ function ChatInterface({
     const handleResponse = (msg) => handleClaudeResponse(msg.data);
     const handleComplete = (msg) => handleClaudeComplete(msg);
     const handleError = (msg) => handleClaudeError(msg.error);
+    const handleTokenBudgetMsg = (msg) => handleTokenBudget(msg);
     const handleSubscribed = (msg) => console.log('[ChatInterface] Subscribed to session:', msg.sessionId);
     const handleUnsubscribed = () => console.log('[ChatInterface] Unsubscribed from session');
     // NOTE: Don't subscribe to session-created - modal handles new sessions now
@@ -484,6 +490,7 @@ function ChatInterface({
     subscribe('claude-response', handleResponse);
     subscribe('claude-complete', handleComplete);
     subscribe('claude-error', handleError);
+    subscribe('token-budget', handleTokenBudgetMsg);
     subscribe('session-subscribed', handleSubscribed);
     subscribe('session-unsubscribed', handleUnsubscribed);
 
@@ -491,10 +498,11 @@ function ChatInterface({
       unsubscribe('claude-response', handleResponse);
       unsubscribe('claude-complete', handleComplete);
       unsubscribe('claude-error', handleError);
+      unsubscribe('token-budget', handleTokenBudgetMsg);
       unsubscribe('session-subscribed', handleSubscribed);
       unsubscribe('session-unsubscribed', handleUnsubscribed);
     };
-  }, [selectedSession, subscribe, unsubscribe, handleClaudeResponse, handleClaudeComplete, handleClaudeError]);
+  }, [selectedSession, subscribe, unsubscribe, handleClaudeResponse, handleClaudeComplete, handleClaudeError, handleTokenBudget]);
 
   // Handle message submission
   const handleSubmit = useCallback((e) => {
@@ -575,11 +583,12 @@ function ChatInterface({
         content: selectedSession.__initialMessage,
         timestamp: new Date().toISOString()
       }]);
-    } else if (sessionMessages.length > 0) {
-      // Clear streaming messages if we have DB messages (prevents duplication)
+    } else if (sessionMessages.length > 0 && !isStreaming) {
+      // Clear streaming messages if we have DB messages AND we're not currently streaming
+      // This prevents duplication when switching back to a conversation
       setStreamingMessages([]);
     }
-  }, [selectedSession?.id, selectedSession?.__initialMessage, sessionMessages.length]);
+  }, [selectedSession?.id, selectedSession?.__initialMessage, sessionMessages.length, isStreaming]);
 
   // Load permission mode from localStorage when session changes
   useEffect(() => {
