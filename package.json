@@ -24,7 +24,8 @@
   "scripts": {
     "dev": "concurrently --kill-others \"npm run server\" \"npm run client\"",
     "server": "node server/index.js",
-    "client": "vite --host"
+    "client": "vite --host",
+    "create-user": "node scripts/create-user.js"
   },
   "keywords": [
     "claude coode",

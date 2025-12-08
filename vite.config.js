@@ -10,6 +10,7 @@ export default defineConfig(({ command, mode }) => {
     plugins: [react()],
     server: {
       port: parseInt(env.VITE_PORT) || 5173,
+      allowedHosts: ['claude.itenregalia.cloud'],
       proxy: {
         '/api': `http://localhost:${env.PORT || 3002}`,
         '/ws': {

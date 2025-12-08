@@ -1,0 +1,17 @@
+{
+  "defaultAccess": "all",
+  "users": {
+    "alice": {
+      "folders": [
+        "/home/ubuntu/alice-projects",
+        "/home/shared/team-alpha/*"
+      ]
+    },
+    "bob": {
+      "folders": [
+        "/home/ubuntu/bob-projects",
+        "/home/shared/team-beta/*"
+      ]
+    }
+  }
+}

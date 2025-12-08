@@ -59,6 +59,7 @@ import mime from 'mime-types';
 
 import { getProjects, getSessions, getSessionMessages, renameProject, deleteSession, deleteProject, addProjectManually, extractProjectDirectory, clearProjectDirectoryCache } from './projects.js';
 import { queryClaudeSDK, abortClaudeSDKSession, isClaudeSDKSessionActive, getActiveClaudeSDKSessions } from './claude-sdk.js';
+import { filterProjectsByUserAccess } from './utils/userAccess.js';
 import { spawnCursor, abortCursorSession, isCursorSessionActive, getActiveCursorSessions } from './cursor-cli.js';
 import gitRoutes from './routes/git.js';
 import authRoutes from './routes/auth.js';
@@ -337,9 +338,11 @@ app.post('/api/system/update', authenticateToken, async (req, res) => {
 
 app.get('/api/projects', authenticateToken, async (req, res) => {
     try {
-        const projects = await getProjects();
-        res.json(projects);
+        const allProjects = await getProjects();
+        const filteredProjects = filterProjectsByUserAccess(allProjects, req.user.username);
+        res.json(filteredProjects);
     } catch (error) {
+        console.error('Error fetching projects:', error);
         res.status(500).json({ error: error.message });
     }
 });
