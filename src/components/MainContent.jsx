@@ -40,7 +40,8 @@ function MainContent({
   onShowSettings,
   autoExpandTools,
   showRawParameters,
-  showThinking
+  showThinking,
+  pendingInitialMessage
 }) {
   const [editingFile, setEditingFile] = useState(null);
   const [selectedTask, setSelectedTask] = useState(null);
@@ -466,6 +467,7 @@ function MainContent({
                   showRawParameters={showRawParameters}
                   showThinking={showThinking}
                   onShowAllTasks={tasksEnabled ? () => setActiveTab('tasks') : null}
+                  pendingInitialMessage={pendingInitialMessage}
                 />
               ) : (
                 /* Show welcome/empty state when no session selected */

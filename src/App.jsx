@@ -57,6 +57,9 @@ function AppContent() {
   // New Session Modal state
   const [newSessionModal, setNewSessionModal] = useState({ isOpen: false, project: null });
 
+  // Pending initial message for new conversations (transient, cleared on session switch)
+  const [pendingInitialMessage, setPendingInitialMessage] = useState(null);
+
   // Detect if running as PWA
   const [isPWA, setIsPWA] = useState(false);
   
@@ -220,6 +223,8 @@ function AppContent() {
   };
 
   const handleSessionSelect = (session) => {
+    // Clear any pending initial message when switching sessions
+    setPendingInitialMessage(null);
     setSelectedSession(session);
     // Only switch to chat tab when user explicitly selects a session
     // This prevents tab switching during automatic updates
@@ -262,9 +267,14 @@ function AppContent() {
       messageCount: 1,
       lastActivity: new Date().toISOString(),
       __provider: 'claude',
-      __initialMessage: initialMessage,  // Store the initial message for ChatInterface
       __permissionMode: permissionMode   // Store the permission mode for ChatInterface
     };
+
+    // Set the pending initial message (transient, cleared on session switch)
+    setPendingInitialMessage({
+      sessionId: sessionId,
+      message: initialMessage
+    });
 
     // Optimistically add session to local state (with duplicate check)
     setProjects(prevProjects =>
@@ -358,10 +368,6 @@ function AppContent() {
           if (selectedSession) {
             const refreshedSession = refreshedProject.sessions?.find(s => s.id === selectedSession.id);
             if (refreshedSession && JSON.stringify(refreshedSession) !== JSON.stringify(selectedSession)) {
-              // Preserve __initialMessage if it exists on current session
-              if (selectedSession.__initialMessage && !refreshedSession.__initialMessage) {
-                refreshedSession.__initialMessage = selectedSession.__initialMessage;
-              }
               setSelectedSession(refreshedSession);
             }
           }
@@ -762,6 +768,7 @@ function AppContent() {
           autoExpandTools={autoExpandTools}
           showRawParameters={showRawParameters}
           showThinking={showThinking}
+          pendingInitialMessage={pendingInitialMessage}
         />
       </div>
 

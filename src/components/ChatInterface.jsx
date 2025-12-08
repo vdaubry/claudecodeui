@@ -92,7 +92,8 @@ function ChatInterface({
   autoExpandTools,
   showRawParameters,
   showThinking,
-  onShowAllTasks
+  onShowAllTasks,
+  pendingInitialMessage
 }) {
   const [sessionMessages, setSessionMessages] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -301,21 +302,17 @@ function ChatInterface({
     loadMessages();
   }, [selectedSession?.id, selectedProject?.name]);
 
-  // Initialize streaming messages with user's initial message from NewSessionModal
+  // Display pending initial message from NewSessionModal
   useEffect(() => {
-    if (selectedSession?.__initialMessage && sessionMessages.length === 0) {
-      // Only add initialMessage to streaming if we don't have messages from DB yet
+    // Only display if the pending message is for this session
+    if (pendingInitialMessage?.sessionId === selectedSession?.id && pendingInitialMessage?.message) {
       setStreamingMessages([{
         type: 'user',
-        content: selectedSession.__initialMessage,
+        content: pendingInitialMessage.message,
         timestamp: new Date().toISOString()
       }]);
-    } else if (sessionMessages.length > 0 && !isStreaming) {
-      // Clear streaming messages if we have DB messages AND we're not currently streaming
-      // This prevents duplication when switching back to a conversation
-      setStreamingMessages([]);
     }
-  }, [selectedSession?.id, selectedSession?.__initialMessage, sessionMessages.length, isStreaming]);
+  }, [pendingInitialMessage, selectedSession?.id]);
 
   // Load permission mode when session changes
   // Prioritize __permissionMode from modal (for new sessions), then localStorage, then default
@@ -381,12 +378,12 @@ function ChatInterface({
       subscribedSessionRef.current = null;
     }
 
-    // Clear streaming state when switching to a different session (without initial message)
-    if (currentSubscription !== newSessionId && !selectedSession?.__initialMessage) {
+    // Clear streaming state when switching to a different session (without pending initial message)
+    if (currentSubscription !== newSessionId && pendingInitialMessage?.sessionId !== newSessionId) {
       setStreamingMessages([]);
     }
     setIsStreaming(false);
-  }, [selectedSession?.id, selectedSession?.__provider, selectedSession?.__initialMessage, isConnected, sendMessage]);
+  }, [selectedSession?.id, selectedSession?.__provider, pendingInitialMessage, isConnected, sendMessage]);
 
   // Handle scroll events to track if user is at bottom
   const handleScroll = useCallback(() => {
@@ -437,8 +434,8 @@ function ChatInterface({
 
   // Note: Escape key to stop generation is handled by useSessionStreaming hook
 
-  // Loading state - but skip if we have an initial message to display
-  if (isLoading && !selectedSession?.__initialMessage) {
+  // Loading state - but skip if we have a pending initial message to display
+  if (isLoading && pendingInitialMessage?.sessionId !== selectedSession?.id) {
     return (
       <div className="h-full flex items-center justify-center">
         <div className="text-center text-gray-500 dark:text-gray-400">
