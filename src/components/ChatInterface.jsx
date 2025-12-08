@@ -13,6 +13,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import ClaudeLogo from './ClaudeLogo.jsx';
 import CursorLogo from './CursorLogo.jsx';
+import ClaudeStatus from './ClaudeStatus.jsx';
 import MessageInput from './MessageInput.jsx';
 import CommandMenu from './CommandMenu';
 import { api, authenticatedFetch } from '../utils/api';
@@ -281,6 +282,9 @@ function ChatInterface({
   const [isStreaming, setIsStreaming] = useState(false);
   const subscribedSessionRef = useRef(null);
 
+  // Claude status state (for stop button)
+  const [claudeStatus, setClaudeStatus] = useState(null);
+
   // Scroll state for smart auto-scroll behavior
   const messagesContainerRef = useRef(null);
   const [isAtBottom, setIsAtBottom] = useState(true);
@@ -376,6 +380,7 @@ function ChatInterface({
   const handleClaudeComplete = useCallback(async (message) => {
     setIsStreaming(false);
     setIsSending(false);
+    setClaudeStatus(null);
 
     // Refresh messages from REST API to get persisted messages
     // Then clear streaming messages
@@ -407,7 +412,18 @@ function ChatInterface({
     console.error('[ChatInterface] Claude error:', error);
     setIsStreaming(false);
     setIsSending(false);
+    setClaudeStatus(null);
   }, []);
+
+  // Handle abort session (stop button)
+  const handleAbortSession = useCallback(() => {
+    if (selectedSession?.id) {
+      sendMessage('abort-session', {
+        sessionId: selectedSession.id,
+        provider: selectedSession?.__provider || 'claude'
+      });
+    }
+  }, [selectedSession?.id, selectedSession?.__provider, sendMessage]);
 
   // Handler to change permission mode
   const handleModeChange = useCallback((newMode) => {
@@ -487,12 +503,38 @@ function ChatInterface({
     const handleUnsubscribed = () => console.log('[ChatInterface] Unsubscribed from session');
     // NOTE: Don't subscribe to session-created - modal handles new sessions now
 
+    // Handle session abort confirmation
+    const handleSessionAborted = (msg) => {
+      setIsStreaming(false);
+      setIsSending(false);
+      setClaudeStatus(null);
+      // Add interruption message to streaming messages
+      setStreamingMessages(prev => [...prev, {
+        type: 'assistant',
+        content: 'Session interrupted by user.',
+        timestamp: new Date().toISOString()
+      }]);
+    };
+
+    // Handle claude status updates (for can_interrupt flag)
+    const handleClaudeStatusMsg = (msg) => {
+      if (msg.data) {
+        setClaudeStatus({
+          text: msg.data.text || 'Working...',
+          tokens: msg.data.tokens || 0,
+          can_interrupt: msg.data.can_interrupt !== false
+        });
+      }
+    };
+
     subscribe('claude-response', handleResponse);
     subscribe('claude-complete', handleComplete);
     subscribe('claude-error', handleError);
     subscribe('token-budget', handleTokenBudgetMsg);
     subscribe('session-subscribed', handleSubscribed);
     subscribe('session-unsubscribed', handleUnsubscribed);
+    subscribe('session-aborted', handleSessionAborted);
+    subscribe('claude-status', handleClaudeStatusMsg);
 
     return () => {
       unsubscribe('claude-response', handleResponse);
@@ -501,6 +543,8 @@ function ChatInterface({
       unsubscribe('token-budget', handleTokenBudgetMsg);
       unsubscribe('session-subscribed', handleSubscribed);
       unsubscribe('session-unsubscribed', handleUnsubscribed);
+      unsubscribe('session-aborted', handleSessionAborted);
+      unsubscribe('claude-status', handleClaudeStatusMsg);
     };
   }, [selectedSession, subscribe, unsubscribe, handleClaudeResponse, handleClaudeComplete, handleClaudeError, handleTokenBudget]);
 
@@ -722,6 +766,18 @@ function ChatInterface({
     }
   }, [displayMessages.length, isAtBottom]);
 
+  // Escape key to stop generation
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape' && (isSending || isStreaming)) {
+        handleAbortSession();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isSending, isStreaming, handleAbortSession]);
+
   // Loading state - but skip if we have an initial message to display
   if (isLoading && !selectedSession?.__initialMessage) {
     return (
@@ -778,6 +834,14 @@ function ChatInterface({
           New messages
         </button>
       )}
+
+      {/* Claude processing status with stop button */}
+      <ClaudeStatus
+        status={claudeStatus}
+        isLoading={isSending || isStreaming}
+        onAbort={handleAbortSession}
+        provider={selectedSession?.__provider || 'claude'}
+      />
 
       <MessageInput
         input={input}
