@@ -18,6 +18,7 @@ import MessageInput from './MessageInput.jsx';
 import CommandMenu from './CommandMenu';
 import { api, authenticatedFetch } from '../utils/api';
 import { useWebSocket } from '../contexts/WebSocketContext';
+import { useSlashCommands } from '../hooks/useSlashCommands';
 
 // Code block component for syntax highlighting
 const CodeBlock = ({ children, className }) => {
@@ -264,12 +265,19 @@ function ChatInterface({
   // Token usage state (will be populated from backend responses)
   const [tokenBudget, setTokenBudget] = useState(null);
 
-  // Slash commands state
-  const [slashCommands, setSlashCommands] = useState([]);
-  const [showCommandMenu, setShowCommandMenu] = useState(false);
-  const [slashPosition, setSlashPosition] = useState(-1);
-  const [commandQuery, setCommandQuery] = useState('');
-  const [selectedCommandIndex, setSelectedCommandIndex] = useState(-1);
+  // Slash commands via hook
+  const {
+    slashCommands,
+    showCommandMenu,
+    slashPosition,
+    commandQuery,
+    filteredCommands,
+    selectedCommandIndex,
+    handleSlashDetected,
+    handleCommandSelect: hookCommandSelect,
+    handleCloseCommandMenu,
+    handleToggleCommandMenu,
+  } = useSlashCommands(selectedProject?.path);
 
   // Ref for textarea positioning (forwarded to MessageInput)
   const inputTextareaRef = useRef(null);
@@ -433,63 +441,10 @@ function ChatInterface({
     }
   }, [selectedSession?.id]);
 
-  // Handler to toggle command menu
-  const handleToggleCommandMenu = useCallback(() => {
-    const isOpening = !showCommandMenu;
-    setShowCommandMenu(isOpening);
-    if (isOpening) {
-      // Reset command query when opening via button
-      setCommandQuery('');
-      setSelectedCommandIndex(-1);
-    }
-  }, [showCommandMenu]);
-
-  // Filtered commands based on query
-  const filteredCommands = useMemo(() => {
-    if (!commandQuery) return slashCommands;
-    return slashCommands.filter(cmd =>
-      cmd.name.toLowerCase().includes(commandQuery.toLowerCase())
-    );
-  }, [slashCommands, commandQuery]);
-
-  // Handler for command selection from CommandMenu
+  // Wrapper for command selection that includes input/setInput
   const handleCommandSelect = useCallback((command, index, isHover) => {
-    if (isHover) {
-      setSelectedCommandIndex(index);
-      return;
-    }
-    // Insert command into input
-    const beforeSlash = slashPosition >= 0 ? input.slice(0, slashPosition) : input;
-    const afterCursor = slashPosition >= 0 ? input.slice(slashPosition + 1 + commandQuery.length) : '';
-    const newInput = beforeSlash + '/' + command.name + ' ' + afterCursor.trim();
-    setInput(newInput.trim() + ' ');
-    setShowCommandMenu(false);
-    setSlashPosition(-1);
-    setCommandQuery('');
-    setSelectedCommandIndex(-1);
-  }, [input, slashPosition, commandQuery]);
-
-  // Handler for slash detection from MessageInput
-  const handleSlashDetected = useCallback((position, query) => {
-    if (position >= 0) {
-      setSlashPosition(position);
-      setCommandQuery(query);
-      setShowCommandMenu(true);
-      setSelectedCommandIndex(-1);
-    } else {
-      setSlashPosition(-1);
-      setCommandQuery('');
-      setShowCommandMenu(false);
-    }
-  }, []);
-
-  // Handler to close command menu
-  const handleCloseCommandMenu = useCallback(() => {
-    setShowCommandMenu(false);
-    setSlashPosition(-1);
-    setCommandQuery('');
-    setSelectedCommandIndex(-1);
-  }, []);
+    hookCommandSelect(command, index, isHover, input, setInput);
+  }, [hookCommandSelect, input, setInput]);
 
   // Subscribe to WebSocket messages using shared context
   useEffect(() => {
@@ -643,25 +598,6 @@ function ChatInterface({
       setPermissionMode('default');
     }
   }, [selectedSession?.id]);
-
-  // Fetch slash commands when project changes
-  useEffect(() => {
-    const fetchCommands = async () => {
-      if (!selectedProject) return;
-      try {
-        const response = await api.getCommands(selectedProject.path || selectedProject.fullPath);
-        if (response.ok) {
-          const data = await response.json();
-          // Combine built-in and custom commands
-          const allCommands = [...(data.builtIn || []), ...(data.custom || [])];
-          setSlashCommands(allCommands);
-        }
-      } catch (error) {
-        console.error('Error fetching commands:', error);
-      }
-    };
-    fetchCommands();
-  }, [selectedProject?.path]);
 
   // Load token usage when session changes
   useEffect(() => {

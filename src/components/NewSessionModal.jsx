@@ -2,23 +2,46 @@
  * NewSessionModal.jsx - Modal for creating new sessions
  *
  * Collects the first message from the user before creating a session.
- * Uses pending state tracking to scope session-created events.
+ * Uses the reusable MessageInput component for full feature parity
+ * including file references (@), slash commands (/), and permission mode.
  */
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useWebSocket } from '../contexts/WebSocketContext';
+import { useSlashCommands } from '../hooks/useSlashCommands';
+import MessageInput from './MessageInput';
+import CommandMenu from './CommandMenu';
 
 export default function NewSessionModal({ isOpen, onClose, project, onSessionCreated }) {
   const [input, setInput] = useState('');
   const [isSending, setIsSending] = useState(false);
+  const [permissionMode, setPermissionMode] = useState('default');
   const { sendMessage, subscribe, unsubscribe, isConnected } = useWebSocket();
   const textareaRef = useRef(null);
 
   // Track if THIS modal is waiting for a session-created event
   const pendingSessionRef = useRef(false);
 
-  // Track the input value for use in the session-created callback
+  // Track the input value and permission mode for use in the session-created callback
   const inputRef = useRef('');
+  const permissionModeRef = useRef('default');
+
+  // Use the slash commands hook
+  const {
+    slashCommands,
+    showCommandMenu,
+    filteredCommands,
+    selectedCommandIndex,
+    handleSlashDetected,
+    handleCommandSelect: hookCommandSelect,
+    handleCloseCommandMenu,
+    handleToggleCommandMenu,
+  } = useSlashCommands(project?.path || project?.fullPath);
+
+  // Wrapper for command selection that includes input/setInput
+  const handleCommandSelect = useCallback((command, index, isHover) => {
+    hookCommandSelect(command, index, isHover, input, setInput);
+  }, [hookCommandSelect, input, setInput]);
 
   useEffect(() => {
     if (!isOpen) {
@@ -26,6 +49,7 @@ export default function NewSessionModal({ isOpen, onClose, project, onSessionCre
       pendingSessionRef.current = false;
       setIsSending(false);
       setInput('');
+      setPermissionMode('default');
       return;
     }
 
@@ -40,22 +64,23 @@ export default function NewSessionModal({ isOpen, onClose, project, onSessionCre
 
       pendingSessionRef.current = false;
       setIsSending(false);
-      // Pass the initial message along with the sessionId (use ref for current value)
-      onSessionCreated(message.sessionId, inputRef.current);
+      // Pass the initial message and permission mode along with the sessionId
+      onSessionCreated(message.sessionId, inputRef.current, permissionModeRef.current);
     };
 
     subscribe('session-created', handleSessionCreated);
     return () => unsubscribe('session-created', handleSessionCreated);
   }, [isOpen, subscribe, unsubscribe, onSessionCreated]);
 
-  const handleSubmit = (e) => {
+  const handleSubmit = useCallback((e) => {
     e.preventDefault();
     if (!input.trim() || isSending || !isConnected) return;
 
     // Mark that THIS modal is waiting for session-created
     pendingSessionRef.current = true;
-    // Store the input value in ref for use in session-created callback
+    // Store the input value and permission mode in refs for use in session-created callback
     inputRef.current = input.trim();
+    permissionModeRef.current = permissionMode;
     setIsSending(true);
 
     const sent = sendMessage('claude-command', {
@@ -64,7 +89,8 @@ export default function NewSessionModal({ isOpen, onClose, project, onSessionCre
         projectPath: project.path,
         cwd: project.fullPath || project.path,
         sessionId: undefined,
-        resume: false
+        resume: false,
+        permissionMode: permissionMode
       }
     });
 
@@ -73,15 +99,18 @@ export default function NewSessionModal({ isOpen, onClose, project, onSessionCre
       pendingSessionRef.current = false;
       setIsSending(false);
     }
-  };
+  }, [input, isSending, isConnected, sendMessage, project, permissionMode]);
 
-  const handleKeyDown = (e) => {
-    // Submit on Enter (without Shift)
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      handleSubmit(e);
-    }
-  };
+  // Calculate command menu position relative to modal
+  const getCommandMenuPosition = useCallback(() => {
+    if (!textareaRef.current) return { top: 0, left: 0, bottom: 90 };
+    const rect = textareaRef.current.getBoundingClientRect();
+    return {
+      top: Math.max(16, rect.top - 316),
+      left: rect.left,
+      bottom: window.innerHeight - rect.top + 8
+    };
+  }, []);
 
   if (!isOpen) return null;
 
@@ -112,43 +141,49 @@ export default function NewSessionModal({ isOpen, onClose, project, onSessionCre
           Start a new conversation in <span className="font-medium text-gray-700 dark:text-gray-300">{project?.displayName || project?.name}</span>
         </p>
 
-        <form onSubmit={handleSubmit}>
-          <textarea
-            ref={textareaRef}
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={handleKeyDown}
-            placeholder="Type your first message..."
-            className="w-full h-32 p-3 border border-gray-300 dark:border-gray-600 rounded-lg resize-none bg-white dark:bg-gray-900 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-            disabled={isSending}
-          />
+        {/* Command Menu - positioned above input */}
+        <CommandMenu
+          commands={filteredCommands}
+          selectedIndex={selectedCommandIndex}
+          onSelect={handleCommandSelect}
+          onClose={handleCloseCommandMenu}
+          position={getCommandMenuPosition()}
+          isOpen={showCommandMenu}
+        />
 
-          <div className="flex justify-end gap-3 mt-4">
-            <button
-              type="button"
-              onClick={onClose}
-              disabled={isSending}
-              className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-md transition-colors disabled:opacity-50"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={!input.trim() || isSending || !isConnected}
-              className="px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-            >
-              {isSending ? (
-                <>
-                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                  Creating...
-                </>
-              ) : (
-                'Start Conversation'
-              )}
-            </button>
-          </div>
-        </form>
+        {/* Reusable MessageInput component */}
+        <MessageInput
+          input={input}
+          setInput={setInput}
+          handleSubmit={handleSubmit}
+          isConnected={isConnected}
+          isSending={isSending}
+          isStreaming={false}
+          selectedProject={project}
+          permissionMode={permissionMode}
+          onModeChange={setPermissionMode}
+          tokenBudget={null}
+          slashCommands={slashCommands}
+          showCommandMenu={showCommandMenu}
+          onToggleCommandMenu={handleToggleCommandMenu}
+          isUserScrolledUp={false}
+          onScrollToBottom={null}
+          onSlashDetected={handleSlashDetected}
+          textareaRef={textareaRef}
+          selectedCommandIndex={selectedCommandIndex}
+          filteredCommands={filteredCommands}
+          onCommandSelect={handleCommandSelect}
+          onCloseCommandMenu={handleCloseCommandMenu}
+          // Modal-specific props
+          showTokenUsage={false}
+          showConnectionWarning={false}
+          submitLabel="Start Conversation"
+          submitLabelLoading="Creating..."
+          rows={4}
+          variant="modal"
+        />
 
+        {/* Connection warning */}
         {!isConnected && (
           <div className="mt-4 p-3 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg">
             <p className="text-sm text-yellow-700 dark:text-yellow-400">

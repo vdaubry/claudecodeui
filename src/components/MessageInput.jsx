@@ -54,6 +54,13 @@ const MessageInput = memo(function MessageInput({
   filteredCommands = [],
   onCommandSelect,
   onCloseCommandMenu,
+  // Variant props for reuse in different contexts
+  showTokenUsage = true,
+  showConnectionWarning = true,
+  submitLabel = 'Send',
+  submitLabelLoading = 'Responding...',
+  rows = 5,
+  variant = 'chat', // 'chat' | 'modal'
 }) {
   // File dropdown state
   const [showFileDropdown, setShowFileDropdown] = useState(false);
@@ -283,7 +290,11 @@ const MessageInput = memo(function MessageInput({
   }, [showFileDropdown, filteredFiles, selectedFileIndex, selectFile, handleSubmit, permissionMode, onModeChange, showCommandMenu, filteredCommands, selectedCommandIndex, onCommandSelect, onCloseCommandMenu]);
 
   return (
-    <div className="flex-shrink-0 p-4 border-t border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900">
+    <div className={
+      variant === 'modal'
+        ? ''
+        : 'flex-shrink-0 p-4 border-t border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900'
+    }>
       {/* Control bar - positioned above input */}
       <div className="flex items-center justify-center gap-3 mb-3">
         {/* Permission Mode Button */}
@@ -322,11 +333,13 @@ const MessageInput = memo(function MessageInput({
           </div>
         </button>
 
-        {/* Token Usage Pie */}
-        <TokenUsagePie
-          used={tokenBudget?.used || 0}
-          total={tokenBudget?.total || 160000}
-        />
+        {/* Token Usage Pie - conditional based on showTokenUsage prop */}
+        {showTokenUsage && (
+          <TokenUsagePie
+            used={tokenBudget?.used || 0}
+            total={tokenBudget?.total || 160000}
+          />
+        )}
 
         {/* Slash Commands Button */}
         <button
@@ -411,7 +424,7 @@ const MessageInput = memo(function MessageInput({
             onSelect={(e) => setCursorPosition(e.target.selectionStart)}
             placeholder="Type / for commands, @ for files, or ask Claude anything..."
             className="flex-1 resize-none rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-4 py-2 text-sm text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-            rows={5}
+            rows={rows}
             disabled={!isConnected || isSending || isStreaming}
           />
           <button
@@ -419,11 +432,11 @@ const MessageInput = memo(function MessageInput({
             disabled={!input.trim() || !isConnected || isSending || isStreaming}
             className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
-            {isSending || isStreaming ? 'Responding...' : 'Send'}
+            {isSending || isStreaming ? submitLabelLoading : submitLabel}
           </button>
         </div>
       </form>
-      {!isConnected && (
+      {showConnectionWarning && !isConnected && (
         <p className="text-xs text-yellow-600 dark:text-yellow-500 mt-2">
           Connecting to server...
         </p>
