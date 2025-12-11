@@ -1131,16 +1131,47 @@ app.post('/api/transcribe', authenticateToken, async (req, res) => {
             }
 
             try {
-                // Convert audio to base64 for GPT-4o-mini
-                const audioBase64 = req.file.buffer.toString('base64');
-                const mimeType = req.file.mimetype || 'audio/webm';
+                // Convert audio to mp3 format for GPT-4o-mini (only supports wav and mp3)
+                const ffmpeg = (await import('fluent-ffmpeg')).default;
+                const ffmpegPath = (await import('ffmpeg-static')).default;
+                const { Readable } = await import('stream');
+                const { promisify } = await import('util');
+                const tmpDir = await import('os').then(os => os.tmpdir());
+                const pathModule = await import('path');
+
+                ffmpeg.setFfmpegPath(ffmpegPath);
+
+                // Create temp files for conversion
+                const inputPath = pathModule.default.join(tmpDir, `input_${Date.now()}.webm`);
+                const outputPath = pathModule.default.join(tmpDir, `output_${Date.now()}.mp3`);
+
+                // Write input buffer to temp file
+                await fsPromises.writeFile(inputPath, req.file.buffer);
+
+                // Convert to mp3
+                await new Promise((resolve, reject) => {
+                    ffmpeg(inputPath)
+                        .toFormat('mp3')
+                        .on('end', resolve)
+                        .on('error', reject)
+                        .save(outputPath);
+                });
+
+                // Read converted file
+                const convertedBuffer = await fsPromises.readFile(outputPath);
+                const audioBase64 = convertedBuffer.toString('base64');
+
+                // Clean up temp files
+                await fsPromises.unlink(inputPath).catch(() => {});
+                await fsPromises.unlink(outputPath).catch(() => {});
 
                 // Use GPT-4o-mini for transcription
                 const OpenAI = (await import('openai')).default;
                 const openai = new OpenAI({ apiKey });
 
                 const completion = await openai.chat.completions.create({
-                    model: 'gpt-4o-mini',
+                    model: 'gpt-4o-mini-audio-preview',
+                    modalities: ['text'],
                     messages: [
                         {
                             role: 'user',
@@ -1153,7 +1184,7 @@ app.post('/api/transcribe', authenticateToken, async (req, res) => {
                                     type: 'input_audio',
                                     input_audio: {
                                         data: audioBase64,
-                                        format: mimeType === 'audio/mp4' ? 'mp4' : 'webm'
+                                        format: 'mp3'
                                     }
                                 }
                             ]
