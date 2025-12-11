@@ -59,6 +59,7 @@ import mime from 'mime-types';
 
 import { getProjects, getSessions, getSessionMessages, renameProject, deleteSession, deleteProject, addProjectManually, extractProjectDirectory, clearProjectDirectoryCache } from './projects.js';
 import { queryClaudeSDK, abortClaudeSDKSession, isClaudeSDKSessionActive, getActiveClaudeSDKSessions } from './claude-sdk.js';
+import { filterProjectsByUserAccess } from './utils/userAccess.js';
 import { spawnCursor, abortCursorSession, isCursorSessionActive, getActiveCursorSessions } from './cursor-cli.js';
 import gitRoutes from './routes/git.js';
 import authRoutes from './routes/auth.js';
@@ -78,6 +79,8 @@ import { validateApiKey, authenticateToken, authenticateWebSocket } from './midd
 // File system watcher for projects folder
 let projectsWatcher = null;
 const connectedClients = new Set();
+// Track which session each client is subscribed to for targeted message delivery
+const clientSubscriptions = new Map(); // Map<WebSocket, { sessionId: string | null, provider: string }>
 
 // Setup file system watcher for Claude projects folder using chokidar
 async function setupProjectsWatcher() {
@@ -264,22 +267,6 @@ app.use('/api/agent', agentRoutes);
 // Serve public files (like api-docs.html)
 app.use(express.static(path.join(__dirname, '../public')));
 
-// Static files served after API routes
-// Add cache control: HTML files should not be cached, but assets can be cached
-app.use(express.static(path.join(__dirname, '../dist'), {
-  setHeaders: (res, filePath) => {
-    if (filePath.endsWith('.html')) {
-      // Prevent HTML caching to avoid service worker issues after builds
-      res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
-      res.setHeader('Pragma', 'no-cache');
-      res.setHeader('Expires', '0');
-    } else if (filePath.match(/\.(js|css|woff2?|ttf|eot|svg|png|jpg|jpeg|gif|ico)$/)) {
-      // Cache static assets for 1 year (they have hashed names)
-      res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
-    }
-  }
-}));
-
 // API Routes (protected)
 // /api/config endpoint removed - no longer needed
 // Frontend now uses window.location for WebSocket URLs
@@ -351,9 +338,11 @@ app.post('/api/system/update', authenticateToken, async (req, res) => {
 
 app.get('/api/projects', authenticateToken, async (req, res) => {
     try {
-        const projects = await getProjects();
-        res.json(projects);
+        const allProjects = await getProjects();
+        const filteredProjects = filterProjectsByUserAccess(allProjects, req.user.username);
+        res.json(filteredProjects);
     } catch (error) {
+        console.error('Error fetching projects:', error);
         res.status(500).json({ error: error.message });
     }
 });
@@ -790,6 +779,31 @@ function handleChatConnection(ws) {
                     type: 'active-sessions',
                     sessions: activeSessions
                 }));
+            } else if (data.type === 'subscribe-session') {
+                // Subscribe client to a specific session for targeted message delivery
+                const { sessionId, provider } = data;
+                console.log('[DEBUG] Client subscribing to session:', sessionId, 'provider:', provider || 'claude');
+
+                clientSubscriptions.set(ws, {
+                    sessionId: sessionId || null,
+                    provider: provider || 'claude'
+                });
+
+                ws.send(JSON.stringify({
+                    type: 'session-subscribed',
+                    sessionId,
+                    provider: provider || 'claude',
+                    success: true
+                }));
+            } else if (data.type === 'unsubscribe-session') {
+                // Unsubscribe client from current session
+                console.log('[DEBUG] Client unsubscribing from session');
+                clientSubscriptions.delete(ws);
+
+                ws.send(JSON.stringify({
+                    type: 'session-unsubscribed',
+                    success: true
+                }));
             }
         } catch (error) {
             console.error('[ERROR] Chat WebSocket error:', error.message);
@@ -802,8 +816,9 @@ function handleChatConnection(ws) {
 
     ws.on('close', () => {
         console.log('🔌 Chat client disconnected');
-        // Remove from connected clients
+        // Remove from connected clients and clean up subscription
         connectedClients.delete(ws);
+        clientSubscriptions.delete(ws);
     });
 }
 
@@ -1116,34 +1131,69 @@ app.post('/api/transcribe', authenticateToken, async (req, res) => {
             }
 
             try {
-                // Create form data for OpenAI
-                const FormData = (await import('form-data')).default;
-                const formData = new FormData();
-                formData.append('file', req.file.buffer, {
-                    filename: req.file.originalname,
-                    contentType: req.file.mimetype
+                // Convert audio to mp3 format for GPT-4o-mini (only supports wav and mp3)
+                const ffmpeg = (await import('fluent-ffmpeg')).default;
+                const ffmpegPath = (await import('ffmpeg-static')).default;
+                const { Readable } = await import('stream');
+                const { promisify } = await import('util');
+                const tmpDir = await import('os').then(os => os.tmpdir());
+                const pathModule = await import('path');
+
+                ffmpeg.setFfmpegPath(ffmpegPath);
+
+                // Create temp files for conversion
+                const inputPath = pathModule.default.join(tmpDir, `input_${Date.now()}.webm`);
+                const outputPath = pathModule.default.join(tmpDir, `output_${Date.now()}.mp3`);
+
+                // Write input buffer to temp file
+                await fsPromises.writeFile(inputPath, req.file.buffer);
+
+                // Convert to mp3
+                await new Promise((resolve, reject) => {
+                    ffmpeg(inputPath)
+                        .toFormat('mp3')
+                        .on('end', resolve)
+                        .on('error', reject)
+                        .save(outputPath);
                 });
-                formData.append('model', 'whisper-1');
-                formData.append('response_format', 'json');
-                formData.append('language', 'en');
 
-                // Make request to OpenAI
-                const response = await fetch('https://api.openai.com/v1/audio/transcriptions', {
-                    method: 'POST',
-                    headers: {
-                        'Authorization': `Bearer ${apiKey}`,
-                        ...formData.getHeaders()
-                    },
-                    body: formData
+                // Read converted file
+                const convertedBuffer = await fsPromises.readFile(outputPath);
+                const audioBase64 = convertedBuffer.toString('base64');
+
+                // Clean up temp files
+                await fsPromises.unlink(inputPath).catch(() => {});
+                await fsPromises.unlink(outputPath).catch(() => {});
+
+                // Use GPT-4o-mini for transcription
+                const OpenAI = (await import('openai')).default;
+                const openai = new OpenAI({ apiKey });
+
+                const completion = await openai.chat.completions.create({
+                    model: 'gpt-4o-mini-audio-preview',
+                    modalities: ['text'],
+                    messages: [
+                        {
+                            role: 'user',
+                            content: [
+                                {
+                                    type: 'text',
+                                    text: 'Please transcribe the audio accurately. Only provide the transcription text, nothing else.'
+                                },
+                                {
+                                    type: 'input_audio',
+                                    input_audio: {
+                                        data: audioBase64,
+                                        format: 'mp3'
+                                    }
+                                }
+                            ]
+                        }
+                    ],
+                    temperature: 0.0
                 });
 
-                if (!response.ok) {
-                    const errorData = await response.json().catch(() => ({}));
-                    throw new Error(errorData.error?.message || `Whisper API error: ${response.status}`);
-                }
-
-                const data = await response.json();
-                let transcribedText = data.text || '';
+                let transcribedText = completion.choices[0].message.content || '';
 
                 // Check if enhancement mode is enabled
                 const mode = req.body.mode || 'default';
@@ -1160,9 +1210,6 @@ app.post('/api/transcribe', authenticateToken, async (req, res) => {
 
                 // Handle different enhancement modes
                 try {
-                    const OpenAI = (await import('openai')).default;
-                    const openai = new OpenAI({ apiKey });
-
                     let prompt, systemMessage, temperature = 0.7, maxTokens = 800;
 
                     switch (mode) {
@@ -1420,29 +1467,7 @@ app.get('/api/projects/:projectName/sessions/:sessionId/token-usage', authentica
   }
 });
 
-// Serve React app for all other routes (excluding static files)
-app.get('*', (req, res) => {
-  // Skip requests for static assets (files with extensions)
-  if (path.extname(req.path)) {
-    return res.status(404).send('Not found');
-  }
-
-  // Only serve index.html for HTML routes, not for static assets
-  // Static assets should already be handled by express.static middleware above
-  const indexPath = path.join(__dirname, '../dist/index.html');
-
-  // Check if dist/index.html exists (production build available)
-  if (fs.existsSync(indexPath)) {
-    // Set no-cache headers for HTML to prevent service worker issues
-    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
-    res.setHeader('Pragma', 'no-cache');
-    res.setHeader('Expires', '0');
-    res.sendFile(indexPath);
-  } else {
-    // In development, redirect to Vite dev server only if dist doesn't exist
-    res.redirect(`http://localhost:${process.env.VITE_PORT || 5173}`);
-  }
-});
+// Backend only serves API routes - frontend is handled by Vite on port 5173
 
 // Helper function to convert permissions to rwx format
 function permToRwx(perm) {
@@ -1533,17 +1558,9 @@ async function startServer() {
         // Initialize authentication database
         await initializeDatabase();
 
-        // Check if running in production mode (dist folder exists)
-        const distIndexPath = path.join(__dirname, '../dist/index.html');
-        const isProduction = fs.existsSync(distIndexPath);
-
-        // Log Claude implementation mode
+        // Log startup info
         console.log(`${c.info('[INFO]')} Using Claude Agents SDK for Claude integration`);
-        console.log(`${c.info('[INFO]')} Running in ${c.bright(isProduction ? 'PRODUCTION' : 'DEVELOPMENT')} mode`);
-
-        if (!isProduction) {
-            console.log(`${c.warn('[WARN]')} Note: Requests will be proxied to Vite dev server at ${c.dim('http://localhost:' + (process.env.VITE_PORT || 5173))}`);
-        }
+        console.log(`${c.info('[INFO]')} Frontend served by Vite at ${c.dim('http://localhost:' + (process.env.VITE_PORT || 5173))}`)
 
         server.listen(PORT, '0.0.0.0', async () => {
             const appInstallPath = path.join(__dirname, '..');

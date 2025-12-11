@@ -39,6 +39,15 @@ export const AuthProvider = ({ children }) => {
       return;
     }
 
+    // Check for URL token authentication (for testing)
+    const urlParams = new URLSearchParams(window.location.search);
+    const urlToken = urlParams.get('token');
+    if (urlToken) {
+      // Store the test token and use it for authentication
+      localStorage.setItem('auth-token', urlToken);
+      setToken(urlToken);
+    }
+
     checkAuthStatus();
   }, []);
 

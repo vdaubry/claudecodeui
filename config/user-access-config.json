@@ -1,0 +1,11 @@
+{
+  "defaultAccess": "all",
+  "users": {
+    "corpogames": {
+      "folders": [
+        "/home/ubuntu/Corpogames/watson",
+        "/home/ubuntu/Corpogames/watson/*"
+      ]
+    }
+  }
+}

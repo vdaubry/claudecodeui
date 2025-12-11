@@ -10,7 +10,7 @@
   },
   "files": [
     "server/",
-    "dist/",
+    "src/",
     "README.md"
   ],
   "homepage": "https://claudecodeui.siteboon.ai",
@@ -25,10 +25,7 @@
     "dev": "concurrently --kill-others \"npm run server\" \"npm run client\"",
     "server": "node server/index.js",
     "client": "vite --host",
-    "build": "vite build",
-    "preview": "vite preview",
-    "start": "npm run build && npm run server",
-    "release": "./release.sh"
+    "create-user": "node scripts/create-user.js"
   },
   "keywords": [
     "claude coode",
@@ -40,7 +37,7 @@
   "author": "Claude Code UI Contributors",
   "license": "MIT",
   "dependencies": {
-    "@anthropic-ai/claude-agent-sdk": "^0.1.29",
+    "@anthropic-ai/claude-agent-sdk": "^0.1.60",
     "@codemirror/lang-css": "^6.3.1",
     "@codemirror/lang-html": "^6.4.9",
     "@codemirror/lang-javascript": "^6.2.4",
@@ -66,6 +63,8 @@
     "cors": "^2.8.5",
     "cross-spawn": "^7.0.3",
     "express": "^4.18.2",
+    "ffmpeg-static": "^5.3.0",
+    "fluent-ffmpeg": "^2.1.3",
     "fuse.js": "^7.0.0",
     "gray-matter": "^4.0.3",
     "jsonwebtoken": "^9.0.2",
@@ -75,6 +74,7 @@
     "multer": "^2.0.1",
     "node-fetch": "^2.7.0",
     "node-pty": "^1.1.0-beta34",
+    "openai": "^6.10.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "react-dropzone": "^14.2.3",

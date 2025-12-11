@@ -1,7 +1,6 @@
 import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
 import { api } from '../utils/api';
 import { useAuth } from './AuthContext';
-import { useWebSocketContext } from './WebSocketContext';
 
 const TaskMasterContext = createContext({
   // TaskMaster project state
@@ -41,9 +40,6 @@ export const useTaskMaster = () => {
 };
 
 export const TaskMasterProvider = ({ children }) => {
-  // Get WebSocket messages from shared context to avoid duplicate connections
-  const { messages } = useWebSocketContext();
-  
   // Authentication context
   const { user, token, isLoading: authLoading } = useAuth();
   
@@ -237,38 +233,6 @@ export const TaskMasterProvider = ({ children }) => {
       refreshTasks();
     }
   }, [currentProject?.name, user, token, refreshTasks]);
-
-  // Handle WebSocket messages for TaskMaster updates
-  useEffect(() => {
-    const latestMessage = messages[messages.length - 1];
-    if (!latestMessage) return;
-
-
-    switch (latestMessage.type) {
-      case 'taskmaster-project-updated':
-        // Refresh projects when TaskMaster state changes
-        if (latestMessage.projectName) {
-          refreshProjects();
-        }
-        break;
-        
-      case 'taskmaster-tasks-updated':
-        // Refresh tasks for the current project
-        if (latestMessage.projectName === currentProject?.name) {
-          refreshTasks();
-        }
-        break;
-        
-      case 'taskmaster-mcp-status-changed':
-        // Refresh MCP server status
-        refreshMCPStatus();
-        break;
-        
-      default:
-        // Ignore non-TaskMaster messages
-        break;
-    }
-  }, [messages, refreshProjects, refreshTasks, refreshMCPStatus, currentProject]);
 
   // Context value
   const contextValue = {
