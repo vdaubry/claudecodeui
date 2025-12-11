@@ -351,11 +351,243 @@ const githubTokensDb = {
   }
 };
 
+// Projects database operations
+const projectsDb = {
+  // Create a new project
+  create: (userId, name, repoFolderPath) => {
+    try {
+      const stmt = db.prepare('INSERT INTO projects (user_id, name, repo_folder_path) VALUES (?, ?, ?)');
+      const result = stmt.run(userId, name, repoFolderPath);
+      return { id: result.lastInsertRowid, userId, name, repoFolderPath };
+    } catch (err) {
+      throw err;
+    }
+  },
+
+  // Get all projects for a user
+  getAll: (userId) => {
+    try {
+      const rows = db.prepare('SELECT * FROM projects WHERE user_id = ? ORDER BY updated_at DESC').all(userId);
+      return rows;
+    } catch (err) {
+      throw err;
+    }
+  },
+
+  // Get project by ID (with user ownership check)
+  getById: (id, userId) => {
+    try {
+      const row = db.prepare('SELECT * FROM projects WHERE id = ? AND user_id = ?').get(id, userId);
+      return row;
+    } catch (err) {
+      throw err;
+    }
+  },
+
+  // Update a project
+  update: (id, userId, updates) => {
+    try {
+      const allowedFields = ['name', 'repo_folder_path'];
+      const setClause = [];
+      const values = [];
+
+      for (const field of allowedFields) {
+        if (updates[field] !== undefined) {
+          setClause.push(`${field === 'repo_folder_path' ? 'repo_folder_path' : field} = ?`);
+          values.push(updates[field]);
+        }
+      }
+
+      if (setClause.length === 0) {
+        return projectsDb.getById(id, userId);
+      }
+
+      setClause.push('updated_at = CURRENT_TIMESTAMP');
+      values.push(id, userId);
+
+      const stmt = db.prepare(`UPDATE projects SET ${setClause.join(', ')} WHERE id = ? AND user_id = ?`);
+      const result = stmt.run(...values);
+
+      if (result.changes === 0) {
+        return null;
+      }
+
+      return projectsDb.getById(id, userId);
+    } catch (err) {
+      throw err;
+    }
+  },
+
+  // Delete a project
+  delete: (id, userId) => {
+    try {
+      const stmt = db.prepare('DELETE FROM projects WHERE id = ? AND user_id = ?');
+      const result = stmt.run(id, userId);
+      return result.changes > 0;
+    } catch (err) {
+      throw err;
+    }
+  }
+};
+
+// Tasks database operations
+const tasksDb = {
+  // Create a new task
+  create: (projectId, title = null) => {
+    try {
+      const stmt = db.prepare('INSERT INTO tasks (project_id, title) VALUES (?, ?)');
+      const result = stmt.run(projectId, title);
+      return { id: result.lastInsertRowid, projectId, title };
+    } catch (err) {
+      throw err;
+    }
+  },
+
+  // Get all tasks for a project
+  getByProject: (projectId) => {
+    try {
+      const rows = db.prepare('SELECT * FROM tasks WHERE project_id = ? ORDER BY created_at DESC').all(projectId);
+      return rows;
+    } catch (err) {
+      throw err;
+    }
+  },
+
+  // Get task by ID
+  getById: (id) => {
+    try {
+      const row = db.prepare('SELECT * FROM tasks WHERE id = ?').get(id);
+      return row;
+    } catch (err) {
+      throw err;
+    }
+  },
+
+  // Get task with its project (JOIN)
+  getWithProject: (taskId) => {
+    try {
+      const row = db.prepare(`
+        SELECT t.*, p.user_id, p.name as project_name, p.repo_folder_path
+        FROM tasks t
+        JOIN projects p ON t.project_id = p.id
+        WHERE t.id = ?
+      `).get(taskId);
+      return row;
+    } catch (err) {
+      throw err;
+    }
+  },
+
+  // Update a task
+  update: (id, updates) => {
+    try {
+      const allowedFields = ['title'];
+      const setClause = [];
+      const values = [];
+
+      for (const field of allowedFields) {
+        if (updates[field] !== undefined) {
+          setClause.push(`${field} = ?`);
+          values.push(updates[field]);
+        }
+      }
+
+      if (setClause.length === 0) {
+        return tasksDb.getById(id);
+      }
+
+      setClause.push('updated_at = CURRENT_TIMESTAMP');
+      values.push(id);
+
+      const stmt = db.prepare(`UPDATE tasks SET ${setClause.join(', ')} WHERE id = ?`);
+      const result = stmt.run(...values);
+
+      if (result.changes === 0) {
+        return null;
+      }
+
+      return tasksDb.getById(id);
+    } catch (err) {
+      throw err;
+    }
+  },
+
+  // Delete a task
+  delete: (id) => {
+    try {
+      const stmt = db.prepare('DELETE FROM tasks WHERE id = ?');
+      const result = stmt.run(id);
+      return result.changes > 0;
+    } catch (err) {
+      throw err;
+    }
+  }
+};
+
+// Conversations database operations
+const conversationsDb = {
+  // Create a new conversation
+  create: (taskId) => {
+    try {
+      const stmt = db.prepare('INSERT INTO conversations (task_id) VALUES (?)');
+      const result = stmt.run(taskId);
+      return { id: result.lastInsertRowid, taskId, claudeConversationId: null };
+    } catch (err) {
+      throw err;
+    }
+  },
+
+  // Get all conversations for a task
+  getByTask: (taskId) => {
+    try {
+      const rows = db.prepare('SELECT * FROM conversations WHERE task_id = ? ORDER BY created_at DESC').all(taskId);
+      return rows;
+    } catch (err) {
+      throw err;
+    }
+  },
+
+  // Get conversation by ID
+  getById: (id) => {
+    try {
+      const row = db.prepare('SELECT * FROM conversations WHERE id = ?').get(id);
+      return row;
+    } catch (err) {
+      throw err;
+    }
+  },
+
+  // Update Claude conversation ID
+  updateClaudeId: (id, claudeConversationId) => {
+    try {
+      const stmt = db.prepare('UPDATE conversations SET claude_conversation_id = ? WHERE id = ?');
+      const result = stmt.run(claudeConversationId, id);
+      return result.changes > 0;
+    } catch (err) {
+      throw err;
+    }
+  },
+
+  // Delete a conversation
+  delete: (id) => {
+    try {
+      const stmt = db.prepare('DELETE FROM conversations WHERE id = ?');
+      const result = stmt.run(id);
+      return result.changes > 0;
+    } catch (err) {
+      throw err;
+    }
+  }
+};
+
 export {
   db,
   initializeDatabase,
   userDb,
   apiKeysDb,
   credentialsDb,
-  githubTokensDb // Backward compatibility
+  githubTokensDb, // Backward compatibility
+  projectsDb,
+  tasksDb,
+  conversationsDb
 };

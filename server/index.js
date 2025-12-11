@@ -73,6 +73,9 @@ import agentRoutes from './routes/agent.js';
 import projectsRoutes from './routes/projects.js';
 import cliAuthRoutes from './routes/cli-auth.js';
 import userRoutes from './routes/user.js';
+import projectsV2Routes from './routes/projects-v2.js';
+import tasksRoutes from './routes/tasks.js';
+import conversationsRoutes from './routes/conversations.js';
 import { initializeDatabase } from './database/db.js';
 import { validateApiKey, authenticateToken, authenticateWebSocket } from './middleware/auth.js';
 
@@ -263,6 +266,11 @@ app.use('/api/user', authenticateToken, userRoutes);
 
 // Agent API Routes (uses API key authentication)
 app.use('/api/agent', agentRoutes);
+
+// V2 API Routes - Task-driven workflow (protected)
+app.use('/api/v2/projects', authenticateToken, projectsV2Routes);
+app.use('/api/v2', authenticateToken, tasksRoutes);
+app.use('/api/v2', authenticateToken, conversationsRoutes);
 
 // Serve public files (like api-docs.html)
 app.use(express.static(path.join(__dirname, '../public')));
