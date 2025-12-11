@@ -26,7 +26,7 @@ const activeSessions = new Map();
  * @returns {Object} SDK-compatible options
  */
 function mapCliOptionsToSDK(options = {}) {
-  const { sessionId, cwd, toolsSettings, permissionMode, images } = options;
+  const { sessionId, cwd, toolsSettings, permissionMode, images, customSystemPrompt } = options;
 
   const sdkOptions = {};
 
@@ -76,14 +76,22 @@ function mapCliOptionsToSDK(options = {}) {
   }
 
   // Map model (default to sonnet)
-  // Map model (default to sonnet)
   sdkOptions.model = options.model || 'sonnet';
 
   // Map system prompt configuration
-  sdkOptions.systemPrompt = {
-    type: 'preset',
-    preset: 'claude_code'  // Required to use CLAUDE.md
-  };
+  // If customSystemPrompt is provided, append it to the claude_code preset
+  if (customSystemPrompt) {
+    sdkOptions.systemPrompt = {
+      type: 'preset_with_append',
+      preset: 'claude_code',
+      append: customSystemPrompt
+    };
+  } else {
+    sdkOptions.systemPrompt = {
+      type: 'preset',
+      preset: 'claude_code'  // Required to use CLAUDE.md
+    };
+  }
 
   // Map setting sources for CLAUDE.md loading
   // This loads CLAUDE.md from project, user (~/.config/claude/CLAUDE.md), and local directories
@@ -524,5 +532,7 @@ export {
   queryClaudeSDK,
   abortClaudeSDKSession,
   isClaudeSDKSessionActive,
-  getActiveClaudeSDKSessions
+  getActiveClaudeSDKSessions,
+  // Export for testing
+  mapCliOptionsToSDK as _mapCliOptionsToSDK
 };

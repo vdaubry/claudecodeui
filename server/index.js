@@ -73,7 +73,8 @@ import userRoutes from './routes/user.js';
 import projectsRoutes from './routes/projects.js';
 import tasksRoutes from './routes/tasks.js';
 import conversationsRoutes from './routes/conversations.js';
-import { initializeDatabase } from './database/db.js';
+import { initializeDatabase, tasksDb, conversationsDb } from './database/db.js';
+import { buildContextPrompt } from './services/documentation.js';
 import { validateApiKey, authenticateToken, authenticateWebSocket } from './middleware/auth.js';
 
 // Track which session each client is subscribed to for targeted message delivery
@@ -348,8 +349,97 @@ function handleChatConnection(ws) {
                 console.log('📁 Project:', data.options?.projectPath || 'Unknown');
                 console.log('🔄 Session:', data.options?.sessionId ? 'Resume' : 'New');
 
+                // Check for task-based conversation flow
+                const { taskId, conversationId, isNewConversation } = data.options || {};
+                let sdkOptions = { ...data.options };
+                let dbConversationId = null;
+
+                if (taskId && isNewConversation) {
+                    // NEW CONVERSATION FLOW
+                    // 1. Look up task → get project → get repo_folder_path
+                    console.log('[DEBUG] Starting new task-based conversation for taskId:', taskId);
+                    const taskWithProject = tasksDb.getWithProject(taskId);
+
+                    if (!taskWithProject) {
+                        ws.send(JSON.stringify({
+                            type: 'claude-error',
+                            error: `Task ${taskId} not found`
+                        }));
+                        return;
+                    }
+
+                    // 2. Create conversation record in DB
+                    const conversation = conversationsDb.create(taskId);
+                    dbConversationId = conversation.id;
+                    console.log('[DEBUG] Created conversation record:', dbConversationId);
+
+                    // 3. Build context prompt from project.md and task markdown
+                    const contextPrompt = buildContextPrompt(taskWithProject.repo_folder_path, taskId);
+
+                    // 4. Set up SDK options with custom system prompt and cwd
+                    sdkOptions.cwd = taskWithProject.repo_folder_path;
+                    if (contextPrompt) {
+                        sdkOptions.customSystemPrompt = contextPrompt;
+                        console.log('[DEBUG] Injected context prompt length:', contextPrompt.length);
+                    }
+
+                    // 5. Store dbConversationId for session-created callback
+                    sdkOptions._dbConversationId = dbConversationId;
+
+                } else if (conversationId && !isNewConversation) {
+                    // RESUME CONVERSATION FLOW
+                    console.log('[DEBUG] Resuming conversation:', conversationId);
+                    const conversation = conversationsDb.getById(conversationId);
+
+                    if (!conversation) {
+                        ws.send(JSON.stringify({
+                            type: 'claude-error',
+                            error: `Conversation ${conversationId} not found`
+                        }));
+                        return;
+                    }
+
+                    if (!conversation.claude_conversation_id) {
+                        ws.send(JSON.stringify({
+                            type: 'claude-error',
+                            error: `Conversation ${conversationId} has no Claude session ID yet`
+                        }));
+                        return;
+                    }
+
+                    // Get the task and project for cwd
+                    const taskWithProject = tasksDb.getWithProject(conversation.task_id);
+                    if (taskWithProject) {
+                        sdkOptions.cwd = taskWithProject.repo_folder_path;
+                    }
+
+                    // Resume using Claude's session ID
+                    sdkOptions.sessionId = conversation.claude_conversation_id;
+                    dbConversationId = conversationId;
+                    console.log('[DEBUG] Resuming Claude session:', conversation.claude_conversation_id);
+                }
+
+                // Create a wrapper around ws to capture session ID for new task-based conversations
+                const wsWrapper = {
+                    send: ws.send.bind(ws),
+                    setSessionId: (claudeSessionId) => {
+                        // Update the conversation record with Claude's session ID
+                        if (sdkOptions._dbConversationId && claudeSessionId) {
+                            conversationsDb.updateClaudeId(sdkOptions._dbConversationId, claudeSessionId);
+                            console.log('[DEBUG] Updated conversation', sdkOptions._dbConversationId, 'with Claude session:', claudeSessionId);
+
+                            // Also send the dbConversationId to frontend
+                            ws.send(JSON.stringify({
+                                type: 'conversation-created',
+                                conversationId: sdkOptions._dbConversationId,
+                                claudeSessionId
+                            }));
+                        }
+                    }
+                };
+
                 // Use Claude Agents SDK
-                await queryClaudeSDK(data.command, data.options, ws);
+                await queryClaudeSDK(data.command, sdkOptions, wsWrapper);
             } else if (data.type === 'cursor-command') {
                 console.log('[DEBUG] Cursor message:', data.command || '[Continue/Resume]');
                 console.log('📁 Project:', data.options?.cwd || 'Unknown');

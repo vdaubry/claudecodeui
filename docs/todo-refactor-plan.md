@@ -466,7 +466,7 @@ All new endpoints use `/api/v2/` prefix to coexist with legacy endpoints.
 ---
 
 ### Phase 4: SDK Context Injection
-**Status:** `[ ] TO-DO`
+**Status:** `[x] DONE`
 
 **What:** Modify Claude SDK integration to support custom system prompts.
 
@@ -486,7 +486,7 @@ All new endpoints use `/api/v2/` prefix to coexist with legacy endpoints.
 ---
 
 ### Phase 5: Frontend API Client
-**Status:** `[ ] TO-DO`
+**Status:** `[x] DONE`
 
 **What:** Add API client functions for new endpoints.
 
@@ -624,8 +624,8 @@ npm run test:coverage # With coverage report
 | 1 | Database Layer | `[x] DONE` |
 | 2 | Documentation Service | `[x] DONE` |
 | 3 | Backend API Routes | `[x] DONE` |
-| 4 | SDK Context Injection | `[ ] TO-DO` |
-| 5 | Frontend API Client | `[ ] TO-DO` |
+| 4 | SDK Context Injection | `[x] DONE` |
+| 5 | Frontend API Client | `[x] DONE` |
 | 6 | Frontend State Management | `[ ] TO-DO` |
 | 7 | Frontend Components | `[ ] TO-DO` |
 | 8 | Cleanup | `[ ] TO-DO` |
