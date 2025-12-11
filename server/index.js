@@ -1131,34 +1131,38 @@ app.post('/api/transcribe', authenticateToken, async (req, res) => {
             }
 
             try {
-                // Create form data for OpenAI
-                const FormData = (await import('form-data')).default;
-                const formData = new FormData();
-                formData.append('file', req.file.buffer, {
-                    filename: req.file.originalname,
-                    contentType: req.file.mimetype
+                // Convert audio to base64 for GPT-4o-mini
+                const audioBase64 = req.file.buffer.toString('base64');
+                const mimeType = req.file.mimetype || 'audio/webm';
+
+                // Use GPT-4o-mini for transcription
+                const OpenAI = (await import('openai')).default;
+                const openai = new OpenAI({ apiKey });
+
+                const completion = await openai.chat.completions.create({
+                    model: 'gpt-4o-mini',
+                    messages: [
+                        {
+                            role: 'user',
+                            content: [
+                                {
+                                    type: 'text',
+                                    text: 'Please transcribe the audio accurately. Only provide the transcription text, nothing else.'
+                                },
+                                {
+                                    type: 'input_audio',
+                                    input_audio: {
+                                        data: audioBase64,
+                                        format: mimeType === 'audio/mp4' ? 'mp4' : 'webm'
+                                    }
+                                }
+                            ]
+                        }
+                    ],
+                    temperature: 0.0
                 });
-                formData.append('model', 'whisper-1');
-                formData.append('response_format', 'json');
-                formData.append('language', 'en');
 
-                // Make request to OpenAI
-                const response = await fetch('https://api.openai.com/v1/audio/transcriptions', {
-                    method: 'POST',
-                    headers: {
-                        'Authorization': `Bearer ${apiKey}`,
-                        ...formData.getHeaders()
-                    },
-                    body: formData
-                });
-
-                if (!response.ok) {
-                    const errorData = await response.json().catch(() => ({}));
-                    throw new Error(errorData.error?.message || `Whisper API error: ${response.status}`);
-                }
-
-                const data = await response.json();
-                let transcribedText = data.text || '';
+                let transcribedText = completion.choices[0].message.content || '';
 
                 // Check if enhancement mode is enabled
                 const mode = req.body.mode || 'default';
@@ -1175,9 +1179,6 @@ app.post('/api/transcribe', authenticateToken, async (req, res) => {
 
                 // Handle different enhancement modes
                 try {
-                    const OpenAI = (await import('openai')).default;
-                    const openai = new OpenAI({ apiKey });
-
                     let prompt, systemMessage, temperature = 0.7, maxTokens = 800;
 
                     switch (mode) {

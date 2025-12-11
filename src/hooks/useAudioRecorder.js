@@ -15,21 +15,21 @@ export function useAudioRecorder() {
       chunksRef.current = [];
 
       // Request microphone access
-      const stream = await navigator.mediaDevices.getUserMedia({ 
+      const stream = await navigator.mediaDevices.getUserMedia({
         audio: {
           echoCancellation: true,
           noiseSuppression: true,
           sampleRate: 16000,
-        } 
+        }
       });
-      
+
       streamRef.current = stream;
 
       // Determine supported MIME type
-      const mimeType = MediaRecorder.isTypeSupported('audio/webm') 
-        ? 'audio/webm' 
+      const mimeType = MediaRecorder.isTypeSupported('audio/webm')
+        ? 'audio/webm'
         : 'audio/mp4';
-      
+
       // Create media recorder
       const recorder = new MediaRecorder(stream, { mimeType });
       mediaRecorderRef.current = recorder;
@@ -45,7 +45,7 @@ export function useAudioRecorder() {
         // Create blob from chunks
         const blob = new Blob(chunksRef.current, { type: mimeType });
         setAudioBlob(blob);
-        
+
         // Clean up stream
         if (streamRef.current) {
           streamRef.current.getTracks().forEach(track => track.stop());
@@ -72,7 +72,7 @@ export function useAudioRecorder() {
 
   const stop = useCallback(() => {
     console.log('Stop called, recorder state:', mediaRecorderRef.current?.state);
-    
+
     try {
       if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
         mediaRecorderRef.current.stop();
@@ -81,10 +81,10 @@ export function useAudioRecorder() {
     } catch (err) {
       console.error('Error stopping recorder:', err);
     }
-    
+
     // Always update state
     setRecording(false);
-    
+
     // Clean up stream if still active
     if (streamRef.current) {
       streamRef.current.getTracks().forEach(track => track.stop());
@@ -98,12 +98,12 @@ export function useAudioRecorder() {
     chunksRef.current = [];
   }, []);
 
-  return { 
-    isRecording, 
-    audioBlob, 
+  return {
+    isRecording,
+    audioBlob,
     error,
-    start, 
-    stop, 
-    reset 
+    start,
+    stop,
+    reset
   };
 }

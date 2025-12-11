@@ -9,6 +9,7 @@
 import React, { useState, useEffect, useRef, useCallback, memo } from 'react';
 import { api } from '../utils/api';
 import TokenUsagePie from './TokenUsagePie';
+import { MicButton } from './MicButton';
 
 // Helper function to flatten nested file tree
 const flattenFileTree = (files, basePath = '') => {
@@ -426,6 +427,17 @@ const MessageInput = memo(function MessageInput({
             className="flex-1 resize-none rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-4 py-2 text-sm text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
             rows={rows}
             disabled={!isConnected || isSending || isStreaming}
+          />
+          <MicButton
+            onTranscript={(transcript) => {
+              setInput(transcript);
+              // Focus the textarea after transcription
+              requestAnimationFrame(() => {
+                if (textareaRef.current) {
+                  textareaRef.current.focus();
+                }
+              });
+            }}
           />
           <button
             type="submit"
