@@ -10,7 +10,6 @@ import { cn } from '../lib/utils';
 import ClaudeLogo from './ClaudeLogo';
 import CursorLogo from './CursorLogo.jsx';
 import TaskIndicator from './TaskIndicator';
-import ProjectCreationWizard from './ProjectCreationWizard';
 import { api } from '../utils/api';
 import { useTaskMaster } from '../contexts/TaskMasterContext';
 import { useTasksSettings } from '../contexts/TasksSettingsContext';
@@ -455,21 +454,7 @@ function Sidebar({
 
   return (
     <>
-      {/* Project Creation Wizard Modal - Rendered via Portal at document root for full-screen on mobile */}
-      {showNewProject && ReactDOM.createPortal(
-        <ProjectCreationWizard
-          onClose={() => setShowNewProject(false)}
-          onProjectCreated={(project) => {
-            // Refresh projects list after creation
-            if (window.refreshProjects) {
-              window.refreshProjects();
-            } else {
-              window.location.reload();
-            }
-          }}
-        />,
-        document.body
-      )}
+      {/* TODO: Project creation will be handled by the new V2 UI components */}
 
       <div
         className="h-full flex flex-col bg-card md:select-none"

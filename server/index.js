@@ -57,9 +57,7 @@ import pty from 'node-pty';
 import fetch from 'node-fetch';
 import mime from 'mime-types';
 
-import { getProjects, getSessions, getSessionMessages, renameProject, deleteSession, deleteProject, addProjectManually, extractProjectDirectory, clearProjectDirectoryCache } from './projects.js';
 import { queryClaudeSDK, abortClaudeSDKSession, isClaudeSDKSessionActive, getActiveClaudeSDKSessions } from './claude-sdk.js';
-import { filterProjectsByUserAccess } from './utils/userAccess.js';
 import { spawnCursor, abortCursorSession, isCursorSessionActive, getActiveCursorSessions } from './cursor-cli.js';
 import gitRoutes from './routes/git.js';
 import authRoutes from './routes/auth.js';
@@ -70,103 +68,16 @@ import mcpUtilsRoutes from './routes/mcp-utils.js';
 import commandsRoutes from './routes/commands.js';
 import settingsRoutes from './routes/settings.js';
 import agentRoutes from './routes/agent.js';
-import projectsRoutes from './routes/projects.js';
 import cliAuthRoutes from './routes/cli-auth.js';
 import userRoutes from './routes/user.js';
-import projectsV2Routes from './routes/projects-v2.js';
+import projectsRoutes from './routes/projects.js';
 import tasksRoutes from './routes/tasks.js';
 import conversationsRoutes from './routes/conversations.js';
 import { initializeDatabase } from './database/db.js';
 import { validateApiKey, authenticateToken, authenticateWebSocket } from './middleware/auth.js';
 
-// File system watcher for projects folder
-let projectsWatcher = null;
-const connectedClients = new Set();
 // Track which session each client is subscribed to for targeted message delivery
 const clientSubscriptions = new Map(); // Map<WebSocket, { sessionId: string | null, provider: string }>
-
-// Setup file system watcher for Claude projects folder using chokidar
-async function setupProjectsWatcher() {
-    const chokidar = (await import('chokidar')).default;
-    const claudeProjectsPath = path.join(process.env.HOME, '.claude', 'projects');
-
-    if (projectsWatcher) {
-        projectsWatcher.close();
-    }
-
-    try {
-        // Initialize chokidar watcher with optimized settings
-        projectsWatcher = chokidar.watch(claudeProjectsPath, {
-            ignored: [
-                '**/node_modules/**',
-                '**/.git/**',
-                '**/dist/**',
-                '**/build/**',
-                '**/*.tmp',
-                '**/*.swp',
-                '**/.DS_Store'
-            ],
-            persistent: true,
-            ignoreInitial: true, // Don't fire events for existing files on startup
-            followSymlinks: false,
-            depth: 10, // Reasonable depth limit
-            awaitWriteFinish: {
-                stabilityThreshold: 100, // Wait 100ms for file to stabilize
-                pollInterval: 50
-            }
-        });
-
-        // Debounce function to prevent excessive notifications
-        let debounceTimer;
-        const debouncedUpdate = async (eventType, filePath) => {
-            clearTimeout(debounceTimer);
-            debounceTimer = setTimeout(async () => {
-                try {
-
-                    // Clear project directory cache when files change
-                    clearProjectDirectoryCache();
-
-                    // Get updated projects list
-                    const updatedProjects = await getProjects();
-
-                    // Notify all connected clients about the project changes
-                    const updateMessage = JSON.stringify({
-                        type: 'projects_updated',
-                        projects: updatedProjects,
-                        timestamp: new Date().toISOString(),
-                        changeType: eventType,
-                        changedFile: path.relative(claudeProjectsPath, filePath)
-                    });
-
-                    connectedClients.forEach(client => {
-                        if (client.readyState === WebSocket.OPEN) {
-                            client.send(updateMessage);
-                        }
-                    });
-
-                } catch (error) {
-                    console.error('[ERROR] Error handling project changes:', error);
-                }
-            }, 300); // 300ms debounce (slightly faster than before)
-        };
-
-        // Set up event listeners
-        projectsWatcher
-            .on('add', (filePath) => debouncedUpdate('add', filePath))
-            .on('change', (filePath) => debouncedUpdate('change', filePath))
-            .on('unlink', (filePath) => debouncedUpdate('unlink', filePath))
-            .on('addDir', (dirPath) => debouncedUpdate('addDir', dirPath))
-            .on('unlinkDir', (dirPath) => debouncedUpdate('unlinkDir', dirPath))
-            .on('error', (error) => {
-                console.error('[ERROR] Chokidar watcher error:', error);
-            })
-            .on('ready', () => {
-            });
-
-    } catch (error) {
-        console.error('[ERROR] Failed to setup projects watcher:', error);
-    }
-}
 
 
 const app = express();
@@ -234,9 +145,6 @@ app.use('/api', validateApiKey);
 // Authentication routes (public)
 app.use('/api/auth', authRoutes);
 
-// Projects API Routes (protected)
-app.use('/api/projects', authenticateToken, projectsRoutes);
-
 // Git API Routes (protected)
 app.use('/api/git', authenticateToken, gitRoutes);
 
@@ -268,7 +176,7 @@ app.use('/api/user', authenticateToken, userRoutes);
 app.use('/api/agent', agentRoutes);
 
 // V2 API Routes - Task-driven workflow (protected)
-app.use('/api/v2/projects', authenticateToken, projectsV2Routes);
+app.use('/api/v2/projects', authenticateToken, projectsRoutes);
 app.use('/api/v2', authenticateToken, tasksRoutes);
 app.use('/api/v2', authenticateToken, conversationsRoutes);
 
@@ -344,104 +252,7 @@ app.post('/api/system/update', authenticateToken, async (req, res) => {
     }
 });
 
-app.get('/api/projects', authenticateToken, async (req, res) => {
-    try {
-        const allProjects = await getProjects();
-        const filteredProjects = filterProjectsByUserAccess(allProjects, req.user.username);
-        res.json(filteredProjects);
-    } catch (error) {
-        console.error('Error fetching projects:', error);
-        res.status(500).json({ error: error.message });
-    }
-});
-
-app.get('/api/projects/:projectName/sessions', authenticateToken, async (req, res) => {
-    try {
-        const { limit = 5, offset = 0 } = req.query;
-        const result = await getSessions(req.params.projectName, parseInt(limit), parseInt(offset));
-        res.json(result);
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
-});
-
-// Get messages for a specific session
-app.get('/api/projects/:projectName/sessions/:sessionId/messages', authenticateToken, async (req, res) => {
-    try {
-        const { projectName, sessionId } = req.params;
-        const { limit, offset } = req.query;
-        
-        // Parse limit and offset if provided
-        const parsedLimit = limit ? parseInt(limit, 10) : null;
-        const parsedOffset = offset ? parseInt(offset, 10) : 0;
-        
-        const result = await getSessionMessages(projectName, sessionId, parsedLimit, parsedOffset);
-        
-        // Handle both old and new response formats
-        if (Array.isArray(result)) {
-            // Backward compatibility: no pagination parameters were provided
-            res.json({ messages: result });
-        } else {
-            // New format with pagination info
-            res.json(result);
-        }
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
-});
-
-// Rename project endpoint
-app.put('/api/projects/:projectName/rename', authenticateToken, async (req, res) => {
-    try {
-        const { displayName } = req.body;
-        await renameProject(req.params.projectName, displayName);
-        res.json({ success: true });
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
-});
-
-// Delete session endpoint
-app.delete('/api/projects/:projectName/sessions/:sessionId', authenticateToken, async (req, res) => {
-    try {
-        const { projectName, sessionId } = req.params;
-        console.log(`[API] Deleting session: ${sessionId} from project: ${projectName}`);
-        await deleteSession(projectName, sessionId);
-        console.log(`[API] Session ${sessionId} deleted successfully`);
-        res.json({ success: true });
-    } catch (error) {
-        console.error(`[API] Error deleting session ${req.params.sessionId}:`, error);
-        res.status(500).json({ error: error.message });
-    }
-});
-
-// Delete project endpoint (only if empty)
-app.delete('/api/projects/:projectName', authenticateToken, async (req, res) => {
-    try {
-        const { projectName } = req.params;
-        await deleteProject(projectName);
-        res.json({ success: true });
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
-});
-
-// Create project endpoint
-app.post('/api/projects/create', authenticateToken, async (req, res) => {
-    try {
-        const { path: projectPath } = req.body;
-
-        if (!projectPath || !projectPath.trim()) {
-            return res.status(400).json({ error: 'Project path is required' });
-        }
-
-        const project = await addProjectManually(projectPath.trim());
-        res.json({ success: true, project });
-    } catch (error) {
-        console.error('Error creating project:', error);
-        res.status(500).json({ error: error.message });
-    }
-});
+// Legacy /api/projects routes have been removed - use /api/v2/ endpoints instead
 
 // Browse filesystem endpoint for project suggestions - uses existing getFileTree
 app.get('/api/browse-filesystem', authenticateToken, async (req, res) => {    
@@ -503,182 +314,7 @@ app.get('/api/browse-filesystem', authenticateToken, async (req, res) => {
     }
 });
 
-// Read file content endpoint
-app.get('/api/projects/:projectName/file', authenticateToken, async (req, res) => {
-    try {
-        const { projectName } = req.params;
-        const { filePath } = req.query;
-
-        console.log('[DEBUG] File read request:', projectName, filePath);
-
-        // Security: ensure the requested path is inside the project root
-        if (!filePath) {
-            return res.status(400).json({ error: 'Invalid file path' });
-        }
-
-        const projectRoot = await extractProjectDirectory(projectName).catch(() => null);
-        if (!projectRoot) {
-            return res.status(404).json({ error: 'Project not found' });
-        }
-
-        // Handle both absolute and relative paths
-        const resolved = path.isAbsolute(filePath)
-            ? path.resolve(filePath)
-            : path.resolve(projectRoot, filePath);
-        const normalizedRoot = path.resolve(projectRoot) + path.sep;
-        if (!resolved.startsWith(normalizedRoot)) {
-            return res.status(403).json({ error: 'Path must be under project root' });
-        }
-
-        const content = await fsPromises.readFile(resolved, 'utf8');
-        res.json({ content, path: resolved });
-    } catch (error) {
-        console.error('Error reading file:', error);
-        if (error.code === 'ENOENT') {
-            res.status(404).json({ error: 'File not found' });
-        } else if (error.code === 'EACCES') {
-            res.status(403).json({ error: 'Permission denied' });
-        } else {
-            res.status(500).json({ error: error.message });
-        }
-    }
-});
-
-// Serve binary file content endpoint (for images, etc.)
-app.get('/api/projects/:projectName/files/content', authenticateToken, async (req, res) => {
-    try {
-        const { projectName } = req.params;
-        const { path: filePath } = req.query;
-
-        console.log('[DEBUG] Binary file serve request:', projectName, filePath);
-
-        // Security: ensure the requested path is inside the project root
-        if (!filePath) {
-            return res.status(400).json({ error: 'Invalid file path' });
-        }
-
-        const projectRoot = await extractProjectDirectory(projectName).catch(() => null);
-        if (!projectRoot) {
-            return res.status(404).json({ error: 'Project not found' });
-        }
-
-        const resolved = path.resolve(filePath);
-        const normalizedRoot = path.resolve(projectRoot) + path.sep;
-        if (!resolved.startsWith(normalizedRoot)) {
-            return res.status(403).json({ error: 'Path must be under project root' });
-        }
-
-        // Check if file exists
-        try {
-            await fsPromises.access(resolved);
-        } catch (error) {
-            return res.status(404).json({ error: 'File not found' });
-        }
-
-        // Get file extension and set appropriate content type
-        const mimeType = mime.lookup(resolved) || 'application/octet-stream';
-        res.setHeader('Content-Type', mimeType);
-
-        // Stream the file
-        const fileStream = fs.createReadStream(resolved);
-        fileStream.pipe(res);
-
-        fileStream.on('error', (error) => {
-            console.error('Error streaming file:', error);
-            if (!res.headersSent) {
-                res.status(500).json({ error: 'Error reading file' });
-            }
-        });
-
-    } catch (error) {
-        console.error('Error serving binary file:', error);
-        if (!res.headersSent) {
-            res.status(500).json({ error: error.message });
-        }
-    }
-});
-
-// Save file content endpoint
-app.put('/api/projects/:projectName/file', authenticateToken, async (req, res) => {
-    try {
-        const { projectName } = req.params;
-        const { filePath, content } = req.body;
-
-        console.log('[DEBUG] File save request:', projectName, filePath);
-
-        // Security: ensure the requested path is inside the project root
-        if (!filePath) {
-            return res.status(400).json({ error: 'Invalid file path' });
-        }
-
-        if (content === undefined) {
-            return res.status(400).json({ error: 'Content is required' });
-        }
-
-        const projectRoot = await extractProjectDirectory(projectName).catch(() => null);
-        if (!projectRoot) {
-            return res.status(404).json({ error: 'Project not found' });
-        }
-
-        // Handle both absolute and relative paths
-        const resolved = path.isAbsolute(filePath)
-            ? path.resolve(filePath)
-            : path.resolve(projectRoot, filePath);
-        const normalizedRoot = path.resolve(projectRoot) + path.sep;
-        if (!resolved.startsWith(normalizedRoot)) {
-            return res.status(403).json({ error: 'Path must be under project root' });
-        }
-
-        // Write the new content
-        await fsPromises.writeFile(resolved, content, 'utf8');
-
-        res.json({
-            success: true,
-            path: resolved,
-            message: 'File saved successfully'
-        });
-    } catch (error) {
-        console.error('Error saving file:', error);
-        if (error.code === 'ENOENT') {
-            res.status(404).json({ error: 'File or directory not found' });
-        } else if (error.code === 'EACCES') {
-            res.status(403).json({ error: 'Permission denied' });
-        } else {
-            res.status(500).json({ error: error.message });
-        }
-    }
-});
-
-app.get('/api/projects/:projectName/files', authenticateToken, async (req, res) => {
-    try {
-
-        // Using fsPromises from import
-
-        // Use extractProjectDirectory to get the actual project path
-        let actualPath;
-        try {
-            actualPath = await extractProjectDirectory(req.params.projectName);
-        } catch (error) {
-            console.error('Error extracting project directory:', error);
-            // Fallback to simple dash replacement
-            actualPath = req.params.projectName.replace(/-/g, '/');
-        }
-
-        // Check if path exists
-        try {
-            await fsPromises.access(actualPath);
-        } catch (e) {
-            return res.status(404).json({ error: `Project path not found: ${actualPath}` });
-        }
-
-        const files = await getFileTree(actualPath, 10, 0, true);
-        const hiddenFiles = files.filter(f => f.name.startsWith('.'));
-        res.json(files);
-    } catch (error) {
-        console.error('[ERROR] File tree error:', error.message);
-        res.status(500).json({ error: error.message });
-    }
-});
+// Legacy /api/projects/:projectName/file routes have been removed - file operations should use V2 project paths
 
 // WebSocket connection handler that routes based on URL path
 wss.on('connection', (ws, request) => {
@@ -702,9 +338,6 @@ wss.on('connection', (ws, request) => {
 // Handle chat WebSocket connections
 function handleChatConnection(ws) {
     console.log('[INFO] Chat WebSocket connected');
-
-    // Add to connected clients for project updates
-    connectedClients.add(ws);
 
     ws.on('message', async (message) => {
         try {
@@ -824,8 +457,7 @@ function handleChatConnection(ws) {
 
     ws.on('close', () => {
         console.log('🔌 Chat client disconnected');
-        // Remove from connected clients and clean up subscription
-        connectedClients.delete(ws);
+        // Clean up subscription
         clientSubscriptions.delete(ws);
     });
 }
@@ -1298,182 +930,7 @@ Agent instructions:`;
     }
 });
 
-// Image upload endpoint
-app.post('/api/projects/:projectName/upload-images', authenticateToken, async (req, res) => {
-    try {
-        const multer = (await import('multer')).default;
-        const path = (await import('path')).default;
-        const fs = (await import('fs')).promises;
-        const os = (await import('os')).default;
-
-        // Configure multer for image uploads
-        const storage = multer.diskStorage({
-            destination: async (req, file, cb) => {
-                const uploadDir = path.join(os.tmpdir(), 'claude-ui-uploads', String(req.user.id));
-                await fs.mkdir(uploadDir, { recursive: true });
-                cb(null, uploadDir);
-            },
-            filename: (req, file, cb) => {
-                const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-                const sanitizedName = file.originalname.replace(/[^a-zA-Z0-9.-]/g, '_');
-                cb(null, uniqueSuffix + '-' + sanitizedName);
-            }
-        });
-
-        const fileFilter = (req, file, cb) => {
-            const allowedMimes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/svg+xml'];
-            if (allowedMimes.includes(file.mimetype)) {
-                cb(null, true);
-            } else {
-                cb(new Error('Invalid file type. Only JPEG, PNG, GIF, WebP, and SVG are allowed.'));
-            }
-        };
-
-        const upload = multer({
-            storage,
-            fileFilter,
-            limits: {
-                fileSize: 5 * 1024 * 1024, // 5MB
-                files: 5
-            }
-        });
-
-        // Handle multipart form data
-        upload.array('images', 5)(req, res, async (err) => {
-            if (err) {
-                return res.status(400).json({ error: err.message });
-            }
-
-            if (!req.files || req.files.length === 0) {
-                return res.status(400).json({ error: 'No image files provided' });
-            }
-
-            try {
-                // Process uploaded images
-                const processedImages = await Promise.all(
-                    req.files.map(async (file) => {
-                        // Read file and convert to base64
-                        const buffer = await fs.readFile(file.path);
-                        const base64 = buffer.toString('base64');
-                        const mimeType = file.mimetype;
-
-                        // Clean up temp file immediately
-                        await fs.unlink(file.path);
-
-                        return {
-                            name: file.originalname,
-                            data: `data:${mimeType};base64,${base64}`,
-                            size: file.size,
-                            mimeType: mimeType
-                        };
-                    })
-                );
-
-                res.json({ images: processedImages });
-            } catch (error) {
-                console.error('Error processing images:', error);
-                // Clean up any remaining files
-                await Promise.all(req.files.map(f => fs.unlink(f.path).catch(() => { })));
-                res.status(500).json({ error: 'Failed to process images' });
-            }
-        });
-    } catch (error) {
-        console.error('Error in image upload endpoint:', error);
-        res.status(500).json({ error: 'Internal server error' });
-    }
-});
-
-// Get token usage for a specific session
-app.get('/api/projects/:projectName/sessions/:sessionId/token-usage', authenticateToken, async (req, res) => {
-  try {
-    const { projectName, sessionId } = req.params;
-    const homeDir = os.homedir();
-
-    // Extract actual project path
-    let projectPath;
-    try {
-      projectPath = await extractProjectDirectory(projectName);
-    } catch (error) {
-      console.error('Error extracting project directory:', error);
-      return res.status(500).json({ error: 'Failed to determine project path' });
-    }
-
-    // Construct the JSONL file path
-    // Claude stores session files in ~/.claude/projects/[encoded-project-path]/[session-id].jsonl
-    // The encoding replaces /, spaces, ~, and _ with -
-    const encodedPath = projectPath.replace(/[\\/:\s~_]/g, '-');
-    const projectDir = path.join(homeDir, '.claude', 'projects', encodedPath);
-
-    // Allow only safe characters in sessionId
-    const safeSessionId = String(sessionId).replace(/[^a-zA-Z0-9._-]/g, '');
-    if (!safeSessionId) {
-      return res.status(400).json({ error: 'Invalid sessionId' });
-    }
-    const jsonlPath = path.join(projectDir, `${safeSessionId}.jsonl`);
-
-    // Constrain to projectDir
-    const rel = path.relative(path.resolve(projectDir), path.resolve(jsonlPath));
-    if (rel.startsWith('..') || path.isAbsolute(rel)) {
-      return res.status(400).json({ error: 'Invalid path' });
-    }
-
-    // Read and parse the JSONL file
-    let fileContent;
-    try {
-      fileContent = await fsPromises.readFile(jsonlPath, 'utf8');
-    } catch (error) {
-      if (error.code === 'ENOENT') {
-        return res.status(404).json({ error: 'Session file not found', path: jsonlPath });
-      }
-      throw error; // Re-throw other errors to be caught by outer try-catch
-    }
-    const lines = fileContent.trim().split('\n');
-
-    const parsedContextWindow = parseInt(process.env.CONTEXT_WINDOW, 10);
-    const contextWindow = Number.isFinite(parsedContextWindow) ? parsedContextWindow : 160000;
-    let inputTokens = 0;
-    let cacheCreationTokens = 0;
-    let cacheReadTokens = 0;
-
-    // Find the latest assistant message with usage data (scan from end)
-    for (let i = lines.length - 1; i >= 0; i--) {
-      try {
-        const entry = JSON.parse(lines[i]);
-
-        // Only count assistant messages which have usage data
-        if (entry.type === 'assistant' && entry.message?.usage) {
-          const usage = entry.message.usage;
-
-          // Use token counts from latest assistant message only
-          inputTokens = usage.input_tokens || 0;
-          cacheCreationTokens = usage.cache_creation_input_tokens || 0;
-          cacheReadTokens = usage.cache_read_input_tokens || 0;
-
-          break; // Stop after finding the latest assistant message
-        }
-      } catch (parseError) {
-        // Skip lines that can't be parsed
-        continue;
-      }
-    }
-
-    // Calculate total context usage (excluding output_tokens, as per ccusage)
-    const totalUsed = inputTokens + cacheCreationTokens + cacheReadTokens;
-
-    res.json({
-      used: totalUsed,
-      total: contextWindow,
-      breakdown: {
-        input: inputTokens,
-        cacheCreation: cacheCreationTokens,
-        cacheRead: cacheReadTokens
-      }
-    });
-  } catch (error) {
-    console.error('Error reading session token usage:', error);
-    res.status(500).json({ error: 'Failed to read session token usage' });
-  }
-});
+// Legacy /api/projects/:projectName/upload-images and token-usage routes have been removed
 
 // Backend only serves API routes - frontend is handled by Vite on port 5173
 
@@ -1582,9 +1039,6 @@ async function startServer() {
             console.log(`${c.info('[INFO]')} Installed at: ${c.dim(appInstallPath)}`);
             console.log(`${c.tip('[TIP]')}  Run "cloudcli status" for full configuration details`);
             console.log('');
-
-            // Start watching the projects folder for changes
-            await setupProjectsWatcher();
         });
     } catch (error) {
         console.error('[ERROR] Failed to start server:', error);

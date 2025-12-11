@@ -23,11 +23,11 @@ vi.mock('../services/documentation.js', () => ({
   writeProjectDoc: vi.fn()
 }));
 
-import projectsV2Routes from './projects-v2.js';
+import projectsRoutes from './projects.js';
 import { projectsDb } from '../database/db.js';
 import { ensureClaudeUIFolder, readProjectDoc, writeProjectDoc } from '../services/documentation.js';
 
-describe('Projects V2 Routes - Phase 3', () => {
+describe('Projects Routes - Phase 3', () => {
   let app;
   const testUserId = 1;
 
@@ -42,7 +42,7 @@ describe('Projects V2 Routes - Phase 3', () => {
       req.user = { id: testUserId, username: 'testuser' };
       next();
     });
-    app.use('/api/v2/projects', projectsV2Routes);
+    app.use('/api/v2/projects', projectsRoutes);
   });
 
   describe('GET /api/v2/projects', () => {

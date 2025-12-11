@@ -446,7 +446,7 @@ All new endpoints use `/api/v2/` prefix to coexist with legacy endpoints.
 **What:** Create REST API endpoints for projects, tasks, and conversations.
 
 **Files to create:**
-- `server/routes/projects-v2.js` - Project CRUD + documentation
+- `server/routes/projects.js` - Project CRUD + documentation
 - `server/routes/tasks.js` - Task CRUD + documentation
 - `server/routes/conversations.js` - Conversation CRUD
 
@@ -461,7 +461,7 @@ All new endpoints use `/api/v2/` prefix to coexist with legacy endpoints.
 - Auto-create `task-{id}.md` on task creation
 - Delete `task-{id}.md` on task deletion
 
-**Tests:** `server/routes/projects-v2.test.js`, `server/routes/tasks.test.js`, `server/routes/conversations.test.js`
+**Tests:** `server/routes/projects.test.js`, `server/routes/tasks.test.js`, `server/routes/conversations.test.js`
 
 ---
 
@@ -491,13 +491,13 @@ All new endpoints use `/api/v2/` prefix to coexist with legacy endpoints.
 **What:** Add API client functions for new endpoints.
 
 **Files to modify:**
-- `src/utils/api.js` - Add `projectsV2`, `tasks`, `conversations` objects
+- `src/utils/api.js` - Add `projects`, `tasks`, `conversations` objects
 
 **API methods to add:**
 
 | Object | Methods |
 |--------|---------|
-| `api.projectsV2` | `list()`, `create(name, repoFolderPath)`, `get(id)`, `update(id, data)`, `delete(id)`, `getDoc(id)`, `saveDoc(id, content)` |
+| `api.projects` | `list()`, `create(name, repoFolderPath)`, `get(id)`, `update(id, data)`, `delete(id)`, `getDoc(id)`, `saveDoc(id, content)` |
 | `api.tasks` | `list(projectId)`, `create(projectId, title)`, `get(id)`, `update(id, data)`, `delete(id)`, `getDoc(id)`, `saveDoc(id, content)` |
 | `api.conversations` | `list(taskId)`, `create(taskId)`, `get(id)`, `delete(id)` |
 
@@ -601,7 +601,7 @@ All new endpoints use `/api/v2/` prefix to coexist with legacy endpoints.
 |-------|------------|
 | 1 | `server/database/db.test.js` |
 | 2 | `server/services/documentation.test.js` |
-| 3 | `server/routes/projects-v2.test.js`, `server/routes/tasks.test.js`, `server/routes/conversations.test.js` |
+| 3 | `server/routes/projects.test.js`, `server/routes/tasks.test.js`, `server/routes/conversations.test.js` |
 | 4 | `server/claude-sdk.test.js`, `server/websocket-handler.test.js` |
 | 5 | `src/utils/api.test.js` |
 | 6 | `src/contexts/TaskContext.test.jsx` |
@@ -647,7 +647,7 @@ npm run test:coverage # With coverage report
 | File | Purpose |
 |------|---------|
 | `server/services/documentation.js` | File I/O for `.claude-ui/` folder |
-| `server/routes/projects-v2.js` | Project CRUD endpoints |
+| `server/routes/projects.js` | Project CRUD endpoints |
 | `server/routes/tasks.js` | Task CRUD endpoints |
 | `server/routes/conversations.js` | Conversation CRUD endpoints |
 
