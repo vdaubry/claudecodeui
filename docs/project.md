@@ -4,39 +4,46 @@
 
 Claude Code UI is a web-based interface for Claude Code CLI. It provides a desktop/mobile-friendly way to manage coding projects and have conversations with Claude AI.
 
-**Core Concept**: Each *project* is a folder on the machine. Each project contains multiple *sessions* (conversations). Sessions are stored as JSONL files in `~/.claude/projects/{project-name}/`.
+**Core Concept**: The app uses a **task-driven development** model:
+- **Project**: An explicit database entry pointing to a Git repository
+- **Task**: A unit of work with markdown documentation (stored in `.claude-ui/tasks/`)
+- **Conversation**: A Claude session linked to a specific task
+
+Users create projects, define tasks as units of work, and start conversations scoped to specific tasks. Task documentation is automatically injected as context when starting a conversation.
 
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                        Frontend                              │
-│  React (Vite) - Port 5173                                   │
-│  ┌─────────┐  ┌──────────────┐  ┌─────────────────┐        │
-│  │ Sidebar │  │ ChatInterface│  │  MainContent    │        │
-│  │         │  │              │  │                 │        │
-│  │Projects │  │  Messages    │  │ Tabs: Chat,     │        │
-│  │Sessions │  │  Input       │  │ Files, Shell    │        │
-│  └─────────┘  └──────────────┘  └─────────────────┘        │
-└─────────────────────────────────────────────────────────────┘
-                          │
-              WebSocket /ws  │  REST API /api/*
-                          ▼
-┌─────────────────────────────────────────────────────────────┐
-│                        Backend                               │
-│  Node.js + Express - Port 3002                              │
-│  ┌────────────┐  ┌──────────────┐  ┌─────────────┐         │
-│  │  index.js  │  │ claude-sdk.js│  │ projects.js │         │
-│  │ WebSocket  │  │ SDK wrapper  │  │ File reader │         │
-│  │  routing   │  │              │  │             │         │
-│  └────────────┘  └──────────────┘  └─────────────┘         │
-└─────────────────────────────────────────────────────────────┘
-                          │
-                          ▼
-┌─────────────────────────────────────────────────────────────┐
-│              Claude Agent SDK + File System                  │
-│  ~/.claude/projects/{project-name}/{session-id}.jsonl       │
-└─────────────────────────────────────────────────────────────┘
++-------------------------------------------------------------+
+|                        Frontend                              |
+|  React (Vite) - Port 5173                                   |
+|  +-------------+  +-----------------+  +------------------+ |
+|  | Sidebar     |  | TaskDetailView  |  | ChatInterface    | |
+|  |             |  |                 |  |                  | |
+|  | Projects    |  | Task docs       |  | Messages         | |
+|  | Tasks       |  | Conversations   |  | Input            | |
+|  +-------------+  +-----------------+  +------------------+ |
++-------------------------------------------------------------+
+                          |
+              WebSocket /ws  |  REST API /api/*
+                          v
++-------------------------------------------------------------+
+|                        Backend                               |
+|  Node.js + Express - Port 3002                              |
+|  +--------------+  +----------------+  +------------------+ |
+|  | index.js     |  | claude-sdk.js  |  | documentation.js | |
+|  | WebSocket    |  | SDK wrapper    |  | .claude-ui/ I/O  | |
+|  | routing      |  | context inject |  |                  | |
+|  +--------------+  +----------------+  +------------------+ |
++-------------------------------------------------------------+
+                          |
+                          v
++-------------------------------------------------------------+
+|              Claude Agent SDK + File System                  |
+|  ~/.claude/projects/{project-name}/{conversation-id}.jsonl  |
+|  {repo}/.claude-ui/project.md                               |
+|  {repo}/.claude-ui/tasks/task-{id}.md                       |
++-------------------------------------------------------------+
 ```
 
 ## Key Files
@@ -45,70 +52,77 @@ Claude Code UI is a web-based interface for Claude Code CLI. It provides a deskt
 
 | File | Purpose |
 |------|---------|
-| `src/App.jsx` | Root component, state management for projects/sessions, routing |
-| `src/components/Sidebar.jsx` | Project list, session list, "New Session" button |
-| `src/components/ChatInterface.jsx` | Message display, WebSocket communication, message input |
-| `src/components/MainContent.jsx` | Tab container (Chat, Files, Shell, Git) |
-| `src/components/MessageInput.jsx` | Text input with @ file references |
-| `src/utils/api.js` | REST API client wrapper |
+| `src/App.jsx` | Root component, state for selectedTask/activeConversation, view routing |
+| `src/contexts/TaskContext.jsx` | State management for projects, tasks, conversations |
+| `src/components/Sidebar.jsx` | Project list with expandable task lists |
+| `src/components/MainContent.jsx` | View routing (ProjectDetail/TaskDetail/Chat) |
+| `src/components/TaskDetailView.jsx` | Task docs (editable), conversation history |
+| `src/components/ProjectDetailView.jsx` | Project name, edit button, task list |
+| `src/components/ChatInterface.jsx` | Message display, WebSocket, message input |
+| `src/components/ConversationList.jsx` | List with +New/Resume buttons |
+| `src/components/MarkdownEditor.jsx` | View/edit toggle for documentation |
+| `src/utils/api.js` | REST API client for projects/tasks/conversations |
 
 ### Backend
 
 | File | Purpose |
 |------|---------|
-| `server/index.js` | Express server, WebSocket handlers, file watcher |
-| `server/claude-sdk.js` | Claude Agent SDK integration, message streaming |
-| `server/projects.js` | Reads projects/sessions from `~/.claude/projects/` |
-| `server/routes/projects.js` | REST endpoints for projects and sessions |
+| `server/index.js` | Express server, WebSocket handlers, route registration |
+| `server/claude-sdk.js` | Claude Agent SDK integration, custom system prompt support |
+| `server/services/documentation.js` | Read/write `.claude-ui/` files, build context prompts |
+| `server/services/sessions.js` | JSONL message reading for conversation history |
+| `server/database/db.js` | Database operations: `projectsDb`, `tasksDb`, `conversationsDb` |
+| `server/routes/projects.js` | Project CRUD + documentation endpoints |
+| `server/routes/tasks.js` | Task CRUD + documentation endpoints |
+| `server/routes/conversations.js` | Conversation CRUD + messages endpoints |
+
+## Database Schema
+
+Three tables manage the task-driven workflow:
+
+**`projects`** - User-created projects pointing to repo folders
+- `id`, `user_id`, `name`, `repo_folder_path`, `created_at`, `updated_at`
+
+**`tasks`** - Work items belonging to projects
+- `id`, `project_id` (FK), `title`, `created_at`, `updated_at`
+- Documentation at `.claude-ui/tasks/task-{id}.md` (convention, not stored)
+
+**`conversations`** - Links Claude sessions to tasks
+- `id`, `task_id` (FK), `claude_conversation_id`, `created_at`
 
 ## Conversation Management
 
-### Data Flow: Loading Existing Sessions
+### Data Flow: Starting a New Conversation
 
-1. **App mounts** → `App.jsx:fetchProjects()` (line 102) calls REST API
-2. **Backend** → `server/routes/projects.js` calls `getProjects()` from `server/projects.js`
-3. **projects.js** → Reads `~/.claude/projects/` directory, parses JSONL files
-4. **Frontend receives** → Array of projects, each with sessions array
-5. **User clicks session** → `Sidebar.jsx:handleSessionClick()` triggers `onSessionSelect()`
-6. **App.jsx** → Sets `selectedSession`, navigates to `/session/{id}`
-7. **ChatInterface.jsx** → `refreshSessionMessages()` (line 347) loads messages via REST API
+1. **User clicks "New Conversation"** on TaskDetailView
+2. **Frontend sends WebSocket** → `claude-command` with `taskId`, `isNewConversation: true`
+3. **Backend looks up** → Task → Project → `repo_folder_path`
+4. **Backend creates** → Conversation record in DB
+5. **Backend reads** → `{repo}/.claude-ui/project.md` + `task-{id}.md`
+6. **Backend builds** → Combined system prompt with project/task context
+7. **Calls Claude SDK** → With `customSystemPrompt` option
+8. **SDK streams responses** → Each sent via WebSocket as `claude-response`
+9. **On first message** → Backend captures `session_id`, updates conversation record
+10. **Stream ends** → Backend sends `claude-complete`
 
-### Data Flow: Sending a New Message
+### Data Flow: Resuming a Conversation
 
-1. **User types in MessageInput** → State stored in `ChatInterface.jsx:input`
-2. **User presses Enter** → `ChatInterface.jsx:handleSubmit()` (line 459)
-3. **WebSocket message sent** → Type: `claude-command` with project path, session ID
-4. **Backend receives** → `server/index.js` WebSocket handler (line 702)
-5. **Calls SDK** → `server/claude-sdk.js:queryClaudeSDK()` (line 348)
-6. **SDK streams responses** → Each message sent back via WebSocket as `claude-response`
-7. **Frontend displays** → `ChatInterface.jsx:handleClaudeResponse()` (line 316) adds to `streamingMessages`
-8. **Stream ends** → Backend sends `claude-complete`, frontend calls `refreshSessionMessages()`
+1. **User clicks "Resume"** on existing conversation
+2. **Frontend sends WebSocket** → `claude-command` with `conversationId`, `isNewConversation: false`
+3. **Backend looks up** → Conversation → `claude_conversation_id`
+4. **Calls Claude SDK** → With `resume: claude_conversation_id`
+5. **Streaming proceeds** normally (no context injection needed)
 
-### Data Flow: Creating a New Session
+### File Structure Convention
 
-1. **User clicks "New Session"** → `Sidebar.jsx` button triggers `onNewSession(project)`
-2. **App.jsx:handleNewSession()** (line 247) → Sets `selectedProject`, clears `selectedSession`
-3. **ChatInterface renders** → Shows "No Messages" UI with input field
-4. **User sends message** → `handleSubmit()` sends without `sessionId` (line 482)
-5. **Backend creates session** → SDK generates new session ID
-6. **Backend sends** → `session-created` event with new sessionId (line 386 in claude-sdk.js)
-7. **Frontend receives** → `ChatInterface.jsx:handleSessionCreated()` (line 336)
-8. **App.jsx** → `onNavigateToSession()` sets session, navigates, refreshes projects
-9. **Sidebar updates** → New session appears at top of project's session list
-
-### Session Storage
-
-Sessions are stored as JSONL files by the Claude Agent SDK:
-- Location: `~/.claude/projects/{encoded-project-path}/{session-id}.jsonl`
-- Each line is a JSON object representing a message or event
-- Session metadata (summary, message count) is extracted by `server/projects.js:getSessions()` (line 524)
-
-### Real-Time Updates
-
-The backend uses `chokidar` to watch `~/.claude/projects/` for file changes:
-- `server/index.js:setupProjectsWatcher()` (line 85)
-- When files change, broadcasts `projects_updated` to all WebSocket clients
-- Debounced at 300ms to prevent excessive updates
+```
+<repo-root>/
+  .claude-ui/                    # Auto-created when project added
+    project.md                   # Project-level documentation
+    tasks/                       # Auto-created when project added
+      task-1.md                  # Task documentation (auto-created blank)
+      task-2.md
+```
 
 ## State Management
 
@@ -116,34 +130,48 @@ The backend uses `chokidar` to watch `~/.claude/projects/` for file changes:
 
 | State | Purpose |
 |-------|---------|
-| `projects` | Array of all projects with their sessions |
 | `selectedProject` | Currently selected project object |
-| `selectedSession` | Currently selected session object |
+| `selectedTask` | Currently selected task object |
+| `activeConversation` | Currently active conversation object |
+| `currentView` | Derived: 'project', 'task', or 'chat' |
 | `activeTab` | Current tab: 'chat', 'files', 'shell', 'git' |
 
-### Session Object Shape
+### TaskContext State
 
-```
+| State | Purpose |
+|-------|---------|
+| `projects` | Array of all user projects |
+| `tasks` | Array of tasks for selected project |
+| `conversations` | Array of conversations for selected task |
+| `isLoading*` | Loading states for each resource |
+
+### Object Shapes
+
+```javascript
+// Project
 {
-  id: string,              // Unique session ID (UUID)
-  summary: string,         // Display name (auto-generated or user-set)
-  messageCount: number,    // Total messages in session
-  lastActivity: Date       // Timestamp of last interaction
+  id: number,
+  name: string,              // Display name
+  repo_folder_path: string,  // Absolute path to repo
+  created_at: string,
+  updated_at: string
 }
-```
 
-### Project Object Shape
-
-```
+// Task
 {
-  name: string,            // Encoded project name (path with / → -)
-  path: string,            // Actual project directory path
-  displayName: string,     // User-friendly project name
-  sessions: Session[],     // First 5 sessions (pagination)
-  sessionMeta: {
-    hasMore: boolean,      // More sessions available
-    total: number          // Total session count
-  }
+  id: number,
+  project_id: number,
+  title: string,             // Display title
+  created_at: string,
+  updated_at: string
+}
+
+// Conversation
+{
+  id: number,
+  task_id: number,
+  claude_conversation_id: string,  // Session ID from Claude SDK
+  created_at: string
 }
 ```
 
@@ -153,10 +181,10 @@ The backend uses `chokidar` to watch `~/.claude/projects/` for file changes:
 
 | Type | Purpose |
 |------|---------|
-| `claude-command` | Send user message to Claude |
-| `subscribe-session` | Subscribe to updates for specific session |
-| `unsubscribe-session` | Unsubscribe from session updates |
-| `abort-session` | Stop active session processing |
+| `claude-command` | Send message to Claude (with taskId/conversationId) |
+| `subscribe-session` | Subscribe to updates for specific conversation |
+| `unsubscribe-session` | Unsubscribe from conversation updates |
+| `abort-session` | Stop active conversation processing |
 
 ### Server → Client
 
@@ -165,39 +193,57 @@ The backend uses `chokidar` to watch `~/.claude/projects/` for file changes:
 | `claude-response` | Streaming message from Claude |
 | `claude-complete` | Stream finished |
 | `claude-error` | Error occurred |
-| `session-created` | New session ID generated |
-| `projects_updated` | File system changed, projects refreshed |
+| `session-created` | New conversation ID generated |
 
 ## REST API Endpoints
 
 | Endpoint | Method | Purpose |
 |----------|--------|---------|
-| `/api/projects` | GET | List all projects with sessions |
-| `/api/projects/:name/sessions` | GET | Get sessions for a project |
-| `/api/projects/:name/sessions/:id/messages` | GET | Get messages for a session |
-| `/api/projects/:name/sessions/:id` | DELETE | Delete a session |
+| `/api/projects` | GET, POST | List/create projects |
+| `/api/projects/:id` | GET, PUT, DELETE | Get/update/delete project |
+| `/api/projects/:id/documentation` | GET, PUT | Get/save project.md |
+| `/api/projects/:projectId/tasks` | GET, POST | List/create tasks |
+| `/api/tasks/:id` | GET, PUT, DELETE | Get/update/delete task |
+| `/api/tasks/:id/documentation` | GET, PUT | Get/save task-{id}.md |
+| `/api/tasks/:taskId/conversations` | GET, POST | List/create conversations |
+| `/api/conversations/:id` | GET, DELETE | Get/delete conversation |
+| `/api/conversations/:id/messages` | GET | Get conversation messages |
+
+## UI Navigation Flow
+
+```
++----------------------------------+------------------------------+
+| SIDEBAR                          | MAIN CONTENT                 |
++----------------------------------+------------------------------+
+|                                  |                              |
+| > Project A  <-(click name)------+-> Project Detail View        |
+|   +-- Task 1  <-(click)----------+-> Task Detail View           |
+|   +-- Task 2                     |       |                      |
+|                                  |       v (click New/Resume)   |
+| v Project B  <-(click arrow)     |    Chat View                 |
+|   +-- Task 3                     |       |                      |
+|   +-- Task 4                     |       v (click Back)         |
+|                                  |    Task Detail View          |
++----------------------------------+------------------------------+
+```
 
 ## Quick Reference: Key Methods
 
-### Creating/Managing Sessions
+### Project/Task/Conversation Management
 
-- `App.jsx:handleNewSession()` - Line 247 - Initiates new session mode
-- `App.jsx:handleSessionSelect()` - Line 231 - Selects existing session
-- `ChatInterface.jsx:handleSessionCreated()` - Line 336 - Handles new session ID
-- `server/claude-sdk.js:queryClaudeSDK()` - Line 348 - Creates/resumes sessions
+- `TaskContext.jsx` - All CRUD actions for projects, tasks, conversations
+- `api.js:projects.*` - REST client for project endpoints
+- `api.js:tasks.*` - REST client for task endpoints
+- `api.js:conversations.*` - REST client for conversation endpoints
 
-### Loading Messages
+### Context Injection
 
-- `ChatInterface.jsx:refreshSessionMessages()` - Line 347 - Loads from REST API
-- `server/projects.js:getSessionMessages()` - Line 806 - Reads JSONL files
+- `server/services/documentation.js:buildContextPrompt()` - Combines project + task docs
+- `server/claude-sdk.js:mapCliOptionsToSDK()` - Handles `customSystemPrompt` option
 
-### Sending Messages
+### Message Handling
 
-- `ChatInterface.jsx:handleSubmit()` - Line 459 - Sends via WebSocket
-- `server/index.js` - Line 702 - WebSocket handler
-- `server/claude-sdk.js:queryClaudeSDK()` - Line 348 - SDK integration
-
-### Displaying Messages
-
-- `ChatInterface.jsx:handleClaudeResponse()` - Line 316 - Processes streaming
-- `ChatInterface.jsx:convertSessionMessages()` - Line 177 - Transforms for display
+- `ChatInterface.jsx:handleSubmit()` - Sends via WebSocket with taskId/conversationId
+- `server/index.js` - WebSocket handler for `claude-command`
+- `server/claude-sdk.js:queryClaudeSDK()` - SDK integration with context injection
+- `server/services/sessions.js:getSessionMessages()` - Reads JSONL files
