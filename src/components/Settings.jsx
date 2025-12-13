@@ -2,12 +2,9 @@ import { useState, useEffect } from 'react';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Badge } from './ui/badge';
-import { X, Plus, Settings as SettingsIcon, Shield, AlertTriangle, Moon, Sun, Server, Edit3, Trash2, Globe, Terminal, Zap, FolderOpen, LogIn, Key, GitBranch, Check } from 'lucide-react';
+import { X, Plus, Settings as SettingsIcon, Shield, AlertTriangle, Moon, Sun, Server, Edit3, Trash2, Globe, Zap, FolderOpen, Key, Terminal } from 'lucide-react';
 import { useTheme } from '../contexts/ThemeContext';
-import ClaudeLogo from './ClaudeLogo';
 import CredentialsSettings from './CredentialsSettings';
-import GitSettings from './GitSettings';
-import LoginModal from './LoginModal';
 import { authenticatedFetch } from '../utils/api';
 
 function Settings({ isOpen, onClose, projects = [], initialTab = 'tools' }) {
@@ -63,23 +60,9 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'tools' }) {
   const [codeEditorFontSize, setCodeEditorFontSize] = useState(() =>
     localStorage.getItem('codeEditorFontSize') || '14'
   );
-  
-  const [showLoginModal, setShowLoginModal] = useState(false);
-  const [loginProvider, setLoginProvider] = useState('');
-  const [selectedProject, setSelectedProject] = useState(null);
-
-  const [claudeAuthStatus, setClaudeAuthStatus] = useState({
-    authenticated: false,
-    email: null,
-    loading: true,
-    error: null
-  });
 
   // Common tool patterns for Claude
   const commonTools = [
-    'Bash(git log:*)',
-    'Bash(git diff:*)',
-    'Bash(git status:*)',
     'Write',
     'Read',
     'Edit',
@@ -257,7 +240,6 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'tools' }) {
   useEffect(() => {
     if (isOpen) {
       loadSettings();
-      checkClaudeAuthStatus();
       setActiveTab(initialTab);
     }
   }, [isOpen, initialTab]);
@@ -316,50 +298,6 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'tools' }) {
       setDisallowedTools([]);
       setSkipPermissions(false);
       setProjectSortOrder('name');
-    }
-  };
-
-  const checkClaudeAuthStatus = async () => {
-    try {
-      const response = await authenticatedFetch('/api/cli/claude/status');
-
-      if (response.ok) {
-        const data = await response.json();
-        setClaudeAuthStatus({
-          authenticated: data.authenticated,
-          email: data.email,
-          loading: false,
-          error: data.error || null
-        });
-      } else {
-        setClaudeAuthStatus({
-          authenticated: false,
-          email: null,
-          loading: false,
-          error: 'Failed to check authentication status'
-        });
-      }
-    } catch (error) {
-      console.error('Error checking Claude auth status:', error);
-      setClaudeAuthStatus({
-        authenticated: false,
-        email: null,
-        loading: false,
-        error: error.message
-      });
-    }
-  };
-
-  const handleClaudeLogin = () => {
-    setLoginProvider('claude');
-    setSelectedProject(projects?.[0] || { name: 'default', fullPath: process.cwd() });
-    setShowLoginModal(true);
-  };
-
-  const handleLoginComplete = (exitCode) => {
-    if (exitCode === 0) {
-      setSaveStatus('success');
-      checkClaudeAuthStatus();
     }
   };
 
@@ -618,17 +556,6 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'tools' }) {
                 Appearance
               </button>
               <button
-                onClick={() => setActiveTab('git')}
-                className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
-                  activeTab === 'git'
-                    ? 'border-blue-600 text-blue-600 dark:text-blue-400'
-                    : 'border-transparent text-muted-foreground hover:text-foreground'
-                }`}
-              >
-                <GitBranch className="w-4 h-4 inline mr-2" />
-                Git
-              </button>
-              <button
                 onClick={() => setActiveTab('api')}
                 className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
                   activeTab === 'api'
@@ -866,9 +793,6 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'tools' }) {
               </div>
             )}
 
-            {/* Git Tab */}
-            {activeTab === 'git' && <GitSettings />}
-
             {/* Tools Tab */}
             {activeTab === 'tools' && (
               <div className="space-y-6 md:space-y-8">
@@ -898,62 +822,6 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'tools' }) {
                     </div>
                   </div>
                 </label>
-              </div>
-            </div>
-
-            <div className="space-y-4">
-              <div className="flex items-center gap-3">
-                <LogIn className="w-5 h-5 text-blue-500" />
-                <h3 className="text-lg font-medium text-foreground">
-                  Authentication
-                </h3>
-              </div>
-              <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
-                <div className="space-y-3">
-                  <div className="flex items-center gap-2">
-                    {claudeAuthStatus.loading ? (
-                      <span className="text-sm text-blue-700 dark:text-blue-300">
-                        Checking authentication...
-                      </span>
-                    ) : claudeAuthStatus.authenticated ? (
-                      <div className="flex items-center gap-2">
-                        <Badge variant="success" className="bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300">
-                          ✓ Logged in
-                        </Badge>
-                        {claudeAuthStatus.email && (
-                          <span className="text-sm text-blue-700 dark:text-blue-300">
-                            as {claudeAuthStatus.email}
-                          </span>
-                        )}
-                      </div>
-                    ) : (
-                      <Badge variant="secondary" className="bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-300">
-                        Not authenticated
-                      </Badge>
-                    )}
-                  </div>
-
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <div className="font-medium text-blue-900 dark:text-blue-100">
-                        Claude CLI Login
-                      </div>
-                      <div className="text-sm text-blue-700 dark:text-blue-300">
-                        {claudeAuthStatus.authenticated
-                          ? 'Re-authenticate or switch accounts'
-                          : 'Sign in to your Claude account to enable AI features'}
-                      </div>
-                    </div>
-                    <Button
-                      onClick={handleClaudeLogin}
-                      className="bg-blue-600 hover:bg-blue-700 text-white"
-                      size="sm"
-                    >
-                      <LogIn className="w-4 h-4 mr-2" />
-                      Login
-                    </Button>
-                  </div>
-                </div>
               </div>
             </div>
 
@@ -1709,15 +1577,6 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'tools' }) {
           </div>
         </div>
       </div>
-
-      {/* Login Modal */}
-      <LoginModal
-        isOpen={showLoginModal}
-        onClose={() => setShowLoginModal(false)}
-        provider={loginProvider}
-        project={selectedProject}
-        onComplete={handleLoginComplete}
-      />
     </div>
   );
 }

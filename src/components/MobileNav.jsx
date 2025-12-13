@@ -1,5 +1,5 @@
 import React from 'react';
-import { MessageSquare, Folder, Terminal, GitBranch } from 'lucide-react';
+import { MessageSquare, Folder } from 'lucide-react';
 
 function MobileNav({ activeTab, setActiveTab, isInputFocused }) {
   const navItems = [
@@ -9,19 +9,9 @@ function MobileNav({ activeTab, setActiveTab, isInputFocused }) {
       onClick: () => setActiveTab('chat')
     },
     {
-      id: 'shell',
-      icon: Terminal,
-      onClick: () => setActiveTab('shell')
-    },
-    {
       id: 'files',
       icon: Folder,
       onClick: () => setActiveTab('files')
-    },
-    {
-      id: 'git',
-      icon: GitBranch,
-      onClick: () => setActiveTab('git')
     }
   ];
 

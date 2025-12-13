@@ -282,21 +282,6 @@ describe('API Client - Phase 5', () => {
   });
 
   describe('api.user', () => {
-    it('gitConfig() should call GET /api/user/git-config', async () => {
-      await api.user.gitConfig();
-
-      expect(mockFetch).toHaveBeenCalledWith('/api/user/git-config', expect.any(Object));
-    });
-
-    it('updateGitConfig() should call POST /api/user/git-config with name and email', async () => {
-      await api.user.updateGitConfig('John Doe', 'john@example.com');
-
-      expect(mockFetch).toHaveBeenCalledWith('/api/user/git-config', expect.objectContaining({
-        method: 'POST',
-        body: JSON.stringify({ gitName: 'John Doe', gitEmail: 'john@example.com' }),
-      }));
-    });
-
     it('onboardingStatus() should call GET /api/user/onboarding-status', async () => {
       await api.user.onboardingStatus();
 
