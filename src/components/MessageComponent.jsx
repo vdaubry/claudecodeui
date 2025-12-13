@@ -38,7 +38,11 @@ const markdownComponents = {
     return <CodeBlock className={className}>{children}</CodeBlock>;
   },
   pre: ({ children }) => <>{children}</>,
-  p: ({ children }) => <p className="mb-3 last:mb-0">{children}</p>,
+  p: ({ children }) => {
+    // Always use div to avoid invalid DOM nesting during streaming
+    // (block elements like <pre> cannot be inside <p>)
+    return <div className="mb-3 last:mb-0">{children}</div>;
+  },
   ul: ({ children }) => <ul className="list-disc pl-5 mb-3 space-y-1">{children}</ul>,
   ol: ({ children }) => <ol className="list-decimal pl-5 mb-3 space-y-1">{children}</ol>,
   li: ({ children }) => <li className="text-gray-700 dark:text-gray-300">{children}</li>,

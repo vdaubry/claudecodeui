@@ -1,0 +1,248 @@
+import express from 'express';
+import { tasksDb, conversationsDb, projectsDb } from '../database/db.js';
+import { getSessionMessages } from '../services/sessions.js';
+
+const router = express.Router();
+
+/**
+ * GET /api/tasks/:taskId/conversations
+ * List all conversations for a task
+ */
+router.get('/tasks/:taskId/conversations', (req, res) => {
+  try {
+    const userId = req.user.id;
+    const taskId = parseInt(req.params.taskId, 10);
+
+    if (isNaN(taskId)) {
+      return res.status(400).json({ error: 'Invalid task ID' });
+    }
+
+    // Get task with project info to verify ownership
+    const taskWithProject = tasksDb.getWithProject(taskId);
+
+    if (!taskWithProject) {
+      return res.status(404).json({ error: 'Task not found' });
+    }
+
+    // Verify the project belongs to the user
+    if (taskWithProject.user_id !== userId) {
+      return res.status(404).json({ error: 'Task not found' });
+    }
+
+    const conversations = conversationsDb.getByTask(taskId);
+    res.json(conversations);
+  } catch (error) {
+    console.error('Error listing conversations:', error);
+    res.status(500).json({ error: 'Failed to list conversations' });
+  }
+});
+
+/**
+ * POST /api/tasks/:taskId/conversations
+ * Create a new conversation for a task
+ */
+router.post('/tasks/:taskId/conversations', (req, res) => {
+  try {
+    const userId = req.user.id;
+    const taskId = parseInt(req.params.taskId, 10);
+
+    if (isNaN(taskId)) {
+      return res.status(400).json({ error: 'Invalid task ID' });
+    }
+
+    // Get task with project info to verify ownership
+    const taskWithProject = tasksDb.getWithProject(taskId);
+
+    if (!taskWithProject) {
+      return res.status(404).json({ error: 'Task not found' });
+    }
+
+    // Verify the project belongs to the user
+    if (taskWithProject.user_id !== userId) {
+      return res.status(404).json({ error: 'Task not found' });
+    }
+
+    const conversation = conversationsDb.create(taskId);
+    res.status(201).json(conversation);
+  } catch (error) {
+    console.error('Error creating conversation:', error);
+    res.status(500).json({ error: 'Failed to create conversation' });
+  }
+});
+
+/**
+ * GET /api/conversations/:id
+ * Get a specific conversation by ID
+ */
+router.get('/conversations/:id', (req, res) => {
+  try {
+    const userId = req.user.id;
+    const conversationId = parseInt(req.params.id, 10);
+
+    if (isNaN(conversationId)) {
+      return res.status(400).json({ error: 'Invalid conversation ID' });
+    }
+
+    const conversation = conversationsDb.getById(conversationId);
+
+    if (!conversation) {
+      return res.status(404).json({ error: 'Conversation not found' });
+    }
+
+    // Get task with project info to verify ownership
+    const taskWithProject = tasksDb.getWithProject(conversation.task_id);
+
+    if (!taskWithProject || taskWithProject.user_id !== userId) {
+      return res.status(404).json({ error: 'Conversation not found' });
+    }
+
+    res.json(conversation);
+  } catch (error) {
+    console.error('Error getting conversation:', error);
+    res.status(500).json({ error: 'Failed to get conversation' });
+  }
+});
+
+/**
+ * DELETE /api/conversations/:id
+ * Delete a conversation
+ */
+router.delete('/conversations/:id', (req, res) => {
+  try {
+    const userId = req.user.id;
+    const conversationId = parseInt(req.params.id, 10);
+
+    if (isNaN(conversationId)) {
+      return res.status(400).json({ error: 'Invalid conversation ID' });
+    }
+
+    const conversation = conversationsDb.getById(conversationId);
+
+    if (!conversation) {
+      return res.status(404).json({ error: 'Conversation not found' });
+    }
+
+    // Get task with project info to verify ownership
+    const taskWithProject = tasksDb.getWithProject(conversation.task_id);
+
+    if (!taskWithProject || taskWithProject.user_id !== userId) {
+      return res.status(404).json({ error: 'Conversation not found' });
+    }
+
+    const deleted = conversationsDb.delete(conversationId);
+
+    if (!deleted) {
+      return res.status(404).json({ error: 'Conversation not found' });
+    }
+
+    // Note: We do NOT delete Claude's conversation files in ~/.claude/
+    // They are orphaned but harmless (per design decision #15)
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error deleting conversation:', error);
+    res.status(500).json({ error: 'Failed to delete conversation' });
+  }
+});
+
+/**
+ * PATCH /api/conversations/:id/claude-id
+ * Update the Claude conversation ID (called after SDK returns session_id)
+ */
+router.patch('/conversations/:id/claude-id', (req, res) => {
+  try {
+    const userId = req.user.id;
+    const conversationId = parseInt(req.params.id, 10);
+
+    if (isNaN(conversationId)) {
+      return res.status(400).json({ error: 'Invalid conversation ID' });
+    }
+
+    const { claudeConversationId } = req.body;
+
+    if (!claudeConversationId) {
+      return res.status(400).json({ error: 'Claude conversation ID is required' });
+    }
+
+    const conversation = conversationsDb.getById(conversationId);
+
+    if (!conversation) {
+      return res.status(404).json({ error: 'Conversation not found' });
+    }
+
+    // Get task with project info to verify ownership
+    const taskWithProject = tasksDb.getWithProject(conversation.task_id);
+
+    if (!taskWithProject || taskWithProject.user_id !== userId) {
+      return res.status(404).json({ error: 'Conversation not found' });
+    }
+
+    const updated = conversationsDb.updateClaudeId(conversationId, claudeConversationId);
+
+    if (!updated) {
+      return res.status(500).json({ error: 'Failed to update Claude conversation ID' });
+    }
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error updating Claude conversation ID:', error);
+    res.status(500).json({ error: 'Failed to update Claude conversation ID' });
+  }
+});
+
+/**
+ * GET /api/conversations/:id/messages
+ * Get messages for a conversation from Claude's JSONL session files
+ */
+router.get('/conversations/:id/messages', async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const conversationId = parseInt(req.params.id, 10);
+    const limit = req.query.limit ? parseInt(req.query.limit, 10) : null;
+    const offset = req.query.offset ? parseInt(req.query.offset, 10) : 0;
+
+    if (isNaN(conversationId)) {
+      return res.status(400).json({ error: 'Invalid conversation ID' });
+    }
+
+    const conversation = conversationsDb.getById(conversationId);
+
+    if (!conversation) {
+      return res.status(404).json({ error: 'Conversation not found' });
+    }
+
+    // Get task with project info to verify ownership
+    const taskWithProject = tasksDb.getWithProject(conversation.task_id);
+
+    if (!taskWithProject || taskWithProject.user_id !== userId) {
+      return res.status(404).json({ error: 'Conversation not found' });
+    }
+
+    // Check if conversation has a Claude session ID
+    if (!conversation.claude_conversation_id) {
+      return res.json({ messages: [], total: 0, hasMore: false });
+    }
+
+    // Get the project to find the repo folder path
+    const project = projectsDb.getById(taskWithProject.project_id, userId);
+
+    if (!project) {
+      return res.status(404).json({ error: 'Project not found' });
+    }
+
+    // Read messages from Claude's JSONL files
+    const result = await getSessionMessages(
+      conversation.claude_conversation_id,
+      project.repo_folder_path,
+      limit,
+      offset
+    );
+
+    res.json(result);
+  } catch (error) {
+    console.error('Error getting conversation messages:', error);
+    res.status(500).json({ error: 'Failed to get conversation messages' });
+  }
+});
+
+export default router;

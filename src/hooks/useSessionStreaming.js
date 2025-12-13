@@ -73,8 +73,12 @@ export function useSessionStreaming({
     const currentSessionId = selectedSession?.id;
     const messageSessionId = data.session_id;
 
-    // Filter: ignore messages for different sessions
-    if (currentSessionId && messageSessionId && messageSessionId !== currentSessionId) {
+    // For new conversations (session ID starts with "new-"), accept all messages
+    // since we don't know the real Claude session ID yet
+    const isNewConversation = currentSessionId && currentSessionId.startsWith('new-');
+
+    // Filter: ignore messages for different sessions (but not for new conversations)
+    if (!isNewConversation && currentSessionId && messageSessionId && messageSessionId !== currentSessionId) {
       console.log('[useSessionStreaming] Ignoring message for different session:', messageSessionId);
       return;
     }

@@ -53,124 +53,30 @@ import http from 'http';
 import cors from 'cors';
 import { promises as fsPromises } from 'fs';
 import { spawn } from 'child_process';
-import pty from 'node-pty';
 import fetch from 'node-fetch';
 import mime from 'mime-types';
 
-import { getProjects, getSessions, getSessionMessages, renameProject, deleteSession, deleteProject, addProjectManually, extractProjectDirectory, clearProjectDirectoryCache } from './projects.js';
 import { queryClaudeSDK, abortClaudeSDKSession, isClaudeSDKSessionActive, getActiveClaudeSDKSessions } from './claude-sdk.js';
-import { filterProjectsByUserAccess } from './utils/userAccess.js';
-import { spawnCursor, abortCursorSession, isCursorSessionActive, getActiveCursorSessions } from './cursor-cli.js';
-import gitRoutes from './routes/git.js';
 import authRoutes from './routes/auth.js';
 import mcpRoutes from './routes/mcp.js';
-import cursorRoutes from './routes/cursor.js';
-import taskmasterRoutes from './routes/taskmaster.js';
-import mcpUtilsRoutes from './routes/mcp-utils.js';
 import commandsRoutes from './routes/commands.js';
 import settingsRoutes from './routes/settings.js';
 import agentRoutes from './routes/agent.js';
-import projectsRoutes from './routes/projects.js';
 import cliAuthRoutes from './routes/cli-auth.js';
 import userRoutes from './routes/user.js';
-import { initializeDatabase } from './database/db.js';
+import projectsRoutes from './routes/projects.js';
+import tasksRoutes from './routes/tasks.js';
+import conversationsRoutes from './routes/conversations.js';
+import { initializeDatabase, projectsDb, tasksDb, conversationsDb } from './database/db.js';
+import { buildContextPrompt } from './services/documentation.js';
 import { validateApiKey, authenticateToken, authenticateWebSocket } from './middleware/auth.js';
 
-// File system watcher for projects folder
-let projectsWatcher = null;
-const connectedClients = new Set();
 // Track which session each client is subscribed to for targeted message delivery
 const clientSubscriptions = new Map(); // Map<WebSocket, { sessionId: string | null, provider: string }>
-
-// Setup file system watcher for Claude projects folder using chokidar
-async function setupProjectsWatcher() {
-    const chokidar = (await import('chokidar')).default;
-    const claudeProjectsPath = path.join(process.env.HOME, '.claude', 'projects');
-
-    if (projectsWatcher) {
-        projectsWatcher.close();
-    }
-
-    try {
-        // Initialize chokidar watcher with optimized settings
-        projectsWatcher = chokidar.watch(claudeProjectsPath, {
-            ignored: [
-                '**/node_modules/**',
-                '**/.git/**',
-                '**/dist/**',
-                '**/build/**',
-                '**/*.tmp',
-                '**/*.swp',
-                '**/.DS_Store'
-            ],
-            persistent: true,
-            ignoreInitial: true, // Don't fire events for existing files on startup
-            followSymlinks: false,
-            depth: 10, // Reasonable depth limit
-            awaitWriteFinish: {
-                stabilityThreshold: 100, // Wait 100ms for file to stabilize
-                pollInterval: 50
-            }
-        });
-
-        // Debounce function to prevent excessive notifications
-        let debounceTimer;
-        const debouncedUpdate = async (eventType, filePath) => {
-            clearTimeout(debounceTimer);
-            debounceTimer = setTimeout(async () => {
-                try {
-
-                    // Clear project directory cache when files change
-                    clearProjectDirectoryCache();
-
-                    // Get updated projects list
-                    const updatedProjects = await getProjects();
-
-                    // Notify all connected clients about the project changes
-                    const updateMessage = JSON.stringify({
-                        type: 'projects_updated',
-                        projects: updatedProjects,
-                        timestamp: new Date().toISOString(),
-                        changeType: eventType,
-                        changedFile: path.relative(claudeProjectsPath, filePath)
-                    });
-
-                    connectedClients.forEach(client => {
-                        if (client.readyState === WebSocket.OPEN) {
-                            client.send(updateMessage);
-                        }
-                    });
-
-                } catch (error) {
-                    console.error('[ERROR] Error handling project changes:', error);
-                }
-            }, 300); // 300ms debounce (slightly faster than before)
-        };
-
-        // Set up event listeners
-        projectsWatcher
-            .on('add', (filePath) => debouncedUpdate('add', filePath))
-            .on('change', (filePath) => debouncedUpdate('change', filePath))
-            .on('unlink', (filePath) => debouncedUpdate('unlink', filePath))
-            .on('addDir', (dirPath) => debouncedUpdate('addDir', dirPath))
-            .on('unlinkDir', (dirPath) => debouncedUpdate('unlinkDir', dirPath))
-            .on('error', (error) => {
-                console.error('[ERROR] Chokidar watcher error:', error);
-            })
-            .on('ready', () => {
-            });
-
-    } catch (error) {
-        console.error('[ERROR] Failed to setup projects watcher:', error);
-    }
-}
 
 
 const app = express();
 const server = http.createServer(app);
-
-const ptySessionsMap = new Map();
-const PTY_SESSION_TIMEOUT = 30 * 60 * 1000;
 
 // Single WebSocket server that handles both paths
 const wss = new WebSocketServer({
@@ -231,23 +137,8 @@ app.use('/api', validateApiKey);
 // Authentication routes (public)
 app.use('/api/auth', authRoutes);
 
-// Projects API Routes (protected)
-app.use('/api/projects', authenticateToken, projectsRoutes);
-
-// Git API Routes (protected)
-app.use('/api/git', authenticateToken, gitRoutes);
-
 // MCP API Routes (protected)
 app.use('/api/mcp', authenticateToken, mcpRoutes);
-
-// Cursor API Routes (protected)
-app.use('/api/cursor', authenticateToken, cursorRoutes);
-
-// TaskMaster API Routes (protected)
-app.use('/api/taskmaster', authenticateToken, taskmasterRoutes);
-
-// MCP utilities
-app.use('/api/mcp-utils', authenticateToken, mcpUtilsRoutes);
 
 // Commands API Routes (protected)
 app.use('/api/commands', authenticateToken, commandsRoutes);
@@ -264,12 +155,15 @@ app.use('/api/user', authenticateToken, userRoutes);
 // Agent API Routes (uses API key authentication)
 app.use('/api/agent', agentRoutes);
 
+// API Routes - Task-driven workflow (protected)
+app.use('/api/projects', authenticateToken, projectsRoutes);
+app.use('/api', authenticateToken, tasksRoutes);
+app.use('/api', authenticateToken, conversationsRoutes);
+
 // Serve public files (like api-docs.html)
 app.use(express.static(path.join(__dirname, '../public')));
 
 // API Routes (protected)
-// /api/config endpoint removed - no longer needed
-// Frontend now uses window.location for WebSocket URLs
 
 // System update endpoint
 app.post('/api/system/update', authenticateToken, async (req, res) => {
@@ -336,105 +230,6 @@ app.post('/api/system/update', authenticateToken, async (req, res) => {
     }
 });
 
-app.get('/api/projects', authenticateToken, async (req, res) => {
-    try {
-        const allProjects = await getProjects();
-        const filteredProjects = filterProjectsByUserAccess(allProjects, req.user.username);
-        res.json(filteredProjects);
-    } catch (error) {
-        console.error('Error fetching projects:', error);
-        res.status(500).json({ error: error.message });
-    }
-});
-
-app.get('/api/projects/:projectName/sessions', authenticateToken, async (req, res) => {
-    try {
-        const { limit = 5, offset = 0 } = req.query;
-        const result = await getSessions(req.params.projectName, parseInt(limit), parseInt(offset));
-        res.json(result);
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
-});
-
-// Get messages for a specific session
-app.get('/api/projects/:projectName/sessions/:sessionId/messages', authenticateToken, async (req, res) => {
-    try {
-        const { projectName, sessionId } = req.params;
-        const { limit, offset } = req.query;
-        
-        // Parse limit and offset if provided
-        const parsedLimit = limit ? parseInt(limit, 10) : null;
-        const parsedOffset = offset ? parseInt(offset, 10) : 0;
-        
-        const result = await getSessionMessages(projectName, sessionId, parsedLimit, parsedOffset);
-        
-        // Handle both old and new response formats
-        if (Array.isArray(result)) {
-            // Backward compatibility: no pagination parameters were provided
-            res.json({ messages: result });
-        } else {
-            // New format with pagination info
-            res.json(result);
-        }
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
-});
-
-// Rename project endpoint
-app.put('/api/projects/:projectName/rename', authenticateToken, async (req, res) => {
-    try {
-        const { displayName } = req.body;
-        await renameProject(req.params.projectName, displayName);
-        res.json({ success: true });
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
-});
-
-// Delete session endpoint
-app.delete('/api/projects/:projectName/sessions/:sessionId', authenticateToken, async (req, res) => {
-    try {
-        const { projectName, sessionId } = req.params;
-        console.log(`[API] Deleting session: ${sessionId} from project: ${projectName}`);
-        await deleteSession(projectName, sessionId);
-        console.log(`[API] Session ${sessionId} deleted successfully`);
-        res.json({ success: true });
-    } catch (error) {
-        console.error(`[API] Error deleting session ${req.params.sessionId}:`, error);
-        res.status(500).json({ error: error.message });
-    }
-});
-
-// Delete project endpoint (only if empty)
-app.delete('/api/projects/:projectName', authenticateToken, async (req, res) => {
-    try {
-        const { projectName } = req.params;
-        await deleteProject(projectName);
-        res.json({ success: true });
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
-});
-
-// Create project endpoint
-app.post('/api/projects/create', authenticateToken, async (req, res) => {
-    try {
-        const { path: projectPath } = req.body;
-
-        if (!projectPath || !projectPath.trim()) {
-            return res.status(400).json({ error: 'Project path is required' });
-        }
-
-        const project = await addProjectManually(projectPath.trim());
-        res.json({ success: true, project });
-    } catch (error) {
-        console.error('Error creating project:', error);
-        res.status(500).json({ error: error.message });
-    }
-});
-
 // Browse filesystem endpoint for project suggestions - uses existing getFileTree
 app.get('/api/browse-filesystem', authenticateToken, async (req, res) => {    
     try {
@@ -495,184 +290,32 @@ app.get('/api/browse-filesystem', authenticateToken, async (req, res) => {
     }
 });
 
-// Read file content endpoint
-app.get('/api/projects/:projectName/file', authenticateToken, async (req, res) => {
+// Get files for a project (for @ file referencing in chat input)
+app.get('/api/projects/:id/files', authenticateToken, async (req, res) => {
     try {
-        const { projectName } = req.params;
-        const { filePath } = req.query;
+        const userId = req.user.id;
+        const projectId = parseInt(req.params.id, 10);
 
-        console.log('[DEBUG] File read request:', projectName, filePath);
-
-        // Security: ensure the requested path is inside the project root
-        if (!filePath) {
-            return res.status(400).json({ error: 'Invalid file path' });
+        if (isNaN(projectId)) {
+            return res.status(400).json({ error: 'Invalid project ID' });
         }
 
-        const projectRoot = await extractProjectDirectory(projectName).catch(() => null);
-        if (!projectRoot) {
+        const project = projectsDb.getById(projectId, userId);
+
+        if (!project) {
             return res.status(404).json({ error: 'Project not found' });
         }
 
-        // Handle both absolute and relative paths
-        const resolved = path.isAbsolute(filePath)
-            ? path.resolve(filePath)
-            : path.resolve(projectRoot, filePath);
-        const normalizedRoot = path.resolve(projectRoot) + path.sep;
-        if (!resolved.startsWith(normalizedRoot)) {
-            return res.status(403).json({ error: 'Path must be under project root' });
-        }
-
-        const content = await fsPromises.readFile(resolved, 'utf8');
-        res.json({ content, path: resolved });
+        // Get file tree for the project directory
+        const fileTree = await getFileTree(project.repo_folder_path, 4, 0, false); // maxDepth=4, showHidden=false
+        res.json(fileTree);
     } catch (error) {
-        console.error('Error reading file:', error);
-        if (error.code === 'ENOENT') {
-            res.status(404).json({ error: 'File not found' });
-        } else if (error.code === 'EACCES') {
-            res.status(403).json({ error: 'Permission denied' });
-        } else {
-            res.status(500).json({ error: error.message });
-        }
+        console.error('Error getting project files:', error);
+        res.status(500).json({ error: 'Failed to get project files' });
     }
 });
 
-// Serve binary file content endpoint (for images, etc.)
-app.get('/api/projects/:projectName/files/content', authenticateToken, async (req, res) => {
-    try {
-        const { projectName } = req.params;
-        const { path: filePath } = req.query;
-
-        console.log('[DEBUG] Binary file serve request:', projectName, filePath);
-
-        // Security: ensure the requested path is inside the project root
-        if (!filePath) {
-            return res.status(400).json({ error: 'Invalid file path' });
-        }
-
-        const projectRoot = await extractProjectDirectory(projectName).catch(() => null);
-        if (!projectRoot) {
-            return res.status(404).json({ error: 'Project not found' });
-        }
-
-        const resolved = path.resolve(filePath);
-        const normalizedRoot = path.resolve(projectRoot) + path.sep;
-        if (!resolved.startsWith(normalizedRoot)) {
-            return res.status(403).json({ error: 'Path must be under project root' });
-        }
-
-        // Check if file exists
-        try {
-            await fsPromises.access(resolved);
-        } catch (error) {
-            return res.status(404).json({ error: 'File not found' });
-        }
-
-        // Get file extension and set appropriate content type
-        const mimeType = mime.lookup(resolved) || 'application/octet-stream';
-        res.setHeader('Content-Type', mimeType);
-
-        // Stream the file
-        const fileStream = fs.createReadStream(resolved);
-        fileStream.pipe(res);
-
-        fileStream.on('error', (error) => {
-            console.error('Error streaming file:', error);
-            if (!res.headersSent) {
-                res.status(500).json({ error: 'Error reading file' });
-            }
-        });
-
-    } catch (error) {
-        console.error('Error serving binary file:', error);
-        if (!res.headersSent) {
-            res.status(500).json({ error: error.message });
-        }
-    }
-});
-
-// Save file content endpoint
-app.put('/api/projects/:projectName/file', authenticateToken, async (req, res) => {
-    try {
-        const { projectName } = req.params;
-        const { filePath, content } = req.body;
-
-        console.log('[DEBUG] File save request:', projectName, filePath);
-
-        // Security: ensure the requested path is inside the project root
-        if (!filePath) {
-            return res.status(400).json({ error: 'Invalid file path' });
-        }
-
-        if (content === undefined) {
-            return res.status(400).json({ error: 'Content is required' });
-        }
-
-        const projectRoot = await extractProjectDirectory(projectName).catch(() => null);
-        if (!projectRoot) {
-            return res.status(404).json({ error: 'Project not found' });
-        }
-
-        // Handle both absolute and relative paths
-        const resolved = path.isAbsolute(filePath)
-            ? path.resolve(filePath)
-            : path.resolve(projectRoot, filePath);
-        const normalizedRoot = path.resolve(projectRoot) + path.sep;
-        if (!resolved.startsWith(normalizedRoot)) {
-            return res.status(403).json({ error: 'Path must be under project root' });
-        }
-
-        // Write the new content
-        await fsPromises.writeFile(resolved, content, 'utf8');
-
-        res.json({
-            success: true,
-            path: resolved,
-            message: 'File saved successfully'
-        });
-    } catch (error) {
-        console.error('Error saving file:', error);
-        if (error.code === 'ENOENT') {
-            res.status(404).json({ error: 'File or directory not found' });
-        } else if (error.code === 'EACCES') {
-            res.status(403).json({ error: 'Permission denied' });
-        } else {
-            res.status(500).json({ error: error.message });
-        }
-    }
-});
-
-app.get('/api/projects/:projectName/files', authenticateToken, async (req, res) => {
-    try {
-
-        // Using fsPromises from import
-
-        // Use extractProjectDirectory to get the actual project path
-        let actualPath;
-        try {
-            actualPath = await extractProjectDirectory(req.params.projectName);
-        } catch (error) {
-            console.error('Error extracting project directory:', error);
-            // Fallback to simple dash replacement
-            actualPath = req.params.projectName.replace(/-/g, '/');
-        }
-
-        // Check if path exists
-        try {
-            await fsPromises.access(actualPath);
-        } catch (e) {
-            return res.status(404).json({ error: `Project path not found: ${actualPath}` });
-        }
-
-        const files = await getFileTree(actualPath, 10, 0, true);
-        const hiddenFiles = files.filter(f => f.name.startsWith('.'));
-        res.json(files);
-    } catch (error) {
-        console.error('[ERROR] File tree error:', error.message);
-        res.status(500).json({ error: error.message });
-    }
-});
-
-// WebSocket connection handler that routes based on URL path
+// WebSocket connection handler
 wss.on('connection', (ws, request) => {
     const url = request.url;
     console.log('[INFO] Client connected to:', url);
@@ -681,9 +324,7 @@ wss.on('connection', (ws, request) => {
     const urlObj = new URL(url, 'http://localhost');
     const pathname = urlObj.pathname;
 
-    if (pathname === '/shell') {
-        handleShellConnection(ws);
-    } else if (pathname === '/ws') {
+    if (pathname === '/ws') {
         handleChatConnection(ws);
     } else {
         console.log('[WARN] Unknown WebSocket path:', pathname);
@@ -695,9 +336,6 @@ wss.on('connection', (ws, request) => {
 function handleChatConnection(ws) {
     console.log('[INFO] Chat WebSocket connected');
 
-    // Add to connected clients for project updates
-    connectedClients.add(ws);
-
     ws.on('message', async (message) => {
         try {
             const data = JSON.parse(message);
@@ -707,73 +345,120 @@ function handleChatConnection(ws) {
                 console.log('📁 Project:', data.options?.projectPath || 'Unknown');
                 console.log('🔄 Session:', data.options?.sessionId ? 'Resume' : 'New');
 
-                // Use Claude Agents SDK
-                await queryClaudeSDK(data.command, data.options, ws);
-            } else if (data.type === 'cursor-command') {
-                console.log('[DEBUG] Cursor message:', data.command || '[Continue/Resume]');
-                console.log('📁 Project:', data.options?.cwd || 'Unknown');
-                console.log('🔄 Session:', data.options?.sessionId ? 'Resume' : 'New');
-                console.log('🤖 Model:', data.options?.model || 'default');
-                await spawnCursor(data.command, data.options, ws);
-            } else if (data.type === 'cursor-resume') {
-                // Backward compatibility: treat as cursor-command with resume and no prompt
-                console.log('[DEBUG] Cursor resume session (compat):', data.sessionId);
-                await spawnCursor('', {
-                    sessionId: data.sessionId,
-                    resume: true,
-                    cwd: data.options?.cwd
-                }, ws);
-            } else if (data.type === 'abort-session') {
-                console.log('[DEBUG] Abort session request:', data.sessionId);
-                const provider = data.provider || 'claude';
-                let success;
+                // Check for task-based conversation flow
+                const { taskId, conversationId, isNewConversation } = data.options || {};
+                let sdkOptions = { ...data.options };
+                let dbConversationId = null;
 
-                if (provider === 'cursor') {
-                    success = abortCursorSession(data.sessionId);
-                } else {
-                    // Use Claude Agents SDK
-                    success = await abortClaudeSDKSession(data.sessionId);
+                if (taskId && isNewConversation) {
+                    // NEW CONVERSATION FLOW
+                    // 1. Look up task → get project → get repo_folder_path
+                    console.log('[DEBUG] Starting new task-based conversation for taskId:', taskId);
+                    const taskWithProject = tasksDb.getWithProject(taskId);
+
+                    if (!taskWithProject) {
+                        ws.send(JSON.stringify({
+                            type: 'claude-error',
+                            error: `Task ${taskId} not found`
+                        }));
+                        return;
+                    }
+
+                    // 2. Create conversation record in DB
+                    const conversation = conversationsDb.create(taskId);
+                    dbConversationId = conversation.id;
+                    console.log('[DEBUG] Created conversation record:', dbConversationId);
+
+                    // 3. Build context prompt from project.md and task markdown
+                    const contextPrompt = buildContextPrompt(taskWithProject.repo_folder_path, taskId);
+
+                    // 4. Set up SDK options with custom system prompt and cwd
+                    sdkOptions.cwd = taskWithProject.repo_folder_path;
+                    if (contextPrompt) {
+                        sdkOptions.customSystemPrompt = contextPrompt;
+                        console.log('[DEBUG] Injected context prompt length:', contextPrompt.length);
+                    }
+
+                    // 5. Store dbConversationId for session-created callback
+                    sdkOptions._dbConversationId = dbConversationId;
+
+                } else if (conversationId && !isNewConversation) {
+                    // RESUME CONVERSATION FLOW
+                    console.log('[DEBUG] Resuming conversation:', conversationId);
+                    const conversation = conversationsDb.getById(conversationId);
+
+                    if (!conversation) {
+                        ws.send(JSON.stringify({
+                            type: 'claude-error',
+                            error: `Conversation ${conversationId} not found`
+                        }));
+                        return;
+                    }
+
+                    if (!conversation.claude_conversation_id) {
+                        ws.send(JSON.stringify({
+                            type: 'claude-error',
+                            error: `Conversation ${conversationId} has no Claude session ID yet`
+                        }));
+                        return;
+                    }
+
+                    // Get the task and project for cwd
+                    const taskWithProject = tasksDb.getWithProject(conversation.task_id);
+                    if (taskWithProject) {
+                        sdkOptions.cwd = taskWithProject.repo_folder_path;
+                    }
+
+                    // Resume using Claude's session ID
+                    sdkOptions.sessionId = conversation.claude_conversation_id;
+                    dbConversationId = conversationId;
+                    console.log('[DEBUG] Resuming Claude session:', conversation.claude_conversation_id);
                 }
 
+                // Create a wrapper around ws to capture session ID for new task-based conversations
+                const wsWrapper = {
+                    send: ws.send.bind(ws),
+                    setSessionId: (claudeSessionId) => {
+                        // Update the conversation record with Claude's session ID
+                        if (sdkOptions._dbConversationId && claudeSessionId) {
+                            conversationsDb.updateClaudeId(sdkOptions._dbConversationId, claudeSessionId);
+                            console.log('[DEBUG] Updated conversation', sdkOptions._dbConversationId, 'with Claude session:', claudeSessionId);
+
+                            // Also send the dbConversationId to frontend
+                            ws.send(JSON.stringify({
+                                type: 'conversation-created',
+                                conversationId: sdkOptions._dbConversationId,
+                                claudeSessionId
+                            }));
+                        }
+                    }
+                };
+
+                // Use Claude Agents SDK
+                await queryClaudeSDK(data.command, sdkOptions, wsWrapper);
+            } else if (data.type === 'abort-session') {
+                console.log('[DEBUG] Abort session request:', data.sessionId);
+                const success = await abortClaudeSDKSession(data.sessionId);
+
                 ws.send(JSON.stringify({
                     type: 'session-aborted',
                     sessionId: data.sessionId,
-                    provider,
-                    success
-                }));
-            } else if (data.type === 'cursor-abort') {
-                console.log('[DEBUG] Abort Cursor session:', data.sessionId);
-                const success = abortCursorSession(data.sessionId);
-                ws.send(JSON.stringify({
-                    type: 'session-aborted',
-                    sessionId: data.sessionId,
-                    provider: 'cursor',
                     success
                 }));
             } else if (data.type === 'check-session-status') {
                 // Check if a specific session is currently processing
-                const provider = data.provider || 'claude';
                 const sessionId = data.sessionId;
-                let isActive;
-
-                if (provider === 'cursor') {
-                    isActive = isCursorSessionActive(sessionId);
-                } else {
-                    // Use Claude Agents SDK
-                    isActive = isClaudeSDKSessionActive(sessionId);
-                }
+                const isActive = isClaudeSDKSessionActive(sessionId);
 
                 ws.send(JSON.stringify({
                     type: 'session-status',
                     sessionId,
-                    provider,
                     isProcessing: isActive
                 }));
             } else if (data.type === 'get-active-sessions') {
                 // Get all currently active sessions
                 const activeSessions = {
-                    claude: getActiveClaudeSDKSessions(),
-                    cursor: getActiveCursorSessions()
+                    claude: getActiveClaudeSDKSessions()
                 };
                 ws.send(JSON.stringify({
                     type: 'active-sessions',
@@ -816,299 +501,11 @@ function handleChatConnection(ws) {
 
     ws.on('close', () => {
         console.log('🔌 Chat client disconnected');
-        // Remove from connected clients and clean up subscription
-        connectedClients.delete(ws);
+        // Clean up subscription
         clientSubscriptions.delete(ws);
     });
 }
 
-// Handle shell WebSocket connections
-function handleShellConnection(ws) {
-    console.log('🐚 Shell client connected');
-    let shellProcess = null;
-    let ptySessionKey = null;
-    let outputBuffer = [];
-
-    ws.on('message', async (message) => {
-        try {
-            const data = JSON.parse(message);
-            console.log('📨 Shell message received:', data.type);
-
-            if (data.type === 'init') {
-                const projectPath = data.projectPath || process.cwd();
-                const sessionId = data.sessionId;
-                const hasSession = data.hasSession;
-                const provider = data.provider || 'claude';
-                const initialCommand = data.initialCommand;
-                const isPlainShell = data.isPlainShell || (!!initialCommand && !hasSession) || provider === 'plain-shell';
-
-                ptySessionKey = `${projectPath}_${sessionId || 'default'}`;
-
-                const existingSession = ptySessionsMap.get(ptySessionKey);
-                if (existingSession) {
-                    console.log('♻️  Reconnecting to existing PTY session:', ptySessionKey);
-                    shellProcess = existingSession.pty;
-
-                    clearTimeout(existingSession.timeoutId);
-
-                    ws.send(JSON.stringify({
-                        type: 'output',
-                        data: `\x1b[36m[Reconnected to existing session]\x1b[0m\r\n`
-                    }));
-
-                    if (existingSession.buffer && existingSession.buffer.length > 0) {
-                        console.log(`📜 Sending ${existingSession.buffer.length} buffered messages`);
-                        existingSession.buffer.forEach(bufferedData => {
-                            ws.send(JSON.stringify({
-                                type: 'output',
-                                data: bufferedData
-                            }));
-                        });
-                    }
-
-                    existingSession.ws = ws;
-
-                    return;
-                }
-
-                console.log('[INFO] Starting shell in:', projectPath);
-                console.log('📋 Session info:', hasSession ? `Resume session ${sessionId}` : (isPlainShell ? 'Plain shell mode' : 'New session'));
-                console.log('🤖 Provider:', isPlainShell ? 'plain-shell' : provider);
-                if (initialCommand) {
-                    console.log('⚡ Initial command:', initialCommand);
-                }
-
-                // First send a welcome message
-                let welcomeMsg;
-                if (isPlainShell) {
-                    welcomeMsg = `\x1b[36mStarting terminal in: ${projectPath}\x1b[0m\r\n`;
-                } else {
-                    const providerName = provider === 'cursor' ? 'Cursor' : 'Claude';
-                    welcomeMsg = hasSession ?
-                        `\x1b[36mResuming ${providerName} session ${sessionId} in: ${projectPath}\x1b[0m\r\n` :
-                        `\x1b[36mStarting new ${providerName} session in: ${projectPath}\x1b[0m\r\n`;
-                }
-
-                ws.send(JSON.stringify({
-                    type: 'output',
-                    data: welcomeMsg
-                }));
-
-                try {
-                    // Prepare the shell command adapted to the platform and provider
-                    let shellCommand;
-                    if (isPlainShell) {
-                        // Plain shell mode - just run the initial command in the project directory
-                        if (os.platform() === 'win32') {
-                            shellCommand = `Set-Location -Path "${projectPath}"; ${initialCommand}`;
-                        } else {
-                            shellCommand = `cd "${projectPath}" && ${initialCommand}`;
-                        }
-                    } else if (provider === 'cursor') {
-                        // Use cursor-agent command
-                        if (os.platform() === 'win32') {
-                            if (hasSession && sessionId) {
-                                shellCommand = `Set-Location -Path "${projectPath}"; cursor-agent --resume="${sessionId}"`;
-                            } else {
-                                shellCommand = `Set-Location -Path "${projectPath}"; cursor-agent`;
-                            }
-                        } else {
-                            if (hasSession && sessionId) {
-                                shellCommand = `cd "${projectPath}" && cursor-agent --resume="${sessionId}"`;
-                            } else {
-                                shellCommand = `cd "${projectPath}" && cursor-agent`;
-                            }
-                        }
-                    } else {
-                        // Use claude command (default) or initialCommand if provided
-                        const command = initialCommand || 'claude';
-                        if (os.platform() === 'win32') {
-                            if (hasSession && sessionId) {
-                                // Try to resume session, but with fallback to new session if it fails
-                                shellCommand = `Set-Location -Path "${projectPath}"; claude --resume ${sessionId}; if ($LASTEXITCODE -ne 0) { claude }`;
-                            } else {
-                                shellCommand = `Set-Location -Path "${projectPath}"; ${command}`;
-                            }
-                        } else {
-                            if (hasSession && sessionId) {
-                                shellCommand = `cd "${projectPath}" && claude --resume ${sessionId} || claude`;
-                            } else {
-                                shellCommand = `cd "${projectPath}" && ${command}`;
-                            }
-                        }
-                    }
-
-                    console.log('🔧 Executing shell command:', shellCommand);
-
-                    // Use appropriate shell based on platform
-                    const shell = os.platform() === 'win32' ? 'powershell.exe' : 'bash';
-                    const shellArgs = os.platform() === 'win32' ? ['-Command', shellCommand] : ['-c', shellCommand];
-
-                    // Use terminal dimensions from client if provided, otherwise use defaults
-                    const termCols = data.cols || 80;
-                    const termRows = data.rows || 24;
-                    console.log('📐 Using terminal dimensions:', termCols, 'x', termRows);
-
-                    shellProcess = pty.spawn(shell, shellArgs, {
-                        name: 'xterm-256color',
-                        cols: termCols,
-                        rows: termRows,
-                        cwd: process.env.HOME || (os.platform() === 'win32' ? process.env.USERPROFILE : '/'),
-                        env: {
-                            ...process.env,
-                            TERM: 'xterm-256color',
-                            COLORTERM: 'truecolor',
-                            FORCE_COLOR: '3',
-                            // Override browser opening commands to echo URL for detection
-                            BROWSER: os.platform() === 'win32' ? 'echo "OPEN_URL:"' : 'echo "OPEN_URL:"'
-                        }
-                    });
-
-                    console.log('🟢 Shell process started with PTY, PID:', shellProcess.pid);
-
-                    ptySessionsMap.set(ptySessionKey, {
-                        pty: shellProcess,
-                        ws: ws,
-                        buffer: [],
-                        timeoutId: null,
-                        projectPath,
-                        sessionId
-                    });
-
-                    // Handle data output
-                    shellProcess.onData((data) => {
-                        const session = ptySessionsMap.get(ptySessionKey);
-                        if (!session) return;
-
-                        if (session.buffer.length < 5000) {
-                            session.buffer.push(data);
-                        } else {
-                            session.buffer.shift();
-                            session.buffer.push(data);
-                        }
-
-                        if (session.ws && session.ws.readyState === WebSocket.OPEN) {
-                            let outputData = data;
-
-                            // Check for various URL opening patterns
-                            const patterns = [
-                                // Direct browser opening commands
-                                /(?:xdg-open|open|start)\s+(https?:\/\/[^\s\x1b\x07]+)/g,
-                                // BROWSER environment variable override
-                                /OPEN_URL:\s*(https?:\/\/[^\s\x1b\x07]+)/g,
-                                // Git and other tools opening URLs
-                                /Opening\s+(https?:\/\/[^\s\x1b\x07]+)/gi,
-                                // General URL patterns that might be opened
-                                /Visit:\s*(https?:\/\/[^\s\x1b\x07]+)/gi,
-                                /View at:\s*(https?:\/\/[^\s\x1b\x07]+)/gi,
-                                /Browse to:\s*(https?:\/\/[^\s\x1b\x07]+)/gi
-                            ];
-
-                            patterns.forEach(pattern => {
-                                let match;
-                                while ((match = pattern.exec(data)) !== null) {
-                                    const url = match[1];
-                                    console.log('[DEBUG] Detected URL for opening:', url);
-
-                                    // Send URL opening message to client
-                                    session.ws.send(JSON.stringify({
-                                        type: 'url_open',
-                                        url: url
-                                    }));
-
-                                    // Replace the OPEN_URL pattern with a user-friendly message
-                                    if (pattern.source.includes('OPEN_URL')) {
-                                        outputData = outputData.replace(match[0], `[INFO] Opening in browser: ${url}`);
-                                    }
-                                }
-                            });
-
-                            // Send regular output
-                            session.ws.send(JSON.stringify({
-                                type: 'output',
-                                data: outputData
-                            }));
-                        }
-                    });
-
-                    // Handle process exit
-                    shellProcess.onExit((exitCode) => {
-                        console.log('🔚 Shell process exited with code:', exitCode.exitCode, 'signal:', exitCode.signal);
-                        const session = ptySessionsMap.get(ptySessionKey);
-                        if (session && session.ws && session.ws.readyState === WebSocket.OPEN) {
-                            session.ws.send(JSON.stringify({
-                                type: 'output',
-                                data: `\r\n\x1b[33mProcess exited with code ${exitCode.exitCode}${exitCode.signal ? ` (${exitCode.signal})` : ''}\x1b[0m\r\n`
-                            }));
-                        }
-                        if (session && session.timeoutId) {
-                            clearTimeout(session.timeoutId);
-                        }
-                        ptySessionsMap.delete(ptySessionKey);
-                        shellProcess = null;
-                    });
-
-                } catch (spawnError) {
-                    console.error('[ERROR] Error spawning process:', spawnError);
-                    ws.send(JSON.stringify({
-                        type: 'output',
-                        data: `\r\n\x1b[31mError: ${spawnError.message}\x1b[0m\r\n`
-                    }));
-                }
-
-            } else if (data.type === 'input') {
-                // Send input to shell process
-                if (shellProcess && shellProcess.write) {
-                    try {
-                        shellProcess.write(data.data);
-                    } catch (error) {
-                        console.error('Error writing to shell:', error);
-                    }
-                } else {
-                    console.warn('No active shell process to send input to');
-                }
-            } else if (data.type === 'resize') {
-                // Handle terminal resize
-                if (shellProcess && shellProcess.resize) {
-                    console.log('Terminal resize requested:', data.cols, 'x', data.rows);
-                    shellProcess.resize(data.cols, data.rows);
-                }
-            }
-        } catch (error) {
-            console.error('[ERROR] Shell WebSocket error:', error.message);
-            if (ws.readyState === WebSocket.OPEN) {
-                ws.send(JSON.stringify({
-                    type: 'output',
-                    data: `\r\n\x1b[31mError: ${error.message}\x1b[0m\r\n`
-                }));
-            }
-        }
-    });
-
-    ws.on('close', () => {
-        console.log('🔌 Shell client disconnected');
-
-        if (ptySessionKey) {
-            const session = ptySessionsMap.get(ptySessionKey);
-            if (session) {
-                console.log('⏳ PTY session kept alive, will timeout in 30 minutes:', ptySessionKey);
-                session.ws = null;
-
-                session.timeoutId = setTimeout(() => {
-                    console.log('⏰ PTY session timeout, killing process:', ptySessionKey);
-                    if (session.pty && session.pty.kill) {
-                        session.pty.kill();
-                    }
-                    ptySessionsMap.delete(ptySessionKey);
-                }, PTY_SESSION_TIMEOUT);
-            }
-        }
-    });
-
-    ws.on('error', (error) => {
-        console.error('[ERROR] Shell WebSocket error:', error);
-    });
-}
 // Audio transcription endpoint
 app.post('/api/transcribe', authenticateToken, async (req, res) => {
     try {
@@ -1290,183 +687,6 @@ Agent instructions:`;
     }
 });
 
-// Image upload endpoint
-app.post('/api/projects/:projectName/upload-images', authenticateToken, async (req, res) => {
-    try {
-        const multer = (await import('multer')).default;
-        const path = (await import('path')).default;
-        const fs = (await import('fs')).promises;
-        const os = (await import('os')).default;
-
-        // Configure multer for image uploads
-        const storage = multer.diskStorage({
-            destination: async (req, file, cb) => {
-                const uploadDir = path.join(os.tmpdir(), 'claude-ui-uploads', String(req.user.id));
-                await fs.mkdir(uploadDir, { recursive: true });
-                cb(null, uploadDir);
-            },
-            filename: (req, file, cb) => {
-                const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-                const sanitizedName = file.originalname.replace(/[^a-zA-Z0-9.-]/g, '_');
-                cb(null, uniqueSuffix + '-' + sanitizedName);
-            }
-        });
-
-        const fileFilter = (req, file, cb) => {
-            const allowedMimes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/svg+xml'];
-            if (allowedMimes.includes(file.mimetype)) {
-                cb(null, true);
-            } else {
-                cb(new Error('Invalid file type. Only JPEG, PNG, GIF, WebP, and SVG are allowed.'));
-            }
-        };
-
-        const upload = multer({
-            storage,
-            fileFilter,
-            limits: {
-                fileSize: 5 * 1024 * 1024, // 5MB
-                files: 5
-            }
-        });
-
-        // Handle multipart form data
-        upload.array('images', 5)(req, res, async (err) => {
-            if (err) {
-                return res.status(400).json({ error: err.message });
-            }
-
-            if (!req.files || req.files.length === 0) {
-                return res.status(400).json({ error: 'No image files provided' });
-            }
-
-            try {
-                // Process uploaded images
-                const processedImages = await Promise.all(
-                    req.files.map(async (file) => {
-                        // Read file and convert to base64
-                        const buffer = await fs.readFile(file.path);
-                        const base64 = buffer.toString('base64');
-                        const mimeType = file.mimetype;
-
-                        // Clean up temp file immediately
-                        await fs.unlink(file.path);
-
-                        return {
-                            name: file.originalname,
-                            data: `data:${mimeType};base64,${base64}`,
-                            size: file.size,
-                            mimeType: mimeType
-                        };
-                    })
-                );
-
-                res.json({ images: processedImages });
-            } catch (error) {
-                console.error('Error processing images:', error);
-                // Clean up any remaining files
-                await Promise.all(req.files.map(f => fs.unlink(f.path).catch(() => { })));
-                res.status(500).json({ error: 'Failed to process images' });
-            }
-        });
-    } catch (error) {
-        console.error('Error in image upload endpoint:', error);
-        res.status(500).json({ error: 'Internal server error' });
-    }
-});
-
-// Get token usage for a specific session
-app.get('/api/projects/:projectName/sessions/:sessionId/token-usage', authenticateToken, async (req, res) => {
-  try {
-    const { projectName, sessionId } = req.params;
-    const homeDir = os.homedir();
-
-    // Extract actual project path
-    let projectPath;
-    try {
-      projectPath = await extractProjectDirectory(projectName);
-    } catch (error) {
-      console.error('Error extracting project directory:', error);
-      return res.status(500).json({ error: 'Failed to determine project path' });
-    }
-
-    // Construct the JSONL file path
-    // Claude stores session files in ~/.claude/projects/[encoded-project-path]/[session-id].jsonl
-    // The encoding replaces /, spaces, ~, and _ with -
-    const encodedPath = projectPath.replace(/[\\/:\s~_]/g, '-');
-    const projectDir = path.join(homeDir, '.claude', 'projects', encodedPath);
-
-    // Allow only safe characters in sessionId
-    const safeSessionId = String(sessionId).replace(/[^a-zA-Z0-9._-]/g, '');
-    if (!safeSessionId) {
-      return res.status(400).json({ error: 'Invalid sessionId' });
-    }
-    const jsonlPath = path.join(projectDir, `${safeSessionId}.jsonl`);
-
-    // Constrain to projectDir
-    const rel = path.relative(path.resolve(projectDir), path.resolve(jsonlPath));
-    if (rel.startsWith('..') || path.isAbsolute(rel)) {
-      return res.status(400).json({ error: 'Invalid path' });
-    }
-
-    // Read and parse the JSONL file
-    let fileContent;
-    try {
-      fileContent = await fsPromises.readFile(jsonlPath, 'utf8');
-    } catch (error) {
-      if (error.code === 'ENOENT') {
-        return res.status(404).json({ error: 'Session file not found', path: jsonlPath });
-      }
-      throw error; // Re-throw other errors to be caught by outer try-catch
-    }
-    const lines = fileContent.trim().split('\n');
-
-    const parsedContextWindow = parseInt(process.env.CONTEXT_WINDOW, 10);
-    const contextWindow = Number.isFinite(parsedContextWindow) ? parsedContextWindow : 160000;
-    let inputTokens = 0;
-    let cacheCreationTokens = 0;
-    let cacheReadTokens = 0;
-
-    // Find the latest assistant message with usage data (scan from end)
-    for (let i = lines.length - 1; i >= 0; i--) {
-      try {
-        const entry = JSON.parse(lines[i]);
-
-        // Only count assistant messages which have usage data
-        if (entry.type === 'assistant' && entry.message?.usage) {
-          const usage = entry.message.usage;
-
-          // Use token counts from latest assistant message only
-          inputTokens = usage.input_tokens || 0;
-          cacheCreationTokens = usage.cache_creation_input_tokens || 0;
-          cacheReadTokens = usage.cache_read_input_tokens || 0;
-
-          break; // Stop after finding the latest assistant message
-        }
-      } catch (parseError) {
-        // Skip lines that can't be parsed
-        continue;
-      }
-    }
-
-    // Calculate total context usage (excluding output_tokens, as per ccusage)
-    const totalUsed = inputTokens + cacheCreationTokens + cacheReadTokens;
-
-    res.json({
-      used: totalUsed,
-      total: contextWindow,
-      breakdown: {
-        input: inputTokens,
-        cacheCreation: cacheCreationTokens,
-        cacheRead: cacheReadTokens
-      }
-    });
-  } catch (error) {
-    console.error('Error reading session token usage:', error);
-    res.status(500).json({ error: 'Failed to read session token usage' });
-  }
-});
-
 // Backend only serves API routes - frontend is handled by Vite on port 5173
 
 // Helper function to convert permissions to rwx format
@@ -1574,9 +794,6 @@ async function startServer() {
             console.log(`${c.info('[INFO]')} Installed at: ${c.dim(appInstallPath)}`);
             console.log(`${c.tip('[TIP]')}  Run "cloudcli status" for full configuration details`);
             console.log('');
-
-            // Start watching the projects folder for changes
-            await setupProjectsWatcher();
         });
     } catch (error) {
         console.error('[ERROR] Failed to start server:', error);

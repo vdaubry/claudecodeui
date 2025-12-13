@@ -77,13 +77,13 @@ const MessageInput = memo(function MessageInput({
   // Fetch project files when project changes
   useEffect(() => {
     const fetchProjectFiles = async () => {
-      if (!selectedProject?.name) {
+      if (!selectedProject?.id) {
         setFileList([]);
         return;
       }
 
       try {
-        const response = await api.getFiles(selectedProject.name);
+        const response = await api.getFiles(selectedProject.id);
         if (response.ok) {
           const files = await response.json();
           const flatFiles = flattenFileTree(files);
@@ -95,7 +95,7 @@ const MessageInput = memo(function MessageInput({
     };
 
     fetchProjectFiles();
-  }, [selectedProject?.name]);
+  }, [selectedProject?.id]);
 
   // Detect @ symbol and filter files
   useEffect(() => {
@@ -414,7 +414,7 @@ const MessageInput = memo(function MessageInput({
           </div>
         )}
 
-        <div className="flex items-end gap-3">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
           <textarea
             ref={textareaRef}
             value={input}
@@ -424,28 +424,30 @@ const MessageInput = memo(function MessageInput({
             onClick={(e) => setCursorPosition(e.target.selectionStart)}
             onSelect={(e) => setCursorPosition(e.target.selectionStart)}
             placeholder="Type / for commands, @ for files, or ask Claude anything..."
-            className="flex-1 resize-none rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-4 py-2 text-sm text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            className="w-full sm:flex-1 resize-none rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-4 py-2 text-sm text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
             rows={rows}
             disabled={!isConnected || isSending || isStreaming}
           />
-          <MicButton
-            onTranscript={(transcript) => {
-              setInput(transcript);
-              // Focus the textarea after transcription
-              requestAnimationFrame(() => {
-                if (textareaRef.current) {
-                  textareaRef.current.focus();
-                }
-              });
-            }}
-          />
-          <button
-            type="submit"
-            disabled={!input.trim() || !isConnected || isSending || isStreaming}
-            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-          >
-            {isSending || isStreaming ? submitLabelLoading : submitLabel}
-          </button>
+          <div className="flex items-center gap-3 justify-end">
+            <MicButton
+              onTranscript={(transcript) => {
+                setInput(transcript);
+                // Focus the textarea after transcription
+                requestAnimationFrame(() => {
+                  if (textareaRef.current) {
+                    textareaRef.current.focus();
+                  }
+                });
+              }}
+            />
+            <button
+              type="submit"
+              disabled={!input.trim() || !isConnected || isSending || isStreaming}
+              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              {isSending || isStreaming ? submitLabelLoading : submitLabel}
+            </button>
+          </div>
         </div>
       </form>
       {showConnectionWarning && !isConnected && (

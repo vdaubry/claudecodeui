@@ -2,14 +2,9 @@ import { useState, useEffect } from 'react';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Badge } from './ui/badge';
-import { X, Plus, Settings as SettingsIcon, Shield, AlertTriangle, Moon, Sun, Server, Edit3, Trash2, Globe, Terminal, Zap, FolderOpen, LogIn, Key, GitBranch, Check } from 'lucide-react';
+import { X, Plus, Settings as SettingsIcon, Shield, AlertTriangle, Moon, Sun, Server, Edit3, Trash2, Globe, Zap, FolderOpen, Key, Terminal } from 'lucide-react';
 import { useTheme } from '../contexts/ThemeContext';
-import ClaudeLogo from './ClaudeLogo';
-import CursorLogo from './CursorLogo';
 import CredentialsSettings from './CredentialsSettings';
-import GitSettings from './GitSettings';
-import TasksSettings from './TasksSettings';
-import LoginModal from './LoginModal';
 import { authenticatedFetch } from '../utils/api';
 
 function Settings({ isOpen, onClose, projects = [], initialTab = 'tools' }) {
@@ -48,7 +43,6 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'tools' }) {
   const [mcpToolsLoading, setMcpToolsLoading] = useState({});
   const [activeTab, setActiveTab] = useState(initialTab);
   const [jsonValidationError, setJsonValidationError] = useState('');
-  const [toolsProvider, setToolsProvider] = useState('claude'); // 'claude' or 'cursor'
 
   // Code Editor settings
   const [codeEditorTheme, setCodeEditorTheme] = useState(() =>
@@ -66,37 +60,9 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'tools' }) {
   const [codeEditorFontSize, setCodeEditorFontSize] = useState(() =>
     localStorage.getItem('codeEditorFontSize') || '14'
   );
-  
-  // Cursor-specific states
-  const [cursorAllowedCommands, setCursorAllowedCommands] = useState([]);
-  const [cursorDisallowedCommands, setCursorDisallowedCommands] = useState([]);
-  const [cursorSkipPermissions, setCursorSkipPermissions] = useState(false);
-  const [newCursorCommand, setNewCursorCommand] = useState('');
-  const [newCursorDisallowedCommand, setNewCursorDisallowedCommand] = useState('');
-  const [cursorMcpServers, setCursorMcpServers] = useState([]);
-
-  const [showLoginModal, setShowLoginModal] = useState(false);
-  const [loginProvider, setLoginProvider] = useState('');
-  const [selectedProject, setSelectedProject] = useState(null);
-
-  const [claudeAuthStatus, setClaudeAuthStatus] = useState({
-    authenticated: false,
-    email: null,
-    loading: true,
-    error: null
-  });
-  const [cursorAuthStatus, setCursorAuthStatus] = useState({
-    authenticated: false,
-    email: null,
-    loading: true,
-    error: null
-  });
 
   // Common tool patterns for Claude
   const commonTools = [
-    'Bash(git log:*)',
-    'Bash(git diff:*)',
-    'Bash(git status:*)',
     'Write',
     'Read',
     'Edit',
@@ -109,39 +75,7 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'tools' }) {
     'WebFetch',
     'WebSearch'
   ];
-  
-  // Common shell commands for Cursor
-  const commonCursorCommands = [
-    'Shell(ls)',
-    'Shell(mkdir)',
-    'Shell(cd)',
-    'Shell(cat)',
-    'Shell(echo)',
-    'Shell(git status)',
-    'Shell(git diff)',
-    'Shell(git log)',
-    'Shell(npm install)',
-    'Shell(npm run)',
-    'Shell(python)',
-    'Shell(node)'
-  ];
 
-  // Fetch Cursor MCP servers
-  const fetchCursorMcpServers = async () => {
-    try {
-      const response = await authenticatedFetch('/api/cursor/mcp');
-
-      if (response.ok) {
-        const data = await response.json();
-        setCursorMcpServers(data.servers || []);
-      } else {
-        console.error('Failed to fetch Cursor MCP servers');
-      }
-    } catch (error) {
-      console.error('Error fetching Cursor MCP servers:', error);
-    }
-  };
-  
   // MCP API functions
   const fetchMcpServers = async () => {
     try {
@@ -306,8 +240,6 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'tools' }) {
   useEffect(() => {
     if (isOpen) {
       loadSettings();
-      checkClaudeAuthStatus();
-      checkCursorAuthStatus();
       setActiveTab(initialTab);
     }
   }, [isOpen, initialTab]);
@@ -357,118 +289,15 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'tools' }) {
         setSkipPermissions(false);
         setProjectSortOrder('name');
       }
-      
-      // Load Cursor settings from localStorage
-      const savedCursorSettings = localStorage.getItem('cursor-tools-settings');
-      
-      if (savedCursorSettings) {
-        const cursorSettings = JSON.parse(savedCursorSettings);
-        setCursorAllowedCommands(cursorSettings.allowedCommands || []);
-        setCursorDisallowedCommands(cursorSettings.disallowedCommands || []);
-        setCursorSkipPermissions(cursorSettings.skipPermissions || false);
-      } else {
-        // Set Cursor defaults
-        setCursorAllowedCommands([]);
-        setCursorDisallowedCommands([]);
-        setCursorSkipPermissions(false);
-      }
 
       // Load MCP servers from API
       await fetchMcpServers();
-      
-      // Load Cursor MCP servers
-      await fetchCursorMcpServers();
     } catch (error) {
       console.error('Error loading tool settings:', error);
       setAllowedTools([]);
       setDisallowedTools([]);
       setSkipPermissions(false);
       setProjectSortOrder('name');
-    }
-  };
-
-  const checkClaudeAuthStatus = async () => {
-    try {
-      const response = await authenticatedFetch('/api/cli/claude/status');
-
-      if (response.ok) {
-        const data = await response.json();
-        setClaudeAuthStatus({
-          authenticated: data.authenticated,
-          email: data.email,
-          loading: false,
-          error: data.error || null
-        });
-      } else {
-        setClaudeAuthStatus({
-          authenticated: false,
-          email: null,
-          loading: false,
-          error: 'Failed to check authentication status'
-        });
-      }
-    } catch (error) {
-      console.error('Error checking Claude auth status:', error);
-      setClaudeAuthStatus({
-        authenticated: false,
-        email: null,
-        loading: false,
-        error: error.message
-      });
-    }
-  };
-
-  const checkCursorAuthStatus = async () => {
-    try {
-      const response = await authenticatedFetch('/api/cli/cursor/status');
-
-      if (response.ok) {
-        const data = await response.json();
-        setCursorAuthStatus({
-          authenticated: data.authenticated,
-          email: data.email,
-          loading: false,
-          error: data.error || null
-        });
-      } else {
-        setCursorAuthStatus({
-          authenticated: false,
-          email: null,
-          loading: false,
-          error: 'Failed to check authentication status'
-        });
-      }
-    } catch (error) {
-      console.error('Error checking Cursor auth status:', error);
-      setCursorAuthStatus({
-        authenticated: false,
-        email: null,
-        loading: false,
-        error: error.message
-      });
-    }
-  };
-  const handleClaudeLogin = () => {
-    setLoginProvider('claude');
-    setSelectedProject(projects?.[0] || { name: 'default', fullPath: process.cwd() });
-    setShowLoginModal(true);
-  };
-
-  const handleCursorLogin = () => {
-    setLoginProvider('cursor');
-    setSelectedProject(projects?.[0] || { name: 'default', fullPath: process.cwd() });
-    setShowLoginModal(true);
-  };
-
-  const handleLoginComplete = (exitCode) => {
-    if (exitCode === 0) {
-      setSaveStatus('success');
-
-      if (loginProvider === 'claude') {
-        checkClaudeAuthStatus();
-      } else if (loginProvider === 'cursor') {
-        checkCursorAuthStatus();
-      }
     }
   };
 
@@ -485,19 +314,10 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'tools' }) {
         projectSortOrder,
         lastUpdated: new Date().toISOString()
       };
-      
-      // Save Cursor settings
-      const cursorSettings = {
-        allowedCommands: cursorAllowedCommands,
-        disallowedCommands: cursorDisallowedCommands,
-        skipPermissions: cursorSkipPermissions,
-        lastUpdated: new Date().toISOString()
-      };
-      
+
       // Save to localStorage
       localStorage.setItem('claude-settings', JSON.stringify(claudeSettings));
-      localStorage.setItem('cursor-tools-settings', JSON.stringify(cursorSettings));
-      
+
       setSaveStatus('success');
       
       setTimeout(() => {
@@ -736,17 +556,6 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'tools' }) {
                 Appearance
               </button>
               <button
-                onClick={() => setActiveTab('git')}
-                className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
-                  activeTab === 'git'
-                    ? 'border-blue-600 text-blue-600 dark:text-blue-400'
-                    : 'border-transparent text-muted-foreground hover:text-foreground'
-                }`}
-              >
-                <GitBranch className="w-4 h-4 inline mr-2" />
-                Git
-              </button>
-              <button
                 onClick={() => setActiveTab('api')}
                 className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
                   activeTab === 'api'
@@ -756,16 +565,6 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'tools' }) {
               >
                 <Key className="w-4 h-4 inline mr-2" />
                 API & Tokens
-              </button>
-              <button
-                onClick={() => setActiveTab('tasks')}
-                className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
-                  activeTab === 'tasks'
-                    ? 'border-blue-600 text-blue-600 dark:text-blue-400'
-                    : 'border-transparent text-muted-foreground hover:text-foreground'
-                }`}
-              >
-                Tasks
               </button>
             </div>
           </div>
@@ -994,49 +793,10 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'tools' }) {
               </div>
             )}
 
-            {/* Git Tab */}
-            {activeTab === 'git' && <GitSettings />}
-
             {/* Tools Tab */}
             {activeTab === 'tools' && (
               <div className="space-y-6 md:space-y-8">
-            
-            {/* Provider Tabs */}
-            <div className="border-b border-gray-300 dark:border-gray-600">
-              <div className="flex gap-4">
-                <button
-                  onClick={() => setToolsProvider('claude')}
-                  className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
-                    toolsProvider === 'claude'
-                      ? 'border-blue-600 text-blue-600 dark:text-blue-400'
-                      : 'border-transparent text-muted-foreground hover:text-foreground'
-                  }`}
-                >
-                  <div className="flex items-center gap-2">
-                    <ClaudeLogo className="w-4 h-4" />
-                    <span>Claude</span>
-                  </div>
-                </button>
-                <button
-                  onClick={() => setToolsProvider('cursor')}
-                  className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
-                    toolsProvider === 'cursor'
-                      ? 'border-purple-600 text-purple-600 dark:text-purple-400'
-                      : 'border-transparent text-muted-foreground hover:text-foreground'
-                  }`}
-                >
-                  <div className="flex items-center gap-2">
-                    <CursorLogo className="w-4 h-4" />
-                    <span>Cursor</span>
-                  </div>
-                </button>
-              </div>
-            </div>
-            
-            {/* Claude Content */}
-            {toolsProvider === 'claude' && (
-              <div className="space-y-6 md:space-y-8">
-            
+
             {/* Skip Permissions */}
             <div className="space-y-4">
               <div className="flex items-center gap-3">
@@ -1062,62 +822,6 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'tools' }) {
                     </div>
                   </div>
                 </label>
-              </div>
-            </div>
-
-            <div className="space-y-4">
-              <div className="flex items-center gap-3">
-                <LogIn className="w-5 h-5 text-blue-500" />
-                <h3 className="text-lg font-medium text-foreground">
-                  Authentication
-                </h3>
-              </div>
-              <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
-                <div className="space-y-3">
-                  <div className="flex items-center gap-2">
-                    {claudeAuthStatus.loading ? (
-                      <span className="text-sm text-blue-700 dark:text-blue-300">
-                        Checking authentication...
-                      </span>
-                    ) : claudeAuthStatus.authenticated ? (
-                      <div className="flex items-center gap-2">
-                        <Badge variant="success" className="bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300">
-                          ✓ Logged in
-                        </Badge>
-                        {claudeAuthStatus.email && (
-                          <span className="text-sm text-blue-700 dark:text-blue-300">
-                            as {claudeAuthStatus.email}
-                          </span>
-                        )}
-                      </div>
-                    ) : (
-                      <Badge variant="secondary" className="bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-300">
-                        Not authenticated
-                      </Badge>
-                    )}
-                  </div>
-
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <div className="font-medium text-blue-900 dark:text-blue-100">
-                        Claude CLI Login
-                      </div>
-                      <div className="text-sm text-blue-700 dark:text-blue-300">
-                        {claudeAuthStatus.authenticated
-                          ? 'Re-authenticate or switch accounts'
-                          : 'Sign in to your Claude account to enable AI features'}
-                      </div>
-                    </div>
-                    <Button
-                      onClick={handleClaudeLogin}
-                      className="bg-blue-600 hover:bg-blue-700 text-white"
-                      size="sm"
-                    >
-                      <LogIn className="w-4 h-4 mr-2" />
-                      Login
-                    </Button>
-                  </div>
-                </div>
               </div>
             </div>
 
@@ -1818,279 +1522,6 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'tools' }) {
             )}
               </div>
             )}
-            
-            {/* Cursor Content */}
-            {toolsProvider === 'cursor' && (
-              <div className="space-y-6 md:space-y-8">
-                
-                {/* Skip Permissions for Cursor */}
-                <div className="space-y-4">
-                  <div className="flex items-center gap-3">
-                    <AlertTriangle className="w-5 h-5 text-orange-500" />
-                    <h3 className="text-lg font-medium text-foreground">
-                      Cursor Permission Settings
-                    </h3>
-                  </div>
-                  <div className="bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800 rounded-lg p-4">
-                    <label className="flex items-center gap-3">
-                      <input
-                        type="checkbox"
-                        checked={cursorSkipPermissions}
-                        onChange={(e) => setCursorSkipPermissions(e.target.checked)}
-                        className="w-4 h-4 text-blue-600 bg-gray-100 dark:bg-gray-700 border-gray-300 dark:border-gray-600 rounded focus:ring-blue-500 focus:ring-2 checked:bg-blue-600 dark:checked:bg-blue-600"
-                      />
-                      <div>
-                        <div className="font-medium text-orange-900 dark:text-orange-100">
-                          Skip permission prompts (use with caution)
-                        </div>
-                        <div className="text-sm text-orange-700 dark:text-orange-300">
-                          Equivalent to -f flag in Cursor CLI
-                        </div>
-                      </div>
-                    </label>
-                  </div>
-                </div>
-
-                <div className="space-y-4">
-                  <div className="flex items-center gap-3">
-                    <LogIn className="w-5 h-5 text-purple-500" />
-                    <h3 className="text-lg font-medium text-foreground">
-                      Authentication
-                    </h3>
-                  </div>
-                  <div className="bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800 rounded-lg p-4">
-                    <div className="space-y-3">
-                      <div className="flex items-center gap-2">
-                        {cursorAuthStatus.loading ? (
-                          <span className="text-sm text-purple-700 dark:text-purple-300">
-                            Checking authentication...
-                          </span>
-                        ) : cursorAuthStatus.authenticated ? (
-                          <div className="flex items-center gap-2">
-                            <Badge variant="success" className="bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300">
-                              ✓ Logged in
-                            </Badge>
-                            {cursorAuthStatus.email && (
-                              <span className="text-sm text-purple-700 dark:text-purple-300">
-                                as {cursorAuthStatus.email}
-                              </span>
-                            )}
-                          </div>
-                        ) : (
-                          <Badge variant="secondary" className="bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-300">
-                            Not authenticated
-                          </Badge>
-                        )}
-                      </div>
-
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <div className="font-medium text-purple-900 dark:text-purple-100">
-                            Cursor CLI Login
-                          </div>
-                          <div className="text-sm text-purple-700 dark:text-purple-300">
-                            {cursorAuthStatus.authenticated
-                              ? 'Re-authenticate or switch accounts'
-                              : 'Sign in to your Cursor account to enable AI features'}
-                          </div>
-                        </div>
-                        <Button
-                          onClick={handleCursorLogin}
-                          className="bg-purple-600 hover:bg-purple-700 text-white"
-                          size="sm"
-                        >
-                          <LogIn className="w-4 h-4 mr-2" />
-                          Login
-                        </Button>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Allowed Shell Commands */}
-                <div className="space-y-4">
-                  <div className="flex items-center gap-3">
-                    <Shield className="w-5 h-5 text-green-500" />
-                    <h3 className="text-lg font-medium text-foreground">
-                      Allowed Shell Commands
-                    </h3>
-                  </div>
-                  <p className="text-sm text-muted-foreground">
-                    Shell commands that are automatically allowed without prompting for permission
-                  </p>
-                  
-                  <div className="flex flex-col sm:flex-row gap-2">
-                    <Input
-                      value={newCursorCommand}
-                      onChange={(e) => setNewCursorCommand(e.target.value)}
-                      placeholder='e.g., "Shell(ls)" or "Shell(git status)"'
-                      onKeyPress={(e) => {
-                        if (e.key === 'Enter') {
-                          if (newCursorCommand && !cursorAllowedCommands.includes(newCursorCommand)) {
-                            setCursorAllowedCommands([...cursorAllowedCommands, newCursorCommand]);
-                            setNewCursorCommand('');
-                          }
-                        }
-                      }}
-                      className="flex-1 h-10 touch-manipulation"
-                      style={{ fontSize: '16px' }}
-                    />
-                    <Button
-                      onClick={() => {
-                        if (newCursorCommand && !cursorAllowedCommands.includes(newCursorCommand)) {
-                          setCursorAllowedCommands([...cursorAllowedCommands, newCursorCommand]);
-                          setNewCursorCommand('');
-                        }
-                      }}
-                      disabled={!newCursorCommand}
-                      size="sm"
-                      className="h-10 px-4 touch-manipulation"
-                    >
-                      <Plus className="w-4 h-4 mr-2 sm:mr-0" />
-                      <span className="sm:hidden">Add Command</span>
-                    </Button>
-                  </div>
-
-                  {/* Common commands quick add */}
-                  <div className="space-y-2">
-                    <p className="text-sm font-medium text-gray-700 dark:text-gray-300">
-                      Quick add common commands:
-                    </p>
-                    <div className="grid grid-cols-2 sm:flex sm:flex-wrap gap-2">
-                      {commonCursorCommands.map(cmd => (
-                        <Button
-                          key={cmd}
-                          variant="outline"
-                          size="sm"
-                          onClick={() => {
-                            if (!cursorAllowedCommands.includes(cmd)) {
-                              setCursorAllowedCommands([...cursorAllowedCommands, cmd]);
-                            }
-                          }}
-                          disabled={cursorAllowedCommands.includes(cmd)}
-                          className="text-xs h-8 touch-manipulation truncate"
-                        >
-                          {cmd}
-                        </Button>
-                      ))}
-                    </div>
-                  </div>
-
-                  <div className="space-y-2">
-                    {cursorAllowedCommands.map(cmd => (
-                      <div key={cmd} className="flex items-center justify-between bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg p-3">
-                        <span className="font-mono text-sm text-green-800 dark:text-green-200">
-                          {cmd}
-                        </span>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => setCursorAllowedCommands(cursorAllowedCommands.filter(c => c !== cmd))}
-                          className="text-green-600 hover:text-green-700 dark:text-green-400 dark:hover:text-green-300"
-                        >
-                          <X className="w-4 h-4" />
-                        </Button>
-                      </div>
-                    ))}
-                    {cursorAllowedCommands.length === 0 && (
-                      <div className="text-center py-8 text-gray-500 dark:text-gray-400">
-                        No allowed shell commands configured
-                      </div>
-                    )}
-                  </div>
-                </div>
-                
-                {/* Disallowed Shell Commands */}
-                <div className="space-y-4">
-                  <div className="flex items-center gap-3">
-                    <Shield className="w-5 h-5 text-red-500" />
-                    <h3 className="text-lg font-medium text-foreground">
-                      Disallowed Shell Commands
-                    </h3>
-                  </div>
-                  <p className="text-sm text-muted-foreground">
-                    Shell commands that should always be denied
-                  </p>
-                  
-                  <div className="flex flex-col sm:flex-row gap-2">
-                    <Input
-                      value={newCursorDisallowedCommand}
-                      onChange={(e) => setNewCursorDisallowedCommand(e.target.value)}
-                      placeholder='e.g., "Shell(rm -rf)" or "Shell(sudo)"'
-                      onKeyPress={(e) => {
-                        if (e.key === 'Enter') {
-                          if (newCursorDisallowedCommand && !cursorDisallowedCommands.includes(newCursorDisallowedCommand)) {
-                            setCursorDisallowedCommands([...cursorDisallowedCommands, newCursorDisallowedCommand]);
-                            setNewCursorDisallowedCommand('');
-                          }
-                        }
-                      }}
-                      className="flex-1 h-10 touch-manipulation"
-                      style={{ fontSize: '16px' }}
-                    />
-                    <Button
-                      onClick={() => {
-                        if (newCursorDisallowedCommand && !cursorDisallowedCommands.includes(newCursorDisallowedCommand)) {
-                          setCursorDisallowedCommands([...cursorDisallowedCommands, newCursorDisallowedCommand]);
-                          setNewCursorDisallowedCommand('');
-                        }
-                      }}
-                      disabled={!newCursorDisallowedCommand}
-                      size="sm"
-                      className="h-10 px-4 touch-manipulation"
-                    >
-                      <Plus className="w-4 h-4 mr-2 sm:mr-0" />
-                      <span className="sm:hidden">Add Command</span>
-                    </Button>
-                  </div>
-
-                  <div className="space-y-2">
-                    {cursorDisallowedCommands.map(cmd => (
-                      <div key={cmd} className="flex items-center justify-between bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-3">
-                        <span className="font-mono text-sm text-red-800 dark:text-red-200">
-                          {cmd}
-                        </span>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => setCursorDisallowedCommands(cursorDisallowedCommands.filter(c => c !== cmd))}
-                          className="text-red-600 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300"
-                        >
-                          <X className="w-4 h-4" />
-                        </Button>
-                      </div>
-                    ))}
-                    {cursorDisallowedCommands.length === 0 && (
-                      <div className="text-center py-8 text-gray-500 dark:text-gray-400">
-                        No disallowed shell commands configured
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                {/* Help Section */}
-                <div className="bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800 rounded-lg p-4">
-                  <h4 className="font-medium text-purple-900 dark:text-purple-100 mb-2">
-                    Cursor Shell Command Examples:
-                  </h4>
-                  <ul className="text-sm text-purple-800 dark:text-purple-200 space-y-1">
-                    <li><code className="bg-purple-100 dark:bg-purple-800 px-1 rounded">"Shell(ls)"</code> - Allow ls command</li>
-                    <li><code className="bg-purple-100 dark:bg-purple-800 px-1 rounded">"Shell(git status)"</code> - Allow git status command</li>
-                    <li><code className="bg-purple-100 dark:bg-purple-800 px-1 rounded">"Shell(mkdir)"</code> - Allow mkdir command</li>
-                    <li><code className="bg-purple-100 dark:bg-purple-800 px-1 rounded">"-f"</code> flag - Skip all permission prompts (dangerous)</li>
-                  </ul>
-                </div>
-              </div>
-            )}
-              </div>
-            )}
-
-            {/* Tasks Tab */}
-            {activeTab === 'tasks' && (
-              <div className="space-y-6 md:space-y-8">
-                <TasksSettings />
-              </div>
-            )}
 
             {/* API & Tokens Tab */}
             {activeTab === 'api' && (
@@ -2146,15 +1577,6 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'tools' }) {
           </div>
         </div>
       </div>
-
-      {/* Login Modal */}
-      <LoginModal
-        isOpen={showLoginModal}
-        onClose={() => setShowLoginModal(false)}
-        provider={loginProvider}
-        project={selectedProject}
-        onComplete={handleLoginComplete}
-      />
     </div>
   );
 }

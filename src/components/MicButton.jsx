@@ -188,7 +188,7 @@ export function MicButton({ onTranscript, className = '' }) {
   const getButtonAppearance = () => {
     if (!isSupported) {
       return {
-        icon: <Mic className="w-5 h-5" />,
+        icon: <Mic className="w-5 h-5 text-gray-200" />,
         className: 'bg-gray-400 cursor-not-allowed',
         disabled: true
       };
@@ -203,19 +203,19 @@ export function MicButton({ onTranscript, className = '' }) {
         };
       case 'transcribing':
         return {
-          icon: <Loader2 className="w-5 h-5 animate-spin" />,
+          icon: <Loader2 className="w-5 h-5 text-white animate-spin" />,
           className: 'bg-blue-500 hover:bg-blue-600',
           disabled: true
         };
       case 'processing':
         return {
-          icon: <Brain className="w-5 h-5 animate-pulse" />,
+          icon: <Brain className="w-5 h-5 text-white animate-pulse" />,
           className: 'bg-purple-500 hover:bg-purple-600',
           disabled: true
         };
       default: // idle
         return {
-          icon: <Mic className="w-5 h-5" />,
+          icon: <Mic className="w-5 h-5 text-white" />,
           className: 'bg-gray-700 hover:bg-gray-600',
           disabled: false
         };

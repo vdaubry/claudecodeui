@@ -45,53 +45,81 @@ export const api = {
     logout: () => authenticatedFetch('/api/auth/logout', { method: 'POST' }),
   },
 
-  // Protected endpoints
-  // config endpoint removed - no longer needed (frontend uses window.location)
-  projects: () => authenticatedFetch('/api/projects'),
-  sessions: (projectName, limit = 5, offset = 0) => 
-    authenticatedFetch(`/api/projects/${projectName}/sessions?limit=${limit}&offset=${offset}`),
-  sessionMessages: (projectName, sessionId, limit = null, offset = 0) => {
-    const params = new URLSearchParams();
-    if (limit !== null) {
-      params.append('limit', limit);
-      params.append('offset', offset);
-    }
-    const queryString = params.toString();
-    const url = `/api/projects/${projectName}/sessions/${sessionId}/messages${queryString ? `?${queryString}` : ''}`;
-    return authenticatedFetch(url);
+  // Task-driven workflow API
+  // Projects API
+  projects: {
+    list: () => authenticatedFetch('/api/projects'),
+    create: (name, repoFolderPath) =>
+      authenticatedFetch('/api/projects', {
+        method: 'POST',
+        body: JSON.stringify({ name, repoFolderPath }),
+      }),
+    get: (id) => authenticatedFetch(`/api/projects/${id}`),
+    update: (id, data) =>
+      authenticatedFetch(`/api/projects/${id}`, {
+        method: 'PUT',
+        body: JSON.stringify(data),
+      }),
+    delete: (id) =>
+      authenticatedFetch(`/api/projects/${id}`, {
+        method: 'DELETE',
+      }),
+    getDoc: (id) => authenticatedFetch(`/api/projects/${id}/documentation`),
+    saveDoc: (id, content) =>
+      authenticatedFetch(`/api/projects/${id}/documentation`, {
+        method: 'PUT',
+        body: JSON.stringify({ content }),
+      }),
   },
-  renameProject: (projectName, displayName) =>
-    authenticatedFetch(`/api/projects/${projectName}/rename`, {
-      method: 'PUT',
-      body: JSON.stringify({ displayName }),
-    }),
-  deleteSession: (projectName, sessionId) =>
-    authenticatedFetch(`/api/projects/${projectName}/sessions/${sessionId}`, {
-      method: 'DELETE',
-    }),
-  deleteProject: (projectName) =>
-    authenticatedFetch(`/api/projects/${projectName}`, {
-      method: 'DELETE',
-    }),
-  createProject: (path) =>
-    authenticatedFetch('/api/projects/create', {
-      method: 'POST',
-      body: JSON.stringify({ path }),
-    }),
-  createWorkspace: (workspaceData) =>
-    authenticatedFetch('/api/projects/create-workspace', {
-      method: 'POST',
-      body: JSON.stringify(workspaceData),
-    }),
-  readFile: (projectName, filePath) =>
-    authenticatedFetch(`/api/projects/${projectName}/file?filePath=${encodeURIComponent(filePath)}`),
-  saveFile: (projectName, filePath, content) =>
-    authenticatedFetch(`/api/projects/${projectName}/file`, {
-      method: 'PUT',
-      body: JSON.stringify({ filePath, content }),
-    }),
-  getFiles: (projectName) =>
-    authenticatedFetch(`/api/projects/${projectName}/files`),
+
+  // Tasks API
+  tasks: {
+    list: (projectId) => authenticatedFetch(`/api/projects/${projectId}/tasks`),
+    create: (projectId, title) =>
+      authenticatedFetch(`/api/projects/${projectId}/tasks`, {
+        method: 'POST',
+        body: JSON.stringify({ title }),
+      }),
+    get: (id) => authenticatedFetch(`/api/tasks/${id}`),
+    update: (id, data) =>
+      authenticatedFetch(`/api/tasks/${id}`, {
+        method: 'PUT',
+        body: JSON.stringify(data),
+      }),
+    delete: (id) =>
+      authenticatedFetch(`/api/tasks/${id}`, {
+        method: 'DELETE',
+      }),
+    getDoc: (id) => authenticatedFetch(`/api/tasks/${id}/documentation`),
+    saveDoc: (id, content) =>
+      authenticatedFetch(`/api/tasks/${id}/documentation`, {
+        method: 'PUT',
+        body: JSON.stringify({ content }),
+      }),
+  },
+
+  // Conversations API
+  conversations: {
+    list: (taskId) => authenticatedFetch(`/api/tasks/${taskId}/conversations`),
+    create: (taskId) =>
+      authenticatedFetch(`/api/tasks/${taskId}/conversations`, {
+        method: 'POST',
+      }),
+    get: (id) => authenticatedFetch(`/api/conversations/${id}`),
+    delete: (id) =>
+      authenticatedFetch(`/api/conversations/${id}`, {
+        method: 'DELETE',
+      }),
+    getMessages: (id, limit = null, offset = 0) => {
+      const params = new URLSearchParams();
+      if (limit) params.append('limit', limit);
+      if (offset) params.append('offset', offset);
+      const queryString = params.toString();
+      return authenticatedFetch(`/api/conversations/${id}/messages${queryString ? '?' + queryString : ''}`);
+    },
+  },
+
+  // Voice transcription
   transcribe: (formData) =>
     authenticatedFetch('/api/transcribe', {
       method: 'POST',
@@ -106,47 +134,6 @@ export const api = {
       body: JSON.stringify({ projectPath: projectPath || '' }),
     }),
 
-  // TaskMaster endpoints
-  taskmaster: {
-    // Initialize TaskMaster in a project
-    init: (projectName) => 
-      authenticatedFetch(`/api/taskmaster/init/${projectName}`, {
-        method: 'POST',
-      }),
-    
-    // Add a new task
-    addTask: (projectName, { prompt, title, description, priority, dependencies }) =>
-      authenticatedFetch(`/api/taskmaster/add-task/${projectName}`, {
-        method: 'POST',
-        body: JSON.stringify({ prompt, title, description, priority, dependencies }),
-      }),
-    
-    // Parse PRD to generate tasks
-    parsePRD: (projectName, { fileName, numTasks, append }) =>
-      authenticatedFetch(`/api/taskmaster/parse-prd/${projectName}`, {
-        method: 'POST',
-        body: JSON.stringify({ fileName, numTasks, append }),
-      }),
-
-    // Get available PRD templates
-    getTemplates: () =>
-      authenticatedFetch('/api/taskmaster/prd-templates'),
-
-    // Apply a PRD template
-    applyTemplate: (projectName, { templateId, fileName, customizations }) =>
-      authenticatedFetch(`/api/taskmaster/apply-template/${projectName}`, {
-        method: 'POST',
-        body: JSON.stringify({ templateId, fileName, customizations }),
-      }),
-
-    // Update a task
-    updateTask: (projectName, taskId, updates) =>
-      authenticatedFetch(`/api/taskmaster/update-task/${projectName}/${taskId}`, {
-        method: 'PUT',
-        body: JSON.stringify(updates),
-      }),
-  },
-  
   // Browse filesystem for project suggestions
   browseFilesystem: (dirPath = null) => {
     const params = new URLSearchParams();
@@ -155,14 +142,12 @@ export const api = {
     return authenticatedFetch(`/api/browse-filesystem?${params}`);
   },
 
+  // Get files for a project (for @ file referencing)
+  getFiles: (projectId) =>
+    authenticatedFetch(`/api/projects/${projectId}/files`),
+
   // User endpoints
   user: {
-    gitConfig: () => authenticatedFetch('/api/user/git-config'),
-    updateGitConfig: (gitName, gitEmail) =>
-      authenticatedFetch('/api/user/git-config', {
-        method: 'POST',
-        body: JSON.stringify({ gitName, gitEmail }),
-      }),
     onboardingStatus: () => authenticatedFetch('/api/user/onboarding-status'),
     completeOnboarding: () =>
       authenticatedFetch('/api/user/complete-onboarding', {

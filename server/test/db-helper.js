@@ -1,0 +1,168 @@
+import Database from 'better-sqlite3';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+/**
+ * Creates a fresh in-memory SQLite database for testing.
+ * Returns the database instance and helper functions.
+ */
+export function createTestDatabase() {
+  // Create an in-memory database
+  const db = new Database(':memory:');
+
+  // Read and execute the init.sql to create all tables
+  const initSqlPath = path.join(__dirname, '../database/init.sql');
+  const initSql = fs.readFileSync(initSqlPath, 'utf8');
+  db.exec(initSql);
+
+  // Create helper functions that mirror the db.js operations but use this test db
+  const userDb = {
+    createUser: (username, passwordHash) => {
+      const stmt = db.prepare('INSERT INTO users (username, password_hash) VALUES (?, ?)');
+      const result = stmt.run(username, passwordHash);
+      return { id: result.lastInsertRowid, username };
+    },
+    getUserById: (userId) => {
+      return db.prepare('SELECT id, username, created_at, last_login FROM users WHERE id = ? AND is_active = 1').get(userId);
+    }
+  };
+
+  const projectsDb = {
+    create: (userId, name, repoFolderPath) => {
+      const stmt = db.prepare('INSERT INTO projects (user_id, name, repo_folder_path) VALUES (?, ?, ?)');
+      const result = stmt.run(userId, name, repoFolderPath);
+      return { id: result.lastInsertRowid, userId, name, repoFolderPath };
+    },
+    getAll: (userId) => {
+      return db.prepare('SELECT * FROM projects WHERE user_id = ? ORDER BY updated_at DESC').all(userId);
+    },
+    getById: (id, userId) => {
+      return db.prepare('SELECT * FROM projects WHERE id = ? AND user_id = ?').get(id, userId);
+    },
+    update: (id, userId, updates) => {
+      const allowedFields = ['name', 'repo_folder_path'];
+      const setClause = [];
+      const values = [];
+
+      for (const field of allowedFields) {
+        if (updates[field] !== undefined) {
+          setClause.push(`${field === 'repo_folder_path' ? 'repo_folder_path' : field} = ?`);
+          values.push(updates[field]);
+        }
+      }
+
+      if (setClause.length === 0) {
+        return projectsDb.getById(id, userId);
+      }
+
+      setClause.push('updated_at = CURRENT_TIMESTAMP');
+      values.push(id, userId);
+
+      const stmt = db.prepare(`UPDATE projects SET ${setClause.join(', ')} WHERE id = ? AND user_id = ?`);
+      const result = stmt.run(...values);
+
+      if (result.changes === 0) {
+        return null;
+      }
+
+      return projectsDb.getById(id, userId);
+    },
+    delete: (id, userId) => {
+      const stmt = db.prepare('DELETE FROM projects WHERE id = ? AND user_id = ?');
+      const result = stmt.run(id, userId);
+      return result.changes > 0;
+    }
+  };
+
+  const tasksDb = {
+    create: (projectId, title = null) => {
+      const stmt = db.prepare('INSERT INTO tasks (project_id, title) VALUES (?, ?)');
+      const result = stmt.run(projectId, title);
+      return { id: result.lastInsertRowid, projectId, title };
+    },
+    getByProject: (projectId) => {
+      return db.prepare('SELECT * FROM tasks WHERE project_id = ? ORDER BY created_at DESC').all(projectId);
+    },
+    getById: (id) => {
+      return db.prepare('SELECT * FROM tasks WHERE id = ?').get(id);
+    },
+    getWithProject: (taskId) => {
+      return db.prepare(`
+        SELECT t.*, p.user_id, p.name as project_name, p.repo_folder_path
+        FROM tasks t
+        JOIN projects p ON t.project_id = p.id
+        WHERE t.id = ?
+      `).get(taskId);
+    },
+    update: (id, updates) => {
+      const allowedFields = ['title'];
+      const setClause = [];
+      const values = [];
+
+      for (const field of allowedFields) {
+        if (updates[field] !== undefined) {
+          setClause.push(`${field} = ?`);
+          values.push(updates[field]);
+        }
+      }
+
+      if (setClause.length === 0) {
+        return tasksDb.getById(id);
+      }
+
+      setClause.push('updated_at = CURRENT_TIMESTAMP');
+      values.push(id);
+
+      const stmt = db.prepare(`UPDATE tasks SET ${setClause.join(', ')} WHERE id = ?`);
+      const result = stmt.run(...values);
+
+      if (result.changes === 0) {
+        return null;
+      }
+
+      return tasksDb.getById(id);
+    },
+    delete: (id) => {
+      const stmt = db.prepare('DELETE FROM tasks WHERE id = ?');
+      const result = stmt.run(id);
+      return result.changes > 0;
+    }
+  };
+
+  const conversationsDb = {
+    create: (taskId) => {
+      const stmt = db.prepare('INSERT INTO conversations (task_id) VALUES (?)');
+      const result = stmt.run(taskId);
+      return { id: result.lastInsertRowid, taskId, claudeConversationId: null };
+    },
+    getByTask: (taskId) => {
+      return db.prepare('SELECT * FROM conversations WHERE task_id = ? ORDER BY created_at DESC').all(taskId);
+    },
+    getById: (id) => {
+      return db.prepare('SELECT * FROM conversations WHERE id = ?').get(id);
+    },
+    updateClaudeId: (id, claudeConversationId) => {
+      const stmt = db.prepare('UPDATE conversations SET claude_conversation_id = ? WHERE id = ?');
+      const result = stmt.run(claudeConversationId, id);
+      return result.changes > 0;
+    },
+    delete: (id) => {
+      const stmt = db.prepare('DELETE FROM conversations WHERE id = ?');
+      const result = stmt.run(id);
+      return result.changes > 0;
+    }
+  };
+
+  return {
+    db,
+    userDb,
+    projectsDb,
+    tasksDb,
+    conversationsDb,
+    close: () => db.close()
+  };
+}
