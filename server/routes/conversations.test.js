@@ -13,11 +13,20 @@ vi.mock('../database/db.js', () => ({
     getById: vi.fn(),
     updateClaudeId: vi.fn(),
     delete: vi.fn()
+  },
+  projectsDb: {
+    getById: vi.fn()
   }
 }));
 
+// Mock the sessions service
+vi.mock('../services/sessions.js', () => ({
+  getSessionMessages: vi.fn()
+}));
+
 import conversationsRoutes from './conversations.js';
-import { tasksDb, conversationsDb } from '../database/db.js';
+import { tasksDb, conversationsDb, projectsDb } from '../database/db.js';
+import { getSessionMessages } from '../services/sessions.js';
 
 describe('Conversations Routes - Phase 3', () => {
   let app;
@@ -32,10 +41,10 @@ describe('Conversations Routes - Phase 3', () => {
       req.user = { id: testUserId, username: 'testuser' };
       next();
     });
-    app.use('/api/v2', conversationsRoutes);
+    app.use('/api', conversationsRoutes);
   });
 
-  describe('GET /api/v2/tasks/:taskId/conversations', () => {
+  describe('GET /api/tasks/:taskId/conversations', () => {
     it('should return all conversations for a task', async () => {
       const mockTaskWithProject = { id: 1, user_id: testUserId };
       const mockConversations = [
@@ -45,7 +54,7 @@ describe('Conversations Routes - Phase 3', () => {
       tasksDb.getWithProject.mockReturnValue(mockTaskWithProject);
       conversationsDb.getByTask.mockReturnValue(mockConversations);
 
-      const response = await request(app).get('/api/v2/tasks/1/conversations');
+      const response = await request(app).get('/api/tasks/1/conversations');
 
       expect(response.status).toBe(200);
       expect(response.body).toEqual(mockConversations);
@@ -56,7 +65,7 @@ describe('Conversations Routes - Phase 3', () => {
     it('should return 404 if task not found', async () => {
       tasksDb.getWithProject.mockReturnValue(undefined);
 
-      const response = await request(app).get('/api/v2/tasks/999/conversations');
+      const response = await request(app).get('/api/tasks/999/conversations');
 
       expect(response.status).toBe(404);
       expect(response.body.error).toBe('Task not found');
@@ -66,14 +75,14 @@ describe('Conversations Routes - Phase 3', () => {
       const mockTaskWithProject = { id: 1, user_id: 999 };
       tasksDb.getWithProject.mockReturnValue(mockTaskWithProject);
 
-      const response = await request(app).get('/api/v2/tasks/1/conversations');
+      const response = await request(app).get('/api/tasks/1/conversations');
 
       expect(response.status).toBe(404);
       expect(response.body.error).toBe('Task not found');
     });
   });
 
-  describe('POST /api/v2/tasks/:taskId/conversations', () => {
+  describe('POST /api/tasks/:taskId/conversations', () => {
     it('should create a new conversation', async () => {
       const mockTaskWithProject = { id: 1, user_id: testUserId };
       const newConversation = { id: 1, taskId: 1, claudeConversationId: null };
@@ -81,7 +90,7 @@ describe('Conversations Routes - Phase 3', () => {
       conversationsDb.create.mockReturnValue(newConversation);
 
       const response = await request(app)
-        .post('/api/v2/tasks/1/conversations')
+        .post('/api/tasks/1/conversations')
         .send({});
 
       expect(response.status).toBe(201);
@@ -93,7 +102,7 @@ describe('Conversations Routes - Phase 3', () => {
       tasksDb.getWithProject.mockReturnValue(undefined);
 
       const response = await request(app)
-        .post('/api/v2/tasks/999/conversations')
+        .post('/api/tasks/999/conversations')
         .send({});
 
       expect(response.status).toBe(404);
@@ -101,14 +110,14 @@ describe('Conversations Routes - Phase 3', () => {
     });
   });
 
-  describe('GET /api/v2/conversations/:id', () => {
+  describe('GET /api/conversations/:id', () => {
     it('should return a conversation by ID', async () => {
       const mockConversation = { id: 1, task_id: 1, claude_conversation_id: 'claude-1' };
       const mockTaskWithProject = { id: 1, user_id: testUserId };
       conversationsDb.getById.mockReturnValue(mockConversation);
       tasksDb.getWithProject.mockReturnValue(mockTaskWithProject);
 
-      const response = await request(app).get('/api/v2/conversations/1');
+      const response = await request(app).get('/api/conversations/1');
 
       expect(response.status).toBe(200);
       expect(response.body).toEqual(mockConversation);
@@ -117,7 +126,7 @@ describe('Conversations Routes - Phase 3', () => {
     it('should return 404 if conversation not found', async () => {
       conversationsDb.getById.mockReturnValue(undefined);
 
-      const response = await request(app).get('/api/v2/conversations/999');
+      const response = await request(app).get('/api/conversations/999');
 
       expect(response.status).toBe(404);
       expect(response.body.error).toBe('Conversation not found');
@@ -129,14 +138,14 @@ describe('Conversations Routes - Phase 3', () => {
       conversationsDb.getById.mockReturnValue(mockConversation);
       tasksDb.getWithProject.mockReturnValue(mockTaskWithProject);
 
-      const response = await request(app).get('/api/v2/conversations/1');
+      const response = await request(app).get('/api/conversations/1');
 
       expect(response.status).toBe(404);
       expect(response.body.error).toBe('Conversation not found');
     });
   });
 
-  describe('DELETE /api/v2/conversations/:id', () => {
+  describe('DELETE /api/conversations/:id', () => {
     it('should delete a conversation', async () => {
       const mockConversation = { id: 1, task_id: 1 };
       const mockTaskWithProject = { id: 1, user_id: testUserId };
@@ -144,7 +153,7 @@ describe('Conversations Routes - Phase 3', () => {
       tasksDb.getWithProject.mockReturnValue(mockTaskWithProject);
       conversationsDb.delete.mockReturnValue(true);
 
-      const response = await request(app).delete('/api/v2/conversations/1');
+      const response = await request(app).delete('/api/conversations/1');
 
       expect(response.status).toBe(200);
       expect(response.body).toEqual({ success: true });
@@ -154,14 +163,14 @@ describe('Conversations Routes - Phase 3', () => {
     it('should return 404 if conversation not found', async () => {
       conversationsDb.getById.mockReturnValue(undefined);
 
-      const response = await request(app).delete('/api/v2/conversations/999');
+      const response = await request(app).delete('/api/conversations/999');
 
       expect(response.status).toBe(404);
       expect(response.body.error).toBe('Conversation not found');
     });
   });
 
-  describe('PATCH /api/v2/conversations/:id/claude-id', () => {
+  describe('PATCH /api/conversations/:id/claude-id', () => {
     it('should update Claude conversation ID', async () => {
       const mockConversation = { id: 1, task_id: 1 };
       const mockTaskWithProject = { id: 1, user_id: testUserId };
@@ -170,7 +179,7 @@ describe('Conversations Routes - Phase 3', () => {
       conversationsDb.updateClaudeId.mockReturnValue(true);
 
       const response = await request(app)
-        .patch('/api/v2/conversations/1/claude-id')
+        .patch('/api/conversations/1/claude-id')
         .send({ claudeConversationId: 'claude-session-123' });
 
       expect(response.status).toBe(200);
@@ -180,7 +189,7 @@ describe('Conversations Routes - Phase 3', () => {
 
     it('should return 400 if claudeConversationId is missing', async () => {
       const response = await request(app)
-        .patch('/api/v2/conversations/1/claude-id')
+        .patch('/api/conversations/1/claude-id')
         .send({});
 
       expect(response.status).toBe(400);
@@ -191,7 +200,7 @@ describe('Conversations Routes - Phase 3', () => {
       conversationsDb.getById.mockReturnValue(undefined);
 
       const response = await request(app)
-        .patch('/api/v2/conversations/999/claude-id')
+        .patch('/api/conversations/999/claude-id')
         .send({ claudeConversationId: 'claude-session-123' });
 
       expect(response.status).toBe(404);
@@ -205,11 +214,103 @@ describe('Conversations Routes - Phase 3', () => {
       tasksDb.getWithProject.mockReturnValue(mockTaskWithProject);
 
       const response = await request(app)
-        .patch('/api/v2/conversations/1/claude-id')
+        .patch('/api/conversations/1/claude-id')
         .send({ claudeConversationId: 'claude-session-123' });
 
       expect(response.status).toBe(404);
       expect(response.body.error).toBe('Conversation not found');
+    });
+  });
+
+  describe('GET /api/conversations/:id/messages', () => {
+    it('should return messages for a conversation', async () => {
+      const mockConversation = { id: 1, task_id: 1, claude_conversation_id: 'claude-session-123' };
+      const mockTaskWithProject = { id: 1, project_id: 1, user_id: testUserId };
+      const mockProject = { id: 1, user_id: testUserId, repo_folder_path: '/path/to/project' };
+      const mockMessages = {
+        messages: [
+          { type: 'user', message: { content: 'Hello' }, timestamp: '2024-01-01T00:00:00Z' },
+          { type: 'assistant', message: { content: 'Hi there!' }, timestamp: '2024-01-01T00:00:01Z' }
+        ],
+        total: 2,
+        hasMore: false
+      };
+
+      conversationsDb.getById.mockReturnValue(mockConversation);
+      tasksDb.getWithProject.mockReturnValue(mockTaskWithProject);
+      projectsDb.getById.mockReturnValue(mockProject);
+      getSessionMessages.mockResolvedValue(mockMessages);
+
+      const response = await request(app).get('/api/conversations/1/messages');
+
+      expect(response.status).toBe(200);
+      expect(response.body).toEqual(mockMessages);
+      expect(getSessionMessages).toHaveBeenCalledWith('claude-session-123', '/path/to/project', null, 0);
+    });
+
+    it('should return empty messages when no claude_conversation_id', async () => {
+      const mockConversation = { id: 1, task_id: 1, claude_conversation_id: null };
+      const mockTaskWithProject = { id: 1, project_id: 1, user_id: testUserId };
+
+      conversationsDb.getById.mockReturnValue(mockConversation);
+      tasksDb.getWithProject.mockReturnValue(mockTaskWithProject);
+
+      const response = await request(app).get('/api/conversations/1/messages');
+
+      expect(response.status).toBe(200);
+      expect(response.body).toEqual({ messages: [], total: 0, hasMore: false });
+      expect(getSessionMessages).not.toHaveBeenCalled();
+    });
+
+    it('should pass limit and offset query params', async () => {
+      const mockConversation = { id: 1, task_id: 1, claude_conversation_id: 'claude-session-123' };
+      const mockTaskWithProject = { id: 1, project_id: 1, user_id: testUserId };
+      const mockProject = { id: 1, user_id: testUserId, repo_folder_path: '/path/to/project' };
+      const mockMessages = { messages: [], total: 0, hasMore: false };
+
+      conversationsDb.getById.mockReturnValue(mockConversation);
+      tasksDb.getWithProject.mockReturnValue(mockTaskWithProject);
+      projectsDb.getById.mockReturnValue(mockProject);
+      getSessionMessages.mockResolvedValue(mockMessages);
+
+      const response = await request(app).get('/api/conversations/1/messages?limit=50&offset=10');
+
+      expect(response.status).toBe(200);
+      expect(getSessionMessages).toHaveBeenCalledWith('claude-session-123', '/path/to/project', 50, 10);
+    });
+
+    it('should return 404 if conversation not found', async () => {
+      conversationsDb.getById.mockReturnValue(undefined);
+
+      const response = await request(app).get('/api/conversations/999/messages');
+
+      expect(response.status).toBe(404);
+      expect(response.body.error).toBe('Conversation not found');
+    });
+
+    it('should return 404 if task belongs to different user', async () => {
+      const mockConversation = { id: 1, task_id: 1 };
+      const mockTaskWithProject = { id: 1, user_id: 999 };
+      conversationsDb.getById.mockReturnValue(mockConversation);
+      tasksDb.getWithProject.mockReturnValue(mockTaskWithProject);
+
+      const response = await request(app).get('/api/conversations/1/messages');
+
+      expect(response.status).toBe(404);
+      expect(response.body.error).toBe('Conversation not found');
+    });
+
+    it('should return 404 if project not found', async () => {
+      const mockConversation = { id: 1, task_id: 1, claude_conversation_id: 'claude-session-123' };
+      const mockTaskWithProject = { id: 1, project_id: 1, user_id: testUserId };
+      conversationsDb.getById.mockReturnValue(mockConversation);
+      tasksDb.getWithProject.mockReturnValue(mockTaskWithProject);
+      projectsDb.getById.mockReturnValue(undefined);
+
+      const response = await request(app).get('/api/conversations/1/messages');
+
+      expect(response.status).toBe(404);
+      expect(response.body.error).toBe('Project not found');
     });
   });
 });

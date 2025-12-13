@@ -42,10 +42,10 @@ describe('Projects Routes - Phase 3', () => {
       req.user = { id: testUserId, username: 'testuser' };
       next();
     });
-    app.use('/api/v2/projects', projectsRoutes);
+    app.use('/api/projects', projectsRoutes);
   });
 
-  describe('GET /api/v2/projects', () => {
+  describe('GET /api/projects', () => {
     it('should return all projects for the user', async () => {
       const mockProjects = [
         { id: 1, user_id: testUserId, name: 'Project 1', repo_folder_path: '/path/1' },
@@ -53,7 +53,7 @@ describe('Projects Routes - Phase 3', () => {
       ];
       projectsDb.getAll.mockReturnValue(mockProjects);
 
-      const response = await request(app).get('/api/v2/projects');
+      const response = await request(app).get('/api/projects');
 
       expect(response.status).toBe(200);
       expect(response.body).toEqual(mockProjects);
@@ -63,21 +63,21 @@ describe('Projects Routes - Phase 3', () => {
     it('should return empty array when no projects', async () => {
       projectsDb.getAll.mockReturnValue([]);
 
-      const response = await request(app).get('/api/v2/projects');
+      const response = await request(app).get('/api/projects');
 
       expect(response.status).toBe(200);
       expect(response.body).toEqual([]);
     });
   });
 
-  describe('POST /api/v2/projects', () => {
+  describe('POST /api/projects', () => {
     it('should create a new project', async () => {
       const newProject = { id: 1, userId: testUserId, name: 'New Project', repoFolderPath: '/path/new' };
       projectsDb.create.mockReturnValue(newProject);
       ensureClaudeUIFolder.mockReturnValue(true);
 
       const response = await request(app)
-        .post('/api/v2/projects')
+        .post('/api/projects')
         .send({ name: 'New Project', repoFolderPath: '/path/new' });
 
       expect(response.status).toBe(201);
@@ -88,7 +88,7 @@ describe('Projects Routes - Phase 3', () => {
 
     it('should return 400 if name is missing', async () => {
       const response = await request(app)
-        .post('/api/v2/projects')
+        .post('/api/projects')
         .send({ repoFolderPath: '/path/new' });
 
       expect(response.status).toBe(400);
@@ -97,7 +97,7 @@ describe('Projects Routes - Phase 3', () => {
 
     it('should return 400 if repoFolderPath is missing', async () => {
       const response = await request(app)
-        .post('/api/v2/projects')
+        .post('/api/projects')
         .send({ name: 'New Project' });
 
       expect(response.status).toBe(400);
@@ -112,7 +112,7 @@ describe('Projects Routes - Phase 3', () => {
       });
 
       const response = await request(app)
-        .post('/api/v2/projects')
+        .post('/api/projects')
         .send({ name: 'New Project', repoFolderPath: '/path/existing' });
 
       expect(response.status).toBe(409);
@@ -120,12 +120,12 @@ describe('Projects Routes - Phase 3', () => {
     });
   });
 
-  describe('GET /api/v2/projects/:id', () => {
+  describe('GET /api/projects/:id', () => {
     it('should return a project by ID', async () => {
       const mockProject = { id: 1, user_id: testUserId, name: 'Project 1', repo_folder_path: '/path/1' };
       projectsDb.getById.mockReturnValue(mockProject);
 
-      const response = await request(app).get('/api/v2/projects/1');
+      const response = await request(app).get('/api/projects/1');
 
       expect(response.status).toBe(200);
       expect(response.body).toEqual(mockProject);
@@ -135,27 +135,27 @@ describe('Projects Routes - Phase 3', () => {
     it('should return 404 if project not found', async () => {
       projectsDb.getById.mockReturnValue(undefined);
 
-      const response = await request(app).get('/api/v2/projects/999');
+      const response = await request(app).get('/api/projects/999');
 
       expect(response.status).toBe(404);
       expect(response.body.error).toBe('Project not found');
     });
 
     it('should return 400 for invalid ID', async () => {
-      const response = await request(app).get('/api/v2/projects/invalid');
+      const response = await request(app).get('/api/projects/invalid');
 
       expect(response.status).toBe(400);
       expect(response.body.error).toBe('Invalid project ID');
     });
   });
 
-  describe('PUT /api/v2/projects/:id', () => {
+  describe('PUT /api/projects/:id', () => {
     it('should update a project', async () => {
       const updatedProject = { id: 1, user_id: testUserId, name: 'Updated Name', repo_folder_path: '/path/1' };
       projectsDb.update.mockReturnValue(updatedProject);
 
       const response = await request(app)
-        .put('/api/v2/projects/1')
+        .put('/api/projects/1')
         .send({ name: 'Updated Name' });
 
       expect(response.status).toBe(200);
@@ -167,7 +167,7 @@ describe('Projects Routes - Phase 3', () => {
       projectsDb.update.mockReturnValue(null);
 
       const response = await request(app)
-        .put('/api/v2/projects/999')
+        .put('/api/projects/999')
         .send({ name: 'Updated Name' });
 
       expect(response.status).toBe(404);
@@ -175,11 +175,11 @@ describe('Projects Routes - Phase 3', () => {
     });
   });
 
-  describe('DELETE /api/v2/projects/:id', () => {
+  describe('DELETE /api/projects/:id', () => {
     it('should delete a project', async () => {
       projectsDb.delete.mockReturnValue(true);
 
-      const response = await request(app).delete('/api/v2/projects/1');
+      const response = await request(app).delete('/api/projects/1');
 
       expect(response.status).toBe(200);
       expect(response.body).toEqual({ success: true });
@@ -189,20 +189,20 @@ describe('Projects Routes - Phase 3', () => {
     it('should return 404 if project not found', async () => {
       projectsDb.delete.mockReturnValue(false);
 
-      const response = await request(app).delete('/api/v2/projects/999');
+      const response = await request(app).delete('/api/projects/999');
 
       expect(response.status).toBe(404);
       expect(response.body.error).toBe('Project not found');
     });
   });
 
-  describe('GET /api/v2/projects/:id/documentation', () => {
+  describe('GET /api/projects/:id/documentation', () => {
     it('should return project documentation', async () => {
       const mockProject = { id: 1, user_id: testUserId, repo_folder_path: '/path/1' };
       projectsDb.getById.mockReturnValue(mockProject);
       readProjectDoc.mockReturnValue('# Project Documentation');
 
-      const response = await request(app).get('/api/v2/projects/1/documentation');
+      const response = await request(app).get('/api/projects/1/documentation');
 
       expect(response.status).toBe(200);
       expect(response.body).toEqual({ content: '# Project Documentation' });
@@ -212,21 +212,21 @@ describe('Projects Routes - Phase 3', () => {
     it('should return 404 if project not found', async () => {
       projectsDb.getById.mockReturnValue(undefined);
 
-      const response = await request(app).get('/api/v2/projects/999/documentation');
+      const response = await request(app).get('/api/projects/999/documentation');
 
       expect(response.status).toBe(404);
       expect(response.body.error).toBe('Project not found');
     });
   });
 
-  describe('PUT /api/v2/projects/:id/documentation', () => {
+  describe('PUT /api/projects/:id/documentation', () => {
     it('should update project documentation', async () => {
       const mockProject = { id: 1, user_id: testUserId, repo_folder_path: '/path/1' };
       projectsDb.getById.mockReturnValue(mockProject);
       writeProjectDoc.mockReturnValue(undefined);
 
       const response = await request(app)
-        .put('/api/v2/projects/1/documentation')
+        .put('/api/projects/1/documentation')
         .send({ content: '# Updated Documentation' });
 
       expect(response.status).toBe(200);
@@ -239,7 +239,7 @@ describe('Projects Routes - Phase 3', () => {
       projectsDb.getById.mockReturnValue(mockProject);
 
       const response = await request(app)
-        .put('/api/v2/projects/1/documentation')
+        .put('/api/projects/1/documentation')
         .send({});
 
       expect(response.status).toBe(400);
@@ -250,7 +250,7 @@ describe('Projects Routes - Phase 3', () => {
       projectsDb.getById.mockReturnValue(undefined);
 
       const response = await request(app)
-        .put('/api/v2/projects/999/documentation')
+        .put('/api/projects/999/documentation')
         .send({ content: 'Content' });
 
       expect(response.status).toBe(404);

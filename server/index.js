@@ -58,13 +58,9 @@ import fetch from 'node-fetch';
 import mime from 'mime-types';
 
 import { queryClaudeSDK, abortClaudeSDKSession, isClaudeSDKSessionActive, getActiveClaudeSDKSessions } from './claude-sdk.js';
-import { spawnCursor, abortCursorSession, isCursorSessionActive, getActiveCursorSessions } from './cursor-cli.js';
 import gitRoutes from './routes/git.js';
 import authRoutes from './routes/auth.js';
 import mcpRoutes from './routes/mcp.js';
-import cursorRoutes from './routes/cursor.js';
-import taskmasterRoutes from './routes/taskmaster.js';
-import mcpUtilsRoutes from './routes/mcp-utils.js';
 import commandsRoutes from './routes/commands.js';
 import settingsRoutes from './routes/settings.js';
 import agentRoutes from './routes/agent.js';
@@ -152,15 +148,6 @@ app.use('/api/git', authenticateToken, gitRoutes);
 // MCP API Routes (protected)
 app.use('/api/mcp', authenticateToken, mcpRoutes);
 
-// Cursor API Routes (protected)
-app.use('/api/cursor', authenticateToken, cursorRoutes);
-
-// TaskMaster API Routes (protected)
-app.use('/api/taskmaster', authenticateToken, taskmasterRoutes);
-
-// MCP utilities
-app.use('/api/mcp-utils', authenticateToken, mcpUtilsRoutes);
-
 // Commands API Routes (protected)
 app.use('/api/commands', authenticateToken, commandsRoutes);
 
@@ -176,10 +163,10 @@ app.use('/api/user', authenticateToken, userRoutes);
 // Agent API Routes (uses API key authentication)
 app.use('/api/agent', agentRoutes);
 
-// V2 API Routes - Task-driven workflow (protected)
-app.use('/api/v2/projects', authenticateToken, projectsRoutes);
-app.use('/api/v2', authenticateToken, tasksRoutes);
-app.use('/api/v2', authenticateToken, conversationsRoutes);
+// API Routes - Task-driven workflow (protected)
+app.use('/api/projects', authenticateToken, projectsRoutes);
+app.use('/api', authenticateToken, tasksRoutes);
+app.use('/api', authenticateToken, conversationsRoutes);
 
 // Serve public files (like api-docs.html)
 app.use(express.static(path.join(__dirname, '../public')));
@@ -252,8 +239,6 @@ app.post('/api/system/update', authenticateToken, async (req, res) => {
         });
     }
 });
-
-// Legacy /api/projects routes have been removed - use /api/v2/ endpoints instead
 
 // Browse filesystem endpoint for project suggestions - uses existing getFileTree
 app.get('/api/browse-filesystem', authenticateToken, async (req, res) => {    
@@ -440,71 +425,29 @@ function handleChatConnection(ws) {
 
                 // Use Claude Agents SDK
                 await queryClaudeSDK(data.command, sdkOptions, wsWrapper);
-            } else if (data.type === 'cursor-command') {
-                console.log('[DEBUG] Cursor message:', data.command || '[Continue/Resume]');
-                console.log('📁 Project:', data.options?.cwd || 'Unknown');
-                console.log('🔄 Session:', data.options?.sessionId ? 'Resume' : 'New');
-                console.log('🤖 Model:', data.options?.model || 'default');
-                await spawnCursor(data.command, data.options, ws);
-            } else if (data.type === 'cursor-resume') {
-                // Backward compatibility: treat as cursor-command with resume and no prompt
-                console.log('[DEBUG] Cursor resume session (compat):', data.sessionId);
-                await spawnCursor('', {
-                    sessionId: data.sessionId,
-                    resume: true,
-                    cwd: data.options?.cwd
-                }, ws);
             } else if (data.type === 'abort-session') {
                 console.log('[DEBUG] Abort session request:', data.sessionId);
-                const provider = data.provider || 'claude';
-                let success;
-
-                if (provider === 'cursor') {
-                    success = abortCursorSession(data.sessionId);
-                } else {
-                    // Use Claude Agents SDK
-                    success = await abortClaudeSDKSession(data.sessionId);
-                }
+                const success = await abortClaudeSDKSession(data.sessionId);
 
                 ws.send(JSON.stringify({
                     type: 'session-aborted',
                     sessionId: data.sessionId,
-                    provider,
-                    success
-                }));
-            } else if (data.type === 'cursor-abort') {
-                console.log('[DEBUG] Abort Cursor session:', data.sessionId);
-                const success = abortCursorSession(data.sessionId);
-                ws.send(JSON.stringify({
-                    type: 'session-aborted',
-                    sessionId: data.sessionId,
-                    provider: 'cursor',
                     success
                 }));
             } else if (data.type === 'check-session-status') {
                 // Check if a specific session is currently processing
-                const provider = data.provider || 'claude';
                 const sessionId = data.sessionId;
-                let isActive;
-
-                if (provider === 'cursor') {
-                    isActive = isCursorSessionActive(sessionId);
-                } else {
-                    // Use Claude Agents SDK
-                    isActive = isClaudeSDKSessionActive(sessionId);
-                }
+                const isActive = isClaudeSDKSessionActive(sessionId);
 
                 ws.send(JSON.stringify({
                     type: 'session-status',
                     sessionId,
-                    provider,
                     isProcessing: isActive
                 }));
             } else if (data.type === 'get-active-sessions') {
                 // Get all currently active sessions
                 const activeSessions = {
-                    claude: getActiveClaudeSDKSessions(),
-                    cursor: getActiveCursorSessions()
+                    claude: getActiveClaudeSDKSessions()
                 };
                 ws.send(JSON.stringify({
                     type: 'active-sessions',
@@ -613,10 +556,9 @@ function handleShellConnection(ws) {
                 if (isPlainShell) {
                     welcomeMsg = `\x1b[36mStarting terminal in: ${projectPath}\x1b[0m\r\n`;
                 } else {
-                    const providerName = provider === 'cursor' ? 'Cursor' : 'Claude';
                     welcomeMsg = hasSession ?
-                        `\x1b[36mResuming ${providerName} session ${sessionId} in: ${projectPath}\x1b[0m\r\n` :
-                        `\x1b[36mStarting new ${providerName} session in: ${projectPath}\x1b[0m\r\n`;
+                        `\x1b[36mResuming Claude session ${sessionId} in: ${projectPath}\x1b[0m\r\n` :
+                        `\x1b[36mStarting new Claude session in: ${projectPath}\x1b[0m\r\n`;
                 }
 
                 ws.send(JSON.stringify({
@@ -625,7 +567,7 @@ function handleShellConnection(ws) {
                 }));
 
                 try {
-                    // Prepare the shell command adapted to the platform and provider
+                    // Prepare the shell command adapted to the platform
                     let shellCommand;
                     if (isPlainShell) {
                         // Plain shell mode - just run the initial command in the project directory
@@ -633,21 +575,6 @@ function handleShellConnection(ws) {
                             shellCommand = `Set-Location -Path "${projectPath}"; ${initialCommand}`;
                         } else {
                             shellCommand = `cd "${projectPath}" && ${initialCommand}`;
-                        }
-                    } else if (provider === 'cursor') {
-                        // Use cursor-agent command
-                        if (os.platform() === 'win32') {
-                            if (hasSession && sessionId) {
-                                shellCommand = `Set-Location -Path "${projectPath}"; cursor-agent --resume="${sessionId}"`;
-                            } else {
-                                shellCommand = `Set-Location -Path "${projectPath}"; cursor-agent`;
-                            }
-                        } else {
-                            if (hasSession && sessionId) {
-                                shellCommand = `cd "${projectPath}" && cursor-agent --resume="${sessionId}"`;
-                            } else {
-                                shellCommand = `cd "${projectPath}" && cursor-agent`;
-                            }
                         }
                     } else {
                         // Use claude command (default) or initialCommand if provided

@@ -1,77 +1,65 @@
-/*
- * App.jsx - Main Application Component (Stateless)
+/**
+ * App.jsx - Main Application Component
  *
- * Simple stateless architecture:
- * - Fetch projects on load via REST API
- * - Fetch conversation messages on click via REST API
- * - No WebSocket, no in-memory state management
+ * Task-driven workflow architecture:
+ * - Projects, Tasks, Conversations managed via TaskContext
+ * - Sidebar shows projects and tasks from API
+ * - MainContent renders views based on selection state
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { BrowserRouter as Router, Routes, Route, useNavigate, useParams } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import { Settings as SettingsIcon, Sparkles } from 'lucide-react';
 import Sidebar from './components/Sidebar';
 import MainContent from './components/MainContent';
 import MobileNav from './components/MobileNav';
 import Settings from './components/Settings';
-import QuickSettingsPanel from './components/QuickSettingsPanel';
+import ProjectForm from './components/ProjectForm';
 
 import { ThemeProvider } from './contexts/ThemeContext';
 import { AuthProvider } from './contexts/AuthContext';
-import { TaskMasterProvider } from './contexts/TaskMasterContext';
-import { TasksSettingsProvider } from './contexts/TasksSettingsContext';
 import { WebSocketProvider } from './contexts/WebSocketContext';
+import { TaskContextProvider, useTaskContext } from './contexts/TaskContext';
 import ProtectedRoute from './components/ProtectedRoute';
-import NewSessionModal from './components/NewSessionModal';
 import { useVersionCheck } from './hooks/useVersionCheck';
 import useLocalStorage from './hooks/useLocalStorage';
-import { api, authenticatedFetch } from './utils/api';
+import { authenticatedFetch } from './utils/api';
 
-
-// Main App component with routing
+// Main App component
 function AppContent() {
-  const navigate = useNavigate();
-  const { sessionId } = useParams();
-  
   const { updateAvailable, latestVersion, currentVersion, releaseInfo } = useVersionCheck('siteboon', 'claudecodeui');
   const [showVersionModal, setShowVersionModal] = useState(false);
-  
-  const [projects, setProjects] = useState([]);
-  const [selectedProject, setSelectedProject] = useState(null);
-  const [selectedSession, setSelectedSession] = useState(null);
-  const [activeTab, setActiveTab] = useState('chat'); // 'chat' or 'files'
+
+  // TaskContext for state management
+  const { createProject } = useTaskContext();
+
+  // UI state
   const [isMobile, setIsMobile] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [isLoadingProjects, setIsLoadingProjects] = useState(true);
   const [isInputFocused, setIsInputFocused] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [settingsInitialTab, setSettingsInitialTab] = useState('tools');
-  const [showQuickSettings, setShowQuickSettings] = useState(false);
+  const [sidebarVisible, setSidebarVisible] = useLocalStorage('sidebarVisible', true);
+
+  // Display settings
   const [autoExpandTools, setAutoExpandTools] = useLocalStorage('autoExpandTools', false);
   const [showRawParameters, setShowRawParameters] = useLocalStorage('showRawParameters', false);
   const [showThinking, setShowThinking] = useLocalStorage('showThinking', true);
-  const [autoScrollToBottom, setAutoScrollToBottom] = useLocalStorage('autoScrollToBottom', true);
-  const [sendByCtrlEnter, setSendByCtrlEnter] = useLocalStorage('sendByCtrlEnter', false);
-  const [sidebarVisible, setSidebarVisible] = useLocalStorage('sidebarVisible', true);
 
-  // New Session Modal state
-  const [newSessionModal, setNewSessionModal] = useState({ isOpen: false, project: null });
-
-  // Pending initial message for new conversations (transient, cleared on session switch)
-  const [pendingInitialMessage, setPendingInitialMessage] = useState(null);
+  // Project form modal state
+  const [showProjectForm, setShowProjectForm] = useState(false);
+  const [isCreatingProject, setIsCreatingProject] = useState(false);
 
   // Detect if running as PWA
   const [isPWA, setIsPWA] = useState(false);
-  
+
   useEffect(() => {
-    // Check if running in standalone mode (PWA)
     const checkPWA = () => {
       const isStandalone = window.matchMedia('(display-mode: standalone)').matches ||
                           window.navigator.standalone ||
                           document.referrer.includes('android-app://');
       setIsPWA(isStandalone);
-      
-      // Add class to html and body for CSS targeting
+
       if (isStandalone) {
         document.documentElement.classList.add('pwa-mode');
         document.body.classList.add('pwa-mode');
@@ -80,12 +68,10 @@ function AppContent() {
         document.body.classList.remove('pwa-mode');
       }
     };
-    
+
     checkPWA();
-    
-    // Listen for changes
     window.matchMedia('(display-mode: standalone)').addEventListener('change', checkPWA);
-    
+
     return () => {
       window.matchMedia('(display-mode: standalone)').removeEventListener('change', checkPWA);
     };
@@ -95,82 +81,12 @@ function AppContent() {
     const checkMobile = () => {
       setIsMobile(window.innerWidth < 768);
     };
-    
+
     checkMobile();
     window.addEventListener('resize', checkMobile);
-    
+
     return () => window.removeEventListener('resize', checkMobile);
   }, []);
-
-  useEffect(() => {
-    // Fetch projects on component mount
-    fetchProjects();
-  }, []);
-
-  const fetchProjects = async () => {
-    try {
-      setIsLoadingProjects(true);
-      const response = await api.projects();
-      const data = await response.json();
-      
-      // Always fetch Cursor sessions for each project so we can combine views
-      for (let project of data) {
-        try {
-          const url = `/api/cursor/sessions?projectPath=${encodeURIComponent(project.fullPath || project.path)}`;
-          const cursorResponse = await authenticatedFetch(url);
-          if (cursorResponse.ok) {
-            const cursorData = await cursorResponse.json();
-            if (cursorData.success && cursorData.sessions) {
-              project.cursorSessions = cursorData.sessions;
-            } else {
-              project.cursorSessions = [];
-            }
-          } else {
-            project.cursorSessions = [];
-          }
-        } catch (error) {
-          console.error(`Error fetching Cursor sessions for project ${project.name}:`, error);
-          project.cursorSessions = [];
-        }
-      }
-      
-      // Optimize to preserve object references when data hasn't changed
-      setProjects(prevProjects => {
-        // If no previous projects, just set the new data
-        if (prevProjects.length === 0) {
-          return data;
-        }
-        
-        // Check if the projects data has actually changed
-        const hasChanges = data.some((newProject, index) => {
-          const prevProject = prevProjects[index];
-          if (!prevProject) return true;
-          
-          // Compare key properties that would affect UI
-          return (
-            newProject.name !== prevProject.name ||
-            newProject.displayName !== prevProject.displayName ||
-            newProject.fullPath !== prevProject.fullPath ||
-            JSON.stringify(newProject.sessionMeta) !== JSON.stringify(prevProject.sessionMeta) ||
-            JSON.stringify(newProject.sessions) !== JSON.stringify(prevProject.sessions) ||
-            JSON.stringify(newProject.cursorSessions) !== JSON.stringify(prevProject.cursorSessions)
-          );
-        }) || data.length !== prevProjects.length;
-        
-        // Only update if there are actual changes
-        return hasChanges ? data : prevProjects;
-      });
-      
-      // Don't auto-select any project - user should choose manually
-    } catch (error) {
-      console.error('Error fetching projects:', error);
-    } finally {
-      setIsLoadingProjects(false);
-    }
-  };
-
-  // Expose fetchProjects globally for component access
-  window.refreshProjects = fetchProjects;
 
   // Expose openSettings function globally for component access
   window.openSettings = useCallback((tab = 'tools') => {
@@ -178,271 +94,53 @@ function AppContent() {
     setShowSettings(true);
   }, []);
 
-  // Handle URL-based session loading
-  useEffect(() => {
-    if (sessionId && projects.length > 0) {
-      // Only switch tabs on initial load, not on every project update
-      const shouldSwitchTab = !selectedSession || selectedSession.id !== sessionId;
-      // Find the session across all projects
-      for (const project of projects) {
-        let session = project.sessions?.find(s => s.id === sessionId);
-        if (session) {
-          setSelectedProject(project);
-          setSelectedSession({ ...session, __provider: 'claude' });
-          // Only switch to chat tab if we're loading a different session
-          if (shouldSwitchTab) {
-            setActiveTab('chat');
-          }
-          return;
-        }
-        // Also check Cursor sessions
-        const cSession = project.cursorSessions?.find(s => s.id === sessionId);
-        if (cSession) {
-          setSelectedProject(project);
-          setSelectedSession({ ...cSession, __provider: 'cursor' });
-          if (shouldSwitchTab) {
-            setActiveTab('chat');
-          }
-          return;
-        }
-      }
-      
-      // If session not found, it might be a newly created session
-      // Just navigate to it and it will be found when the sidebar refreshes
-      // Don't redirect to home, let the session load naturally
-    }
-  }, [sessionId, projects, navigate]);
-
-  const handleProjectSelect = (project) => {
-    setSelectedProject(project);
-    setSelectedSession(null);
-    navigate('/');
-    if (isMobile) {
-      setSidebarOpen(false);
-    }
-  };
-
-  const handleSessionSelect = (session) => {
-    // Clear any pending initial message when switching sessions
-    setPendingInitialMessage(null);
-    setSelectedSession(session);
-    // Only switch to chat tab when user explicitly selects a session
-    // This prevents tab switching during automatic updates
-    if (activeTab !== 'git' && activeTab !== 'preview') {
-      setActiveTab('chat');
-    }
-
-    // For Cursor sessions, we need to set the session ID differently
-    // since they're persistent and not created by Claude
-    const provider = localStorage.getItem('selected-provider') || 'claude';
-    if (provider === 'cursor') {
-      // Cursor sessions have persistent IDs
-      sessionStorage.setItem('cursorSessionId', session.id);
-    }
-
-    // Only close sidebar on mobile if switching to a different project
-    if (isMobile) {
-      const sessionProjectName = session.__projectName;
-      const currentProjectName = selectedProject?.name;
-
-      // Close sidebar if clicking a session from a different project
-      // Keep it open if clicking a session from the same project
-      if (sessionProjectName !== currentProjectName) {
-        setSidebarOpen(false);
-      }
-    }
-    navigate(`/session/${session.id}`);
-  };
-
-  const handleNewSession = (project) => {
-    // Open modal to collect first message instead of navigating to empty chat
-    setNewSessionModal({ isOpen: true, project });
-  };
-
-  // Handle session creation from modal
-  const handleSessionCreatedFromModal = (sessionId, initialMessage, permissionMode) => {
-    const session = {
-      id: sessionId,
-      summary: 'New Conversation',
-      messageCount: 1,
-      lastActivity: new Date().toISOString(),
-      __provider: 'claude',
-      __permissionMode: permissionMode   // Store the permission mode for ChatInterface
-    };
-
-    // Set the pending initial message (transient, cleared on session switch)
-    setPendingInitialMessage({
-      sessionId: sessionId,
-      message: initialMessage
-    });
-
-    // Optimistically add session to local state (with duplicate check)
-    setProjects(prevProjects =>
-      prevProjects.map(p => {
-        if (p.name === newSessionModal.project.name) {
-          // Check if session already exists (prevents double-add)
-          const exists = p.sessions?.some(s => s.id === sessionId);
-          if (exists) return p;
-
-          return {
-            ...p,
-            sessions: [session, ...(p.sessions || [])],
-            sessionMeta: {
-              ...p.sessionMeta,
-              total: (p.sessionMeta?.total || 0) + 1
-            }
-          };
-        }
-        return p;
-      })
-    );
-
-    setSelectedProject(newSessionModal.project);
-    setSelectedSession(session);
-    setActiveTab('chat');
-    navigate(`/session/${sessionId}`);
-    setNewSessionModal({ isOpen: false, project: null });
-
-    if (isMobile) {
-      setSidebarOpen(false);
-    }
-  };
-
-  const handleSessionDelete = (sessionId) => {
-    // If the deleted session was currently selected, clear it
-    if (selectedSession?.id === sessionId) {
-      setSelectedSession(null);
-      navigate('/');
-    }
-    
-    // Update projects state locally instead of full refresh
-    setProjects(prevProjects => 
-      prevProjects.map(project => ({
-        ...project,
-        sessions: project.sessions?.filter(session => session.id !== sessionId) || [],
-        sessionMeta: {
-          ...project.sessionMeta,
-          total: Math.max(0, (project.sessionMeta?.total || 0) - 1)
-        }
-      }))
-    );
-  };
-
-
-
-  const handleSidebarRefresh = async () => {
-    // Refresh only the sessions for all projects, don't change selected state
+  // Handle project creation from modal
+  const handleCreateProject = async ({ name, repoFolderPath, documentation }) => {
+    setIsCreatingProject(true);
     try {
-      const response = await api.projects();
-      const freshProjects = await response.json();
-      
-      // Optimize to preserve object references and minimize re-renders
-      setProjects(prevProjects => {
-        // Check if projects data has actually changed
-        const hasChanges = freshProjects.some((newProject, index) => {
-          const prevProject = prevProjects[index];
-          if (!prevProject) return true;
-          
-          return (
-            newProject.name !== prevProject.name ||
-            newProject.displayName !== prevProject.displayName ||
-            newProject.fullPath !== prevProject.fullPath ||
-            JSON.stringify(newProject.sessionMeta) !== JSON.stringify(prevProject.sessionMeta) ||
-            JSON.stringify(newProject.sessions) !== JSON.stringify(prevProject.sessions)
-          );
-        }) || freshProjects.length !== prevProjects.length;
-        
-        return hasChanges ? freshProjects : prevProjects;
-      });
-      
-      // If we have a selected project, make sure it's still selected after refresh
-      if (selectedProject) {
-        const refreshedProject = freshProjects.find(p => p.name === selectedProject.name);
-        if (refreshedProject) {
-          // Only update selected project if it actually changed
-          if (JSON.stringify(refreshedProject) !== JSON.stringify(selectedProject)) {
-            setSelectedProject(refreshedProject);
-          }
-          
-          // If we have a selected session, try to find it in the refreshed project
-          if (selectedSession) {
-            const refreshedSession = refreshedProject.sessions?.find(s => s.id === selectedSession.id);
-            if (refreshedSession && JSON.stringify(refreshedSession) !== JSON.stringify(selectedSession)) {
-              setSelectedSession(refreshedSession);
-            }
-          }
-        }
+      const result = await createProject(name, repoFolderPath, documentation);
+      if (result.success) {
+        setShowProjectForm(false);
       }
-    } catch (error) {
-      console.error('Error refreshing sidebar:', error);
+      return result;
+    } finally {
+      setIsCreatingProject(false);
     }
-  };
-
-  const handleProjectDelete = (projectName) => {
-    // If the deleted project was currently selected, clear it
-    if (selectedProject?.name === projectName) {
-      setSelectedProject(null);
-      setSelectedSession(null);
-      navigate('/');
-    }
-
-    // Update projects state locally instead of full refresh
-    setProjects(prevProjects =>
-      prevProjects.filter(project => project.name !== projectName)
-    );
   };
 
   // Version Upgrade Modal Component
   const VersionUpgradeModal = () => {
     const [isUpdating, setIsUpdating] = useState(false);
     const [updateOutput, setUpdateOutput] = useState('');
-    const [updateError, setUpdateError] = useState('');
 
     if (!showVersionModal) return null;
 
-    // Clean up changelog by removing GitHub-specific metadata
     const cleanChangelog = (body) => {
       if (!body) return '';
-
       return body
-        // Remove full commit hashes (40 character hex strings)
         .replace(/\b[0-9a-f]{40}\b/gi, '')
-        // Remove short commit hashes (7-10 character hex strings at start of line or after dash/space)
         .replace(/(?:^|\s|-)([0-9a-f]{7,10})\b/gi, '')
-        // Remove "Full Changelog" links
         .replace(/\*\*Full Changelog\*\*:.*$/gim, '')
-        // Remove compare links (e.g., https://github.com/.../compare/v1.0.0...v1.0.1)
         .replace(/https?:\/\/github\.com\/[^\/]+\/[^\/]+\/compare\/[^\s)]+/gi, '')
-        // Clean up multiple consecutive empty lines
         .replace(/\n\s*\n\s*\n/g, '\n\n')
-        // Trim whitespace
         .trim();
     };
 
     const handleUpdateNow = async () => {
       setIsUpdating(true);
       setUpdateOutput('Starting update...\n');
-      setUpdateError('');
 
       try {
-        // Call the backend API to run the update command
-        const response = await authenticatedFetch('/api/system/update', {
-          method: 'POST',
-        });
-
+        const response = await authenticatedFetch('/api/system/update', { method: 'POST' });
         const data = await response.json();
 
         if (response.ok) {
-          setUpdateOutput(prev => prev + data.output + '\n');
-          setUpdateOutput(prev => prev + '\n✅ Update completed successfully!\n');
-          setUpdateOutput(prev => prev + 'Please restart the server to apply changes.\n');
+          setUpdateOutput(prev => prev + data.output + '\n\n Update completed! Please restart the server.\n');
         } else {
-          setUpdateError(data.error || 'Update failed');
-          setUpdateOutput(prev => prev + '\n❌ Update failed: ' + (data.error || 'Unknown error') + '\n');
+          setUpdateOutput(prev => prev + '\n Update failed: ' + (data.error || 'Unknown error') + '\n');
         }
       } catch (error) {
-        setUpdateError(error.message);
-        setUpdateOutput(prev => prev + '\n❌ Update failed: ' + error.message + '\n');
+        setUpdateOutput(prev => prev + '\n Update failed: ' + error.message + '\n');
       } finally {
         setIsUpdating(false);
       }
@@ -450,33 +148,25 @@ function AppContent() {
 
     return (
       <div className="fixed inset-0 z-50 flex items-center justify-center">
-        {/* Backdrop */}
         <button
           className="fixed inset-0 bg-black/50 backdrop-blur-sm"
           onClick={() => setShowVersionModal(false)}
-          aria-label="Close version upgrade modal"
+          aria-label="Close"
         />
-
-        {/* Modal */}
-        <div className="relative bg-white dark:bg-gray-800 rounded-lg shadow-xl border border-gray-200 dark:border-gray-700 w-full max-w-2xl mx-4 p-6 space-y-4 max-h-[90vh] overflow-y-auto">
-          {/* Header */}
+        <div className="relative bg-card rounded-lg shadow-xl border border-border w-full max-w-2xl mx-4 p-6 space-y-4 max-h-[90vh] overflow-y-auto">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 bg-blue-100 dark:bg-blue-900/30 rounded-lg flex items-center justify-center">
-                <svg className="w-5 h-5 text-blue-600 dark:text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M9 19l3 3m0 0l3-3m-3 3V10" />
-                </svg>
+                <Sparkles className="w-5 h-5 text-blue-600 dark:text-blue-400" />
               </div>
               <div>
-                <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Update Available</h2>
-                <p className="text-sm text-gray-500 dark:text-gray-400">
-                  {releaseInfo?.title || 'A new version is ready'}
-                </p>
+                <h2 className="text-lg font-semibold text-foreground">Update Available</h2>
+                <p className="text-sm text-muted-foreground">{releaseInfo?.title || 'A new version is ready'}</p>
               </div>
             </div>
             <button
               onClick={() => setShowVersionModal(false)}
-              className="p-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 rounded-md hover:bg-gray-100 dark:hover:bg-gray-700"
+              className="p-2 text-muted-foreground hover:text-foreground rounded-md hover:bg-accent"
             >
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -484,103 +174,57 @@ function AppContent() {
             </button>
           </div>
 
-          {/* Version Info */}
           <div className="space-y-3">
-            <div className="flex justify-between items-center p-3 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
-              <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Current Version</span>
-              <span className="text-sm text-gray-900 dark:text-white font-mono">{currentVersion}</span>
+            <div className="flex justify-between items-center p-3 bg-muted rounded-lg">
+              <span className="text-sm font-medium">Current Version</span>
+              <span className="text-sm font-mono">{currentVersion}</span>
             </div>
             <div className="flex justify-between items-center p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-700">
               <span className="text-sm font-medium text-blue-700 dark:text-blue-300">Latest Version</span>
-              <span className="text-sm text-blue-900 dark:text-blue-100 font-mono">{latestVersion}</span>
+              <span className="text-sm font-mono text-blue-900 dark:text-blue-100">{latestVersion}</span>
             </div>
           </div>
 
-          {/* Changelog */}
           {releaseInfo?.body && (
             <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <h3 className="text-sm font-medium text-gray-900 dark:text-white">What's New:</h3>
-                {releaseInfo?.htmlUrl && (
-                  <a
-                    href={releaseInfo.htmlUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-xs text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 hover:underline flex items-center gap-1"
-                  >
-                    View full release
-                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-                    </svg>
-                  </a>
-                )}
-              </div>
-              <div className="bg-gray-50 dark:bg-gray-700/50 rounded-lg p-4 border border-gray-200 dark:border-gray-600 max-h-64 overflow-y-auto">
-                <div className="text-sm text-gray-700 dark:text-gray-300 whitespace-pre-wrap prose prose-sm dark:prose-invert max-w-none">
-                  {cleanChangelog(releaseInfo.body)}
-                </div>
+              <h3 className="text-sm font-medium">What's New:</h3>
+              <div className="bg-muted rounded-lg p-4 border border-border max-h-64 overflow-y-auto">
+                <div className="text-sm text-muted-foreground whitespace-pre-wrap">{cleanChangelog(releaseInfo.body)}</div>
               </div>
             </div>
           )}
 
-          {/* Update Output */}
           {updateOutput && (
             <div className="space-y-2">
-              <h3 className="text-sm font-medium text-gray-900 dark:text-white">Update Progress:</h3>
-              <div className="bg-gray-900 dark:bg-gray-950 rounded-lg p-4 border border-gray-700 max-h-48 overflow-y-auto">
+              <h3 className="text-sm font-medium">Update Progress:</h3>
+              <div className="bg-gray-900 rounded-lg p-4 border border-gray-700 max-h-48 overflow-y-auto">
                 <pre className="text-xs text-green-400 font-mono whitespace-pre-wrap">{updateOutput}</pre>
               </div>
             </div>
           )}
 
-          {/* Upgrade Instructions */}
-          {!isUpdating && !updateOutput && (
-            <div className="space-y-3">
-              <h3 className="text-sm font-medium text-gray-900 dark:text-white">Manual upgrade:</h3>
-              <div className="bg-gray-100 dark:bg-gray-800 rounded-lg p-3 border">
-                <code className="text-sm text-gray-800 dark:text-gray-200 font-mono">
-                  git checkout main && git pull && npm install
-                </code>
-              </div>
-              <p className="text-xs text-gray-600 dark:text-gray-400">
-                Or click "Update Now" to run the update automatically.
-              </p>
-            </div>
-          )}
-
-          {/* Actions */}
           <div className="flex gap-2 pt-2">
             <button
               onClick={() => setShowVersionModal(false)}
-              className="flex-1 px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-md transition-colors"
+              className="flex-1 px-4 py-2 text-sm font-medium bg-muted hover:bg-accent rounded-md transition-colors"
             >
               {updateOutput ? 'Close' : 'Later'}
             </button>
             {!updateOutput && (
-              <>
-                <button
-                  onClick={() => {
-                    navigator.clipboard.writeText('git checkout main && git pull && npm install');
-                  }}
-                  className="flex-1 px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-md transition-colors"
-                >
-                  Copy Command
-                </button>
-                <button
-                  onClick={handleUpdateNow}
-                  disabled={isUpdating}
-                  className="flex-1 px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 disabled:cursor-not-allowed rounded-md transition-colors flex items-center justify-center gap-2"
-                >
-                  {isUpdating ? (
-                    <>
-                      <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                      Updating...
-                    </>
-                  ) : (
-                    'Update Now'
-                  )}
-                </button>
-              </>
+              <button
+                onClick={handleUpdateNow}
+                disabled={isUpdating}
+                className="flex-1 px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 rounded-md transition-colors flex items-center justify-center gap-2"
+              >
+                {isUpdating ? (
+                  <>
+                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                    Updating...
+                  </>
+                ) : (
+                  'Update Now'
+                )}
+              </button>
             )}
           </div>
         </div>
@@ -590,7 +234,7 @@ function AppContent() {
 
   return (
     <div className="fixed inset-0 flex bg-background">
-      {/* Fixed Desktop Sidebar */}
+      {/* Desktop Sidebar */}
       {!isMobile && (
         <div
           className={`h-full flex-shrink-0 border-r border-border bg-card transition-all duration-300 ${
@@ -600,62 +244,38 @@ function AppContent() {
           <div className="h-full overflow-hidden">
             {sidebarVisible ? (
               <Sidebar
-                projects={projects}
-                selectedProject={selectedProject}
-                selectedSession={selectedSession}
-                onProjectSelect={handleProjectSelect}
-                onSessionSelect={handleSessionSelect}
-                onNewSession={handleNewSession}
-                onSessionDelete={handleSessionDelete}
-                onProjectDelete={handleProjectDelete}
-                isLoading={isLoadingProjects}
-                onRefresh={handleSidebarRefresh}
                 onShowSettings={() => setShowSettings(true)}
                 updateAvailable={updateAvailable}
                 latestVersion={latestVersion}
-                currentVersion={currentVersion}
                 releaseInfo={releaseInfo}
                 onShowVersionModal={() => setShowVersionModal(true)}
                 isPWA={isPWA}
                 isMobile={isMobile}
                 onToggleSidebar={() => setSidebarVisible(false)}
+                onShowProjectForm={() => setShowProjectForm(true)}
               />
             ) : (
-              /* Collapsed Sidebar */
               <div className="h-full flex flex-col items-center py-4 gap-4">
-                {/* Expand Button */}
                 <button
                   onClick={() => setSidebarVisible(true)}
-                  className="p-2 hover:bg-accent rounded-md transition-colors duration-200 group"
-                  aria-label="Show sidebar"
+                  className="p-2 hover:bg-accent rounded-md transition-colors group"
                   title="Show sidebar"
                 >
-                  <svg
-                    className="w-5 h-5 text-foreground group-hover:scale-110 transition-transform"
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
-                  >
+                  <svg className="w-5 h-5 text-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 5l7 7-7 7M5 5l7 7-7 7" />
                   </svg>
                 </button>
-
-                {/* Settings Icon */}
                 <button
                   onClick={() => setShowSettings(true)}
-                  className="p-2 hover:bg-accent rounded-md transition-colors duration-200"
-                  aria-label="Settings"
+                  className="p-2 hover:bg-accent rounded-md transition-colors"
                   title="Settings"
                 >
-                  <SettingsIcon className="w-5 h-5 text-muted-foreground hover:text-foreground transition-colors" />
+                  <SettingsIcon className="w-5 h-5 text-muted-foreground" />
                 </button>
-
-                {/* Update Indicator */}
                 {updateAvailable && (
                   <button
                     onClick={() => setShowVersionModal(true)}
-                    className="relative p-2 hover:bg-accent rounded-md transition-colors duration-200"
-                    aria-label="Update available"
+                    className="relative p-2 hover:bg-accent rounded-md transition-colors"
                     title="Update available"
                   >
                     <Sparkles className="w-5 h-5 text-blue-500" />
@@ -670,132 +290,51 @@ function AppContent() {
 
       {/* Mobile Sidebar Overlay */}
       {isMobile && (
-        <div className={`fixed inset-0 z-50 flex transition-all duration-150 ease-out ${
-          sidebarOpen ? 'opacity-100 visible' : 'opacity-0 invisible'
-        }`}>
+        <div className={`fixed inset-0 z-50 flex transition-all duration-150 ${sidebarOpen ? 'opacity-100 visible' : 'opacity-0 invisible'}`}>
           <button
-            className="fixed inset-0 bg-background/80 backdrop-blur-sm transition-opacity duration-150 ease-out"
-            onClick={(e) => {
-              e.stopPropagation();
-              setSidebarOpen(false);
-            }}
-            onTouchStart={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              setSidebarOpen(false);
-            }}
+            className="fixed inset-0 bg-background/80 backdrop-blur-sm"
+            onClick={() => setSidebarOpen(false)}
             aria-label="Close sidebar"
           />
           <div
-            className={`relative w-[85vw] max-w-sm sm:w-80 h-full bg-card border-r border-border transform transition-transform duration-150 ease-out ${
+            className={`relative w-[85vw] max-w-sm h-full bg-card border-r border-border transform transition-transform duration-150 ${
               sidebarOpen ? 'translate-x-0' : '-translate-x-full'
             }`}
             onClick={(e) => e.stopPropagation()}
-            onTouchStart={(e) => e.stopPropagation()}
           >
             <Sidebar
-              projects={projects}
-              selectedProject={selectedProject}
-              selectedSession={selectedSession}
-              onProjectSelect={handleProjectSelect}
-              onSessionSelect={handleSessionSelect}
-              onNewSession={handleNewSession}
-              onSessionDelete={handleSessionDelete}
-              onProjectDelete={handleProjectDelete}
-              isLoading={isLoadingProjects}
-              onRefresh={handleSidebarRefresh}
               onShowSettings={() => setShowSettings(true)}
               updateAvailable={updateAvailable}
               latestVersion={latestVersion}
-              currentVersion={currentVersion}
               releaseInfo={releaseInfo}
               onShowVersionModal={() => setShowVersionModal(true)}
               isPWA={isPWA}
               isMobile={isMobile}
-              onToggleSidebar={() => setSidebarVisible(false)}
+              onShowProjectForm={() => setShowProjectForm(true)}
             />
           </div>
         </div>
       )}
 
-      {/* Main Content Area - Flexible */}
+      {/* Main Content Area */}
       <div className={`flex-1 flex flex-col min-w-0 ${isMobile && !isInputFocused ? 'pb-mobile-nav' : ''}`}>
         <MainContent
-          selectedProject={selectedProject}
-          selectedSession={selectedSession}
-          activeTab={activeTab}
-          setActiveTab={setActiveTab}
           isMobile={isMobile}
           isPWA={isPWA}
           onMenuClick={() => setSidebarOpen(true)}
-          isLoading={isLoadingProjects}
-          onInputFocusChange={setIsInputFocused}
-          onNavigateToSession={(sessionId, sessionData = null) => {
-            const session = sessionData || {
-              id: sessionId,
-              summary: 'New Conversation',
-              __provider: 'claude'
-            };
-
-            setSelectedSession(session);
-            navigate(`/session/${sessionId}`);
-
-            // Optimistically add session if not already present
-            if (selectedProject) {
-              setProjects(prevProjects =>
-                prevProjects.map(p => {
-                  if (p.name === selectedProject.name) {
-                    // Duplicate check - prevent double-add from file watcher refresh
-                    const exists = p.sessions?.some(s => s.id === sessionId);
-                    if (exists) return p;
-
-                    return {
-                      ...p,
-                      sessions: [session, ...(p.sessions || [])],
-                      sessionMeta: {
-                        ...p.sessionMeta,
-                        total: (p.sessionMeta?.total || 0) + 1
-                      }
-                    };
-                  }
-                  return p;
-                })
-              );
-            }
-            // NO window.refreshProjects() - avoid full refresh
-          }}
           onShowSettings={() => setShowSettings(true)}
           autoExpandTools={autoExpandTools}
           showRawParameters={showRawParameters}
           showThinking={showThinking}
-          pendingInitialMessage={pendingInitialMessage}
         />
       </div>
 
       {/* Mobile Bottom Navigation */}
       {isMobile && (
         <MobileNav
-          activeTab={activeTab}
-          setActiveTab={setActiveTab}
+          activeTab="chat"
+          setActiveTab={() => {}}
           isInputFocused={isInputFocused}
-        />
-      )}
-      {/* Quick Settings Panel - Only show on chat tab */}
-      {activeTab === 'chat' && (
-        <QuickSettingsPanel
-          isOpen={showQuickSettings}
-          onToggle={setShowQuickSettings}
-          autoExpandTools={autoExpandTools}
-          onAutoExpandChange={setAutoExpandTools}
-          showRawParameters={showRawParameters}
-          onShowRawParametersChange={setShowRawParameters}
-          showThinking={showThinking}
-          onShowThinkingChange={setShowThinking}
-          autoScrollToBottom={autoScrollToBottom}
-          onAutoScrollChange={setAutoScrollToBottom}
-          sendByCtrlEnter={sendByCtrlEnter}
-          onSendByCtrlEnterChange={setSendByCtrlEnter}
-          isMobile={isMobile}
         />
       )}
 
@@ -803,16 +342,16 @@ function AppContent() {
       <Settings
         isOpen={showSettings}
         onClose={() => setShowSettings(false)}
-        projects={projects}
+        projects={[]}
         initialTab={settingsInitialTab}
       />
 
-      {/* New Session Modal */}
-      <NewSessionModal
-        isOpen={newSessionModal.isOpen}
-        onClose={() => setNewSessionModal({ isOpen: false, project: null })}
-        project={newSessionModal.project}
-        onSessionCreated={handleSessionCreatedFromModal}
+      {/* Project Form Modal */}
+      <ProjectForm
+        isOpen={showProjectForm}
+        onClose={() => setShowProjectForm(false)}
+        onSubmit={handleCreateProject}
+        isSubmitting={isCreatingProject}
       />
 
       {/* Version Upgrade Modal */}
@@ -821,24 +360,21 @@ function AppContent() {
   );
 }
 
-// Root App component with router
+// Root App component with providers
 function App() {
   return (
     <ThemeProvider>
       <AuthProvider>
         <WebSocketProvider>
-          <TasksSettingsProvider>
-            <TaskMasterProvider>
-              <ProtectedRoute>
-                <Router>
-                  <Routes>
-                    <Route path="/" element={<AppContent />} />
-                    <Route path="/session/:sessionId" element={<AppContent />} />
-                  </Routes>
-                </Router>
-              </ProtectedRoute>
-            </TaskMasterProvider>
-          </TasksSettingsProvider>
+          <TaskContextProvider>
+            <ProtectedRoute>
+              <Router>
+                <Routes>
+                  <Route path="/*" element={<AppContent />} />
+                </Routes>
+              </Router>
+            </ProtectedRoute>
+          </TaskContextProvider>
         </WebSocketProvider>
       </AuthProvider>
     </ThemeProvider>

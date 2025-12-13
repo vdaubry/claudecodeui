@@ -1,11 +1,11 @@
-/*
- * ChatInterface.jsx - Chat Component with Message Sending
+/**
+ * ChatInterface.jsx - Chat Component for Task-Driven Workflow
  *
  * Architecture:
- * - Load messages via REST API when session selected
+ * - Load messages via REST API when conversation selected
  * - Display messages (user, assistant, tool calls)
  * - Send messages via WebSocket
- * - User refreshes to see responses
+ * - Messages linked to task's conversation
  */
 
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
@@ -85,15 +85,12 @@ function convertSessionMessages(rawMessages) {
 // Main ChatInterface component
 function ChatInterface({
   selectedProject,
-  selectedSession,
-  onFileOpen,
-  onNavigateToSession,
+  selectedTask,
+  activeConversation,
   onShowSettings,
   autoExpandTools,
   showRawParameters,
-  showThinking,
-  onShowAllTasks,
-  pendingInitialMessage
+  showThinking
 }) {
   const [sessionMessages, setSessionMessages] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -105,7 +102,8 @@ function ChatInterface({
   // Token usage state (will be populated from backend responses)
   const [tokenBudget, setTokenBudget] = useState(null);
 
-  // Slash commands via hook
+  // Slash commands via hook - use project's repo_folder_path
+  const projectPath = selectedProject?.repo_folder_path || selectedProject?.path;
   const {
     slashCommands,
     showCommandMenu,
@@ -117,7 +115,7 @@ function ChatInterface({
     handleCommandSelect: hookCommandSelect,
     handleCloseCommandMenu,
     handleToggleCommandMenu,
-  } = useSlashCommands(selectedProject?.path);
+  } = useSlashCommands(projectPath);
 
   // Ref for textarea positioning (forwarded to MessageInput)
   const inputTextareaRef = useRef(null);
@@ -133,47 +131,45 @@ function ChatInterface({
   const [isAtBottom, setIsAtBottom] = useState(true);
   const [hasNewMessages, setHasNewMessages] = useState(false);
 
+  // Get the claude session ID from the conversation
+  const claudeSessionId = activeConversation?.claude_conversation_id;
+
   // Refresh session messages from REST API
   const refreshSessionMessages = useCallback(async () => {
-    if (!selectedSession || !selectedProject) {
+    if (!activeConversation) {
       setSessionMessages([]);
       return;
     }
 
+    // Fetch messages for the conversation
     try {
-      const response = await api.sessionMessages(selectedProject.name, selectedSession.id, 1000, 0);
+      const response = await api.conversations.getMessages(activeConversation.id, 1000, 0);
       if (response.ok) {
         const data = await response.json();
         setSessionMessages(data.messages || []);
       } else {
         console.error('Failed to load messages');
+        setSessionMessages([]);
       }
     } catch (error) {
       console.error('Error loading messages:', error);
+      setSessionMessages([]);
     }
-  }, [selectedSession?.id, selectedProject?.name]);
-
-  // Fetch token usage callback for the streaming hook
-  const fetchTokenUsage = useCallback(async () => {
-    if (selectedProject && selectedSession?.id) {
-      try {
-        const url = `/api/projects/${selectedProject.name}/sessions/${selectedSession.id}/token-usage`;
-        const response = await authenticatedFetch(url);
-        if (response.ok) {
-          const data = await response.json();
-          setTokenBudget(data);
-        }
-      } catch (error) {
-        console.error('Failed to fetch updated token usage:', error);
-      }
-    }
-  }, [selectedProject, selectedSession?.id]);
+  }, [activeConversation]);
 
   // Combined callback for when streaming completes
   const handleStreamingComplete = useCallback(async () => {
     await refreshSessionMessages();
-    await fetchTokenUsage();
-  }, [refreshSessionMessages, fetchTokenUsage]);
+  }, [refreshSessionMessages]);
+
+  // Create a session-like object for the streaming hook
+  const sessionForStreaming = useMemo(() => {
+    if (!activeConversation) return null;
+    return {
+      id: claudeSessionId || `new-${activeConversation.id}`,
+      __provider: 'claude'
+    };
+  }, [activeConversation, claudeSessionId]);
 
   // Session streaming via hook (handles streaming, abort, status, WebSocket subscriptions)
   const {
@@ -186,7 +182,7 @@ function ChatInterface({
     claudeStatus,
     handleAbortSession,
   } = useSessionStreaming({
-    selectedSession,
+    selectedSession: sessionForStreaming,
     selectedProject,
     sendMessage,
     subscribe,
@@ -202,10 +198,10 @@ function ChatInterface({
   // Handler to change permission mode
   const handleModeChange = useCallback((newMode) => {
     setPermissionMode(newMode);
-    if (selectedSession?.id) {
-      localStorage.setItem(`permissionMode-${selectedSession.id}`, newMode);
+    if (activeConversation?.id) {
+      localStorage.setItem(`permissionMode-conv-${activeConversation.id}`, newMode);
     }
-  }, [selectedSession?.id]);
+  }, [activeConversation?.id]);
 
   // Wrapper for command selection that includes input/setInput
   const handleCommandSelect = useCallback((command, index, isHover) => {
@@ -213,9 +209,8 @@ function ChatInterface({
   }, [hookCommandSelect, input, setInput]);
 
   // Subscribe to additional WebSocket messages (token budget, session subscription status)
-  // Note: Streaming-related subscriptions are handled by useSessionStreaming hook
   useEffect(() => {
-    if (!selectedSession) return;
+    if (!activeConversation) return;
 
     const handleTokenBudgetMsg = (msg) => handleTokenBudget(msg);
     const handleSubscribed = (msg) => console.log('[ChatInterface] Subscribed to session:', msg.sessionId);
@@ -230,7 +225,7 @@ function ChatInterface({
       unsubscribe('session-subscribed', handleSubscribed);
       unsubscribe('session-unsubscribed', handleUnsubscribed);
     };
-  }, [selectedSession, subscribe, unsubscribe, handleTokenBudget]);
+  }, [activeConversation, subscribe, unsubscribe, handleTokenBudget]);
 
   // Handle message submission
   const handleSubmit = useCallback((e) => {
@@ -249,18 +244,27 @@ function ChatInterface({
     };
     setStreamingMessages([userMessage]);
 
+    // Determine if this is a new conversation or resume
+    // New conversation: has taskId but no claudeSessionId
+    // Resume: has claudeSessionId (from previous messages)
+    const isNewConversation = !claudeSessionId && !!selectedTask?.id;
+
     sendMessage('claude-command', {
       command: messageText,
       options: {
-        projectPath: selectedProject.path,
-        cwd: selectedProject.fullPath || selectedProject.path,
-        sessionId: selectedSession?.id,
-        resume: !!selectedSession?.id,
-        permissionMode: permissionMode
+        projectPath: projectPath,
+        cwd: projectPath,
+        sessionId: claudeSessionId,
+        resume: !!claudeSessionId,
+        permissionMode: permissionMode,
+        // Task-based conversation flow
+        conversationId: activeConversation?.id,
+        taskId: selectedTask?.id,
+        isNewConversation: isNewConversation
       }
     });
     // Note: isSending is cleared when claude-complete is received
-  }, [input, isSending, selectedProject, selectedSession, isConnected, sendMessage, permissionMode]);
+  }, [input, isSending, selectedProject, claudeSessionId, isConnected, sendMessage, permissionMode, projectPath, activeConversation, selectedTask]);
 
   // Convert raw messages to displayable format, including streaming messages
   const displayMessages = useMemo(() => {
@@ -272,18 +276,17 @@ function ChatInterface({
     return historyMessages;
   }, [sessionMessages, streamingMessages]);
 
-  // Load messages when session changes
+  // Load messages when conversation changes
   useEffect(() => {
     async function loadMessages() {
-      if (!selectedSession || !selectedProject) {
+      if (!activeConversation) {
         setSessionMessages([]);
         return;
       }
 
       setIsLoading(true);
       try {
-        // Load all messages (no pagination for simplicity)
-        const response = await api.sessionMessages(selectedProject.name, selectedSession.id, 1000, 0);
+        const response = await api.conversations.getMessages(activeConversation.id, 1000, 0);
         if (response.ok) {
           const data = await response.json();
           setSessionMessages(data.messages || []);
@@ -300,90 +303,47 @@ function ChatInterface({
     }
 
     loadMessages();
-  }, [selectedSession?.id, selectedProject?.name]);
+  }, [activeConversation?.id]);
 
-  // Display pending initial message from NewSessionModal
+  // Load permission mode when conversation changes
   useEffect(() => {
-    // Only display if the pending message is for this session
-    if (pendingInitialMessage?.sessionId === selectedSession?.id && pendingInitialMessage?.message) {
-      setStreamingMessages([{
-        type: 'user',
-        content: pendingInitialMessage.message,
-        timestamp: new Date().toISOString()
-      }]);
-    }
-  }, [pendingInitialMessage, selectedSession?.id]);
-
-  // Load permission mode when session changes
-  // Prioritize __permissionMode from modal (for new sessions), then localStorage, then default
-  useEffect(() => {
-    if (selectedSession?.id) {
-      if (selectedSession.__permissionMode) {
-        setPermissionMode(selectedSession.__permissionMode);
-      } else {
-        const savedMode = localStorage.getItem(`permissionMode-${selectedSession.id}`);
-        setPermissionMode(savedMode || 'default');
-      }
+    if (activeConversation?.id) {
+      const savedMode = localStorage.getItem(`permissionMode-conv-${activeConversation.id}`);
+      setPermissionMode(savedMode || 'default');
     } else {
       setPermissionMode('default');
     }
-  }, [selectedSession?.id, selectedSession?.__permissionMode]);
+  }, [activeConversation?.id]);
 
-  // Load token usage when session changes
+  // Reset token budget when conversation changes (token tracking not available in new API)
   useEffect(() => {
-    if (!selectedProject || !selectedSession?.id) {
-      setTokenBudget(null);
-      return;
-    }
+    setTokenBudget(null);
+  }, [activeConversation?.id]);
 
-    const fetchTokenUsage = async () => {
-      try {
-        const url = `/api/projects/${selectedProject.name}/sessions/${selectedSession.id}/token-usage`;
-        const response = await authenticatedFetch(url);
-        if (response.ok) {
-          const data = await response.json();
-          setTokenBudget(data);
-        } else {
-          setTokenBudget(null);
-        }
-      } catch (error) {
-        console.error('Failed to fetch token usage:', error);
-        setTokenBudget(null);
-      }
-    };
-
-    fetchTokenUsage();
-  }, [selectedSession?.id, selectedProject?.name]);
-
-  // Manage session subscription when session or WebSocket changes
+  // Manage session subscription when conversation or WebSocket changes
   useEffect(() => {
-    if (!isConnected) return;
+    if (!isConnected || !claudeSessionId) return;
 
-    const newSessionId = selectedSession?.id;
     const currentSubscription = subscribedSessionRef.current;
 
     // Unsubscribe from previous session
-    if (currentSubscription && currentSubscription !== newSessionId) {
+    if (currentSubscription && currentSubscription !== claudeSessionId) {
       sendMessage('unsubscribe-session', {});
     }
 
     // Subscribe to new session
-    if (newSessionId) {
-      sendMessage('subscribe-session', {
-        sessionId: newSessionId,
-        provider: selectedSession?.__provider || 'claude'
-      });
-      subscribedSessionRef.current = newSessionId;
-    } else {
-      subscribedSessionRef.current = null;
-    }
+    sendMessage('subscribe-session', {
+      sessionId: claudeSessionId,
+      provider: 'claude'
+    });
+    subscribedSessionRef.current = claudeSessionId;
 
-    // Clear streaming state when switching to a different session (without pending initial message)
-    if (currentSubscription !== newSessionId && pendingInitialMessage?.sessionId !== newSessionId) {
+    // Clear streaming state when switching
+    if (currentSubscription !== claudeSessionId) {
       setStreamingMessages([]);
     }
     setIsStreaming(false);
-  }, [selectedSession?.id, selectedSession?.__provider, pendingInitialMessage, isConnected, sendMessage]);
+  }, [claudeSessionId, isConnected, sendMessage]);
 
   // Handle scroll events to track if user is at bottom
   const handleScroll = useCallback(() => {
@@ -432,15 +392,13 @@ function ChatInterface({
     }
   }, [displayMessages.length, isAtBottom]);
 
-  // Note: Escape key to stop generation is handled by useSessionStreaming hook
-
-  // Loading state - but skip if we have a pending initial message to display
-  if (isLoading && pendingInitialMessage?.sessionId !== selectedSession?.id) {
+  // Loading state
+  if (isLoading) {
     return (
       <div className="h-full flex items-center justify-center">
-        <div className="text-center text-gray-500 dark:text-gray-400">
+        <div className="text-center text-muted-foreground">
           <div className="w-8 h-8 mx-auto mb-3">
-            <div className="w-full h-full rounded-full border-4 border-gray-200 border-t-blue-500 animate-spin" />
+            <div className="w-full h-full rounded-full border-4 border-muted border-t-primary animate-spin" />
           </div>
           <p>Loading messages...</p>
         </div>
@@ -458,23 +416,30 @@ function ChatInterface({
       >
         {/* Wrap messages in a div to maintain correct order within reversed flex container */}
         <div className="space-y-4">
-          {displayMessages.map((message, index) => {
-            const prevMessage = index > 0 ? displayMessages[index - 1] : null;
-            const isGrouped = prevMessage && prevMessage.type === message.type;
+          {displayMessages.length === 0 && !isStreaming ? (
+            <div className="text-center py-12 text-muted-foreground">
+              <p className="text-lg mb-2">Start a conversation</p>
+              <p className="text-sm">Type a message below to begin chatting with Claude about this task.</p>
+            </div>
+          ) : (
+            displayMessages.map((message, index) => {
+              const prevMessage = index > 0 ? displayMessages[index - 1] : null;
+              const isGrouped = prevMessage && prevMessage.type === message.type;
 
-            // Skip thinking messages if showThinking is false
-            if (message.type === 'thinking' && !showThinking) {
-              return null;
-            }
+              // Skip thinking messages if showThinking is false
+              if (message.type === 'thinking' && !showThinking) {
+                return null;
+              }
 
-            return (
-              <MessageComponent
-                key={index}
-                message={message}
-                isGrouped={isGrouped}
-              />
-            );
-          })}
+              return (
+                <MessageComponent
+                  key={index}
+                  message={message}
+                  isGrouped={isGrouped}
+                />
+              );
+            })
+          )}
         </div>
       </div>
 
@@ -482,7 +447,7 @@ function ChatInterface({
       {hasNewMessages && (
         <button
           onClick={scrollToBottom}
-          className="absolute bottom-20 left-1/2 -translate-x-1/2 px-4 py-2 bg-blue-600 text-white rounded-full shadow-lg flex items-center gap-2 hover:bg-blue-700 transition-colors z-10"
+          className="absolute bottom-20 left-1/2 -translate-x-1/2 px-4 py-2 bg-primary text-primary-foreground rounded-full shadow-lg flex items-center gap-2 hover:bg-primary/90 transition-colors z-10"
         >
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 14l-7 7m0 0l-7-7m7 7V3" />
@@ -496,7 +461,7 @@ function ChatInterface({
         status={claudeStatus}
         isLoading={isSending || isStreaming}
         onAbort={handleAbortSession}
-        provider={selectedSession?.__provider || 'claude'}
+        provider="claude"
       />
 
       <MessageInput

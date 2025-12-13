@@ -489,7 +489,7 @@
                                 <span class="endpoint-path"><span class="api-url">http://localhost:3001</span>/api/agent</span>
                             </div>
 
-                            <p>Trigger an AI agent (Claude or Cursor) to work on a project.</p>
+                            <p>Trigger an AI agent to work on a project.</p>
 
                             <h4>Request Body Parameters</h4>
                             <table>
@@ -521,22 +521,10 @@
                                         <td>Task for the AI agent</td>
                                     </tr>
                                     <tr>
-                                        <td><code>provider</code></td>
-                                        <td>string</td>
-                                        <td><span class="badge badge-optional">Optional</span></td>
-                                        <td><code>claude</code> or <code>cursor</code> (default: <code>claude</code>)</td>
-                                    </tr>
-                                    <tr>
                                         <td><code>stream</code></td>
                                         <td>boolean</td>
                                         <td><span class="badge badge-optional">Optional</span></td>
                                         <td>Enable streaming (default: <code>true</code>)</td>
-                                    </tr>
-                                    <tr>
-                                        <td><code>model</code></td>
-                                        <td>string</td>
-                                        <td><span class="badge badge-optional">Optional</span></td>
-                                        <td>Model to use (for Cursor)</td>
                                     </tr>
                                     <tr>
                                         <td><code>cleanup</code></td>

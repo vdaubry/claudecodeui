@@ -102,7 +102,6 @@ temp/
 .claude/
 .cursor/
 .roo/
-.taskmaster/
 .cline/
 .windsurf/
 .serena/
@@ -128,5 +127,5 @@ dev-debug.log
 # OS specific
 
 # Task files
-tasks.json
-tasks/ 
+# tasks.json
+# tasks/ 

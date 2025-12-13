@@ -309,15 +309,16 @@ Even though Tasks conceptually "own" conversations, Claude only sees the project
 
 ### API Structure
 
-All new endpoints use `/api/v2/` prefix to coexist with legacy endpoints.
+All endpoints use the `/api/` prefix (legacy endpoints have been removed).
 
 | Resource | Endpoints |
 |----------|-----------|
-| Projects | `GET/POST /api/v2/projects`, `GET/PUT/DELETE /api/v2/projects/:id` |
-| Project Docs | `GET/PUT /api/v2/projects/:id/documentation` |
-| Tasks | `GET/POST /api/v2/projects/:projectId/tasks`, `GET/PUT/DELETE /api/v2/tasks/:id` |
-| Task Docs | `GET/PUT /api/v2/tasks/:id/documentation` |
-| Conversations | `GET/POST /api/v2/tasks/:taskId/conversations`, `GET/DELETE /api/v2/conversations/:id` |
+| Projects | `GET/POST /api/projects`, `GET/PUT/DELETE /api/projects/:id` |
+| Project Docs | `GET/PUT /api/projects/:id/documentation` |
+| Tasks | `GET/POST /api/projects/:projectId/tasks`, `GET/PUT/DELETE /api/tasks/:id` |
+| Task Docs | `GET/PUT /api/tasks/:id/documentation` |
+| Conversations | `GET/POST /api/tasks/:taskId/conversations`, `GET/DELETE /api/conversations/:id` |
+| Messages | `GET /api/conversations/:id/messages` |
 
 ### UI Navigation Flow
 
@@ -506,7 +507,7 @@ All new endpoints use `/api/v2/` prefix to coexist with legacy endpoints.
 ---
 
 ### Phase 6: Frontend State Management
-**Status:** `[ ] TO-DO`
+**Status:** `[x] DONE`
 
 **What:** Create new context and update App state for task-driven navigation.
 
@@ -532,7 +533,7 @@ All new endpoints use `/api/v2/` prefix to coexist with legacy endpoints.
 ---
 
 ### Phase 7: Frontend Components
-**Status:** `[ ] TO-DO`
+**Status:** `[x] DONE`
 
 **What:** Create new UI components and modify existing ones.
 
@@ -561,22 +562,37 @@ All new endpoints use `/api/v2/` prefix to coexist with legacy endpoints.
 ---
 
 ### Phase 8: Cleanup
-**Status:** `[ ] TO-DO`
+**Status:** `[x] DONE`
 
-**What:** Remove Cursor CLI support and verify no regressions.
+**What:** Remove Cursor CLI support, legacy project discovery, and v2 versioning.
 
-**Files to modify:**
-- `server/projects.js`
-  - Remove `getCursorSessions()` function (~lines 1033-1141)
-  - Remove Cursor-related imports (`sqlite3`, `open`)
-  - Keep Claude session discovery for backward compatibility
+**Files deleted:**
+- `server/cursor-cli.js` - Cursor CLI spawning
+- `server/routes/cursor.js` - Cursor API endpoints
+- `server/projects.js` - Legacy filesystem-based project discovery (replaced by database-backed projects)
+- `src/components/CursorLogo.jsx` - Cursor icon component
+- `src/components/NewSessionModal.jsx` - Legacy session creation modal
 
-- `src/components/Sidebar.jsx`
-  - Remove Cursor session rendering logic
-  - Remove provider icons
+**Files created:**
+- `server/services/sessions.js` - JSONL message reading for conversation history (extracted from old projects.js)
+
+**Files modified:**
+- `server/index.js` - Removed Cursor handlers, changed routes from `/api/v2/` to `/api/`
+- `src/components/Settings.jsx` - Removed ~260 lines of Cursor-related code
+- `src/components/Onboarding.jsx` - Removed Cursor CLI onboarding step
+- `src/components/LoginModal.jsx` - Simplified to Claude-only
+- `src/components/Shell.jsx` - Removed provider checks
+- `src/components/GitPanel.jsx` - Removed provider parameter
+- `src/components/TaskMasterSetupWizard.jsx` - Removed 'cursor' from allowed rules
+- `src/utils/api.js` - Changed all endpoints from `/api/v2/` to `/api/`, added `getMessages` method
+- `src/components/Sidebar.jsx` - Updated localStorage keys from `starredProjectsV2` to `starredProjects`
+- `src/components/TaskDetailViewV2.jsx` → Renamed to `src/components/TaskDetailView.jsx`
+- `src/components/MainContent.jsx` - Updated import reference
+- `src/components/ChatInterface.jsx` - Fixed legacy API calls to use new endpoints
+- All test files - Updated endpoint paths from `/api/v2/` to `/api/`
 
 **Verification:**
-- Run full test suite
+- All 195 tests pass
 - Manual testing via Playwright MCP
 
 ---
@@ -626,48 +642,53 @@ npm run test:coverage # With coverage report
 | 3 | Backend API Routes | `[x] DONE` |
 | 4 | SDK Context Injection | `[x] DONE` |
 | 5 | Frontend API Client | `[x] DONE` |
-| 6 | Frontend State Management | `[ ] TO-DO` |
-| 7 | Frontend Components | `[ ] TO-DO` |
-| 8 | Cleanup | `[ ] TO-DO` |
+| 6 | Frontend State Management | `[x] DONE` |
+| 7 | Frontend Components | `[x] DONE` |
+| 8 | Cleanup | `[x] DONE` |
 
 ---
 
 ## Quick Reference: Files
 
-### Backend - Existing (to modify)
-| File | Changes |
-|------|---------|
-| `server/database/init.sql` | Add 3 new tables |
-| `server/database/db.js` | Add `projectsDb`, `tasksDb`, `conversationsDb` |
-| `server/claude-sdk.js` | Add `customSystemPrompt` support in `mapCliOptionsToSDK()` |
-| `server/index.js` | Register routes, update WebSocket handler |
-| `server/projects.js` | Remove Cursor code (~lines 1033-1141) |
-
-### Backend - New
+### Backend - Core Files
 | File | Purpose |
 |------|---------|
+| `server/database/init.sql` | Database schema with projects, tasks, conversations tables |
+| `server/database/db.js` | Database operations: `projectsDb`, `tasksDb`, `conversationsDb` |
+| `server/claude-sdk.js` | Claude SDK integration with `customSystemPrompt` support |
+| `server/index.js` | Express server, routes, and WebSocket handlers |
 | `server/services/documentation.js` | File I/O for `.claude-ui/` folder |
+| `server/services/sessions.js` | JSONL message reading for conversation history |
 | `server/routes/projects.js` | Project CRUD endpoints |
 | `server/routes/tasks.js` | Task CRUD endpoints |
-| `server/routes/conversations.js` | Conversation CRUD endpoints |
+| `server/routes/conversations.js` | Conversation CRUD + messages endpoints |
 
-### Frontend - Existing (to modify)
-| File | Changes |
-|------|---------|
-| `src/utils/api.js` | Add v2 API methods |
-| `src/App.jsx` | New state: `selectedTask`, `activeConversation`, `currentView` |
-| `src/components/Sidebar.jsx` | Tasks instead of sessions, project name click |
-| `src/components/MainContent.jsx` | View routing |
-| `src/components/ChatInterface.jsx` | `conversation` prop, breadcrumb |
+### Backend - Deleted (Cleanup Phase)
+| File | Reason |
+|------|--------|
+| `server/cursor-cli.js` | Cursor CLI support removed |
+| `server/routes/cursor.js` | Cursor API endpoints removed |
+| `server/projects.js` | Legacy filesystem discovery replaced by database |
 
-### Frontend - New
+### Frontend - Core Files
 | File | Purpose |
 |------|---------|
+| `src/utils/api.js` | API client for all endpoints |
+| `src/App.jsx` | Main app with `selectedTask`, `activeConversation`, `currentView` state |
 | `src/contexts/TaskContext.jsx` | State management for projects/tasks/conversations |
+| `src/components/Sidebar.jsx` | Task-based navigation sidebar |
+| `src/components/MainContent.jsx` | View routing between detail/chat views |
+| `src/components/ChatInterface.jsx` | Chat UI with conversation support |
+| `src/components/TaskDetailView.jsx` | Task detail page with docs and conversations |
 | `src/components/ProjectDetailView.jsx` | Project detail page |
-| `src/components/TaskDetailView.jsx` | Task detail page |
 | `src/components/ConversationList.jsx` | Conversation list component |
 | `src/components/MarkdownEditor.jsx` | Markdown view/edit component |
 | `src/components/ProjectForm.jsx` | Project create/edit modal |
 | `src/components/TaskForm.jsx` | Task create modal |
 | `src/components/Breadcrumb.jsx` | Navigation breadcrumb |
+
+### Frontend - Deleted (Cleanup Phase)
+| File | Reason |
+|------|--------|
+| `src/components/CursorLogo.jsx` | Cursor support removed |
+| `src/components/NewSessionModal.jsx` | Legacy session creation removed |

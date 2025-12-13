@@ -1,10 +1,11 @@
 import express from 'express';
-import { tasksDb, conversationsDb } from '../database/db.js';
+import { tasksDb, conversationsDb, projectsDb } from '../database/db.js';
+import { getSessionMessages } from '../services/sessions.js';
 
 const router = express.Router();
 
 /**
- * GET /api/v2/tasks/:taskId/conversations
+ * GET /api/tasks/:taskId/conversations
  * List all conversations for a task
  */
 router.get('/tasks/:taskId/conversations', (req, res) => {
@@ -37,7 +38,7 @@ router.get('/tasks/:taskId/conversations', (req, res) => {
 });
 
 /**
- * POST /api/v2/tasks/:taskId/conversations
+ * POST /api/tasks/:taskId/conversations
  * Create a new conversation for a task
  */
 router.post('/tasks/:taskId/conversations', (req, res) => {
@@ -70,7 +71,7 @@ router.post('/tasks/:taskId/conversations', (req, res) => {
 });
 
 /**
- * GET /api/v2/conversations/:id
+ * GET /api/conversations/:id
  * Get a specific conversation by ID
  */
 router.get('/conversations/:id', (req, res) => {
@@ -103,7 +104,7 @@ router.get('/conversations/:id', (req, res) => {
 });
 
 /**
- * DELETE /api/v2/conversations/:id
+ * DELETE /api/conversations/:id
  * Delete a conversation
  */
 router.delete('/conversations/:id', (req, res) => {
@@ -145,7 +146,7 @@ router.delete('/conversations/:id', (req, res) => {
 });
 
 /**
- * PATCH /api/v2/conversations/:id/claude-id
+ * PATCH /api/conversations/:id/claude-id
  * Update the Claude conversation ID (called after SDK returns session_id)
  */
 router.patch('/conversations/:id/claude-id', (req, res) => {
@@ -186,6 +187,61 @@ router.patch('/conversations/:id/claude-id', (req, res) => {
   } catch (error) {
     console.error('Error updating Claude conversation ID:', error);
     res.status(500).json({ error: 'Failed to update Claude conversation ID' });
+  }
+});
+
+/**
+ * GET /api/conversations/:id/messages
+ * Get messages for a conversation from Claude's JSONL session files
+ */
+router.get('/conversations/:id/messages', async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const conversationId = parseInt(req.params.id, 10);
+    const limit = req.query.limit ? parseInt(req.query.limit, 10) : null;
+    const offset = req.query.offset ? parseInt(req.query.offset, 10) : 0;
+
+    if (isNaN(conversationId)) {
+      return res.status(400).json({ error: 'Invalid conversation ID' });
+    }
+
+    const conversation = conversationsDb.getById(conversationId);
+
+    if (!conversation) {
+      return res.status(404).json({ error: 'Conversation not found' });
+    }
+
+    // Get task with project info to verify ownership
+    const taskWithProject = tasksDb.getWithProject(conversation.task_id);
+
+    if (!taskWithProject || taskWithProject.user_id !== userId) {
+      return res.status(404).json({ error: 'Conversation not found' });
+    }
+
+    // Check if conversation has a Claude session ID
+    if (!conversation.claude_conversation_id) {
+      return res.json({ messages: [], total: 0, hasMore: false });
+    }
+
+    // Get the project to find the repo folder path
+    const project = projectsDb.getById(taskWithProject.project_id, userId);
+
+    if (!project) {
+      return res.status(404).json({ error: 'Project not found' });
+    }
+
+    // Read messages from Claude's JSONL files
+    const result = await getSessionMessages(
+      conversation.claude_conversation_id,
+      project.repo_folder_path,
+      limit,
+      offset
+    );
+
+    res.json(result);
+  } catch (error) {
+    console.error('Error getting conversation messages:', error);
+    res.status(500).json({ error: 'Failed to get conversation messages' });
   }
 });
 

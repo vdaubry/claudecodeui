@@ -48,25 +48,25 @@ export const api = {
   // Task-driven workflow API
   // Projects API
   projects: {
-    list: () => authenticatedFetch('/api/v2/projects'),
+    list: () => authenticatedFetch('/api/projects'),
     create: (name, repoFolderPath) =>
-      authenticatedFetch('/api/v2/projects', {
+      authenticatedFetch('/api/projects', {
         method: 'POST',
         body: JSON.stringify({ name, repoFolderPath }),
       }),
-    get: (id) => authenticatedFetch(`/api/v2/projects/${id}`),
+    get: (id) => authenticatedFetch(`/api/projects/${id}`),
     update: (id, data) =>
-      authenticatedFetch(`/api/v2/projects/${id}`, {
+      authenticatedFetch(`/api/projects/${id}`, {
         method: 'PUT',
         body: JSON.stringify(data),
       }),
     delete: (id) =>
-      authenticatedFetch(`/api/v2/projects/${id}`, {
+      authenticatedFetch(`/api/projects/${id}`, {
         method: 'DELETE',
       }),
-    getDoc: (id) => authenticatedFetch(`/api/v2/projects/${id}/documentation`),
+    getDoc: (id) => authenticatedFetch(`/api/projects/${id}/documentation`),
     saveDoc: (id, content) =>
-      authenticatedFetch(`/api/v2/projects/${id}/documentation`, {
+      authenticatedFetch(`/api/projects/${id}/documentation`, {
         method: 'PUT',
         body: JSON.stringify({ content }),
       }),
@@ -74,25 +74,25 @@ export const api = {
 
   // Tasks API
   tasks: {
-    list: (projectId) => authenticatedFetch(`/api/v2/projects/${projectId}/tasks`),
+    list: (projectId) => authenticatedFetch(`/api/projects/${projectId}/tasks`),
     create: (projectId, title) =>
-      authenticatedFetch(`/api/v2/projects/${projectId}/tasks`, {
+      authenticatedFetch(`/api/projects/${projectId}/tasks`, {
         method: 'POST',
         body: JSON.stringify({ title }),
       }),
-    get: (id) => authenticatedFetch(`/api/v2/tasks/${id}`),
+    get: (id) => authenticatedFetch(`/api/tasks/${id}`),
     update: (id, data) =>
-      authenticatedFetch(`/api/v2/tasks/${id}`, {
+      authenticatedFetch(`/api/tasks/${id}`, {
         method: 'PUT',
         body: JSON.stringify(data),
       }),
     delete: (id) =>
-      authenticatedFetch(`/api/v2/tasks/${id}`, {
+      authenticatedFetch(`/api/tasks/${id}`, {
         method: 'DELETE',
       }),
-    getDoc: (id) => authenticatedFetch(`/api/v2/tasks/${id}/documentation`),
+    getDoc: (id) => authenticatedFetch(`/api/tasks/${id}/documentation`),
     saveDoc: (id, content) =>
-      authenticatedFetch(`/api/v2/tasks/${id}/documentation`, {
+      authenticatedFetch(`/api/tasks/${id}/documentation`, {
         method: 'PUT',
         body: JSON.stringify({ content }),
       }),
@@ -100,16 +100,23 @@ export const api = {
 
   // Conversations API
   conversations: {
-    list: (taskId) => authenticatedFetch(`/api/v2/tasks/${taskId}/conversations`),
+    list: (taskId) => authenticatedFetch(`/api/tasks/${taskId}/conversations`),
     create: (taskId) =>
-      authenticatedFetch(`/api/v2/tasks/${taskId}/conversations`, {
+      authenticatedFetch(`/api/tasks/${taskId}/conversations`, {
         method: 'POST',
       }),
-    get: (id) => authenticatedFetch(`/api/v2/conversations/${id}`),
+    get: (id) => authenticatedFetch(`/api/conversations/${id}`),
     delete: (id) =>
-      authenticatedFetch(`/api/v2/conversations/${id}`, {
+      authenticatedFetch(`/api/conversations/${id}`, {
         method: 'DELETE',
       }),
+    getMessages: (id, limit = null, offset = 0) => {
+      const params = new URLSearchParams();
+      if (limit) params.append('limit', limit);
+      if (offset) params.append('offset', offset);
+      const queryString = params.toString();
+      return authenticatedFetch(`/api/conversations/${id}/messages${queryString ? '?' + queryString : ''}`);
+    },
   },
 
   // Voice transcription

@@ -5,9 +5,7 @@ import os from 'os';
 import { promises as fs } from 'fs';
 import crypto from 'crypto';
 import { apiKeysDb, githubTokensDb } from '../database/db.js';
-import { addProjectManually } from '../projects.js';
 import { queryClaudeSDK } from '../claude-sdk.js';
-import { spawnCursor } from '../cursor-cli.js';
 import { Octokit } from '@octokit/rest';
 
 const router = express.Router();
@@ -573,7 +571,7 @@ class ResponseCollector {
 /**
  * POST /api/agent
  *
- * Trigger an AI agent (Claude or Cursor) to work on a project.
+ * Trigger an AI agent (Claude) to work on a project.
  * Supports automatic GitHub branch and pull request creation after successful completion.
  *
  * ================================================================================================
@@ -598,17 +596,13 @@ class ResponseCollector {
  *                          - Source for auto-generated branch names (if createBranch=true and no branchName)
  *                          - Fallback for PR title if no commits are made
  *
- * @param {string} provider - (Optional) AI provider to use. Options: 'claude' | 'cursor'
+ * @param {string} provider - (Optional) AI provider to use. Only 'claude' is supported.
  *                           Default: 'claude'
  *
  * @param {boolean} stream - (Optional) Enable Server-Sent Events (SSE) streaming for real-time updates.
  *                          Default: true
  *                          - true: Returns text/event-stream with incremental updates
  *                          - false: Returns complete JSON response after completion
- *
- * @param {string} model - (Optional) Model identifier for Cursor provider.
- *                        Only applicable when provider='cursor'.
- *                        Examples: 'gpt-4', 'claude-3-opus', etc.
  *
  * @param {boolean} cleanup - (Optional) Auto-cleanup project directory after completion.
  *                           Default: true
@@ -711,7 +705,7 @@ class ResponseCollector {
  * Input Validations (400 Bad Request):
  *   - Either githubUrl OR projectPath must be provided (not neither)
  *   - message must be non-empty string
- *   - provider must be 'claude' or 'cursor'
+ *   - provider must be 'claude' (only supported provider)
  *   - createBranch/createPR requires githubUrl OR projectPath (not neither)
  *   - branchName must pass Git naming rules (if provided)
  *
@@ -819,8 +813,8 @@ router.post('/', validateExternalApiKey, async (req, res) => {
     return res.status(400).json({ error: 'message is required' });
   }
 
-  if (!['claude', 'cursor'].includes(provider)) {
-    return res.status(400).json({ error: 'provider must be "claude" or "cursor"' });
+  if (provider !== 'claude') {
+    return res.status(400).json({ error: 'Only "claude" provider is supported' });
   }
 
   // Validate GitHub branch/PR creation requirements
@@ -860,20 +854,8 @@ router.post('/', validateExternalApiKey, async (req, res) => {
       }
     }
 
-    // Register the project (or use existing registration)
-    let project;
-    try {
-      project = await addProjectManually(finalProjectPath);
-      console.log('📦 Project registered:', project);
-    } catch (error) {
-      // If project already exists, that's fine - continue with the existing registration
-      if (error.message && error.message.includes('Project already configured')) {
-        console.log('📦 Using existing project registration for:', finalProjectPath);
-        project = { path: finalProjectPath };
-      } else {
-        throw error;
-      }
-    }
+    // Note: Legacy project registration removed. External API uses project path directly.
+    console.log('📦 Using project path:', finalProjectPath);
 
     // Set up writer based on streaming mode
     if (stream) {
@@ -903,28 +885,15 @@ router.post('/', validateExternalApiKey, async (req, res) => {
       });
     }
 
-    // Start the appropriate session
-    if (provider === 'claude') {
-      console.log('🤖 Starting Claude SDK session');
+    // Start Claude SDK session
+    console.log('🤖 Starting Claude SDK session');
 
-      await queryClaudeSDK(message.trim(), {
-        projectPath: finalProjectPath,
-        cwd: finalProjectPath,
-        sessionId: null, // New session
-        permissionMode: 'bypassPermissions' // Bypass all permissions for API calls
-      }, writer);
-
-    } else if (provider === 'cursor') {
-      console.log('🖱️ Starting Cursor CLI session');
-
-      await spawnCursor(message.trim(), {
-        projectPath: finalProjectPath,
-        cwd: finalProjectPath,
-        sessionId: null, // New session
-        model: model || undefined,
-        skipPermissions: true // Bypass permissions for Cursor
-      }, writer);
-    }
+    await queryClaudeSDK(message.trim(), {
+      projectPath: finalProjectPath,
+      cwd: finalProjectPath,
+      sessionId: null, // New session
+      permissionMode: 'bypassPermissions' // Bypass all permissions for API calls
+    }, writer);
 
     // Handle GitHub branch and PR creation after successful agent completion
     let branchInfo = null;

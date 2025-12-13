@@ -9,7 +9,7 @@ import {
 const router = express.Router();
 
 /**
- * GET /api/v2/projects/:projectId/tasks
+ * GET /api/projects/:projectId/tasks
  * List all tasks for a project
  */
 router.get('/projects/:projectId/tasks', (req, res) => {
@@ -36,7 +36,7 @@ router.get('/projects/:projectId/tasks', (req, res) => {
 });
 
 /**
- * POST /api/v2/projects/:projectId/tasks
+ * POST /api/projects/:projectId/tasks
  * Create a new task for a project
  */
 router.post('/projects/:projectId/tasks', (req, res) => {
@@ -73,7 +73,7 @@ router.post('/projects/:projectId/tasks', (req, res) => {
 });
 
 /**
- * GET /api/v2/tasks/:id
+ * GET /api/tasks/:id
  * Get a specific task by ID
  */
 router.get('/tasks/:id', (req, res) => {
@@ -107,7 +107,7 @@ router.get('/tasks/:id', (req, res) => {
 });
 
 /**
- * PUT /api/v2/tasks/:id
+ * PUT /api/tasks/:id
  * Update a task
  */
 router.put('/tasks/:id', (req, res) => {
@@ -145,7 +145,7 @@ router.put('/tasks/:id', (req, res) => {
 });
 
 /**
- * DELETE /api/v2/tasks/:id
+ * DELETE /api/tasks/:id
  * Delete a task
  */
 router.delete('/tasks/:id', (req, res) => {
@@ -192,7 +192,7 @@ router.delete('/tasks/:id', (req, res) => {
 });
 
 /**
- * GET /api/v2/tasks/:id/documentation
+ * GET /api/tasks/:id/documentation
  * Get task documentation (task-{id}.md)
  */
 router.get('/tasks/:id/documentation', (req, res) => {
@@ -225,7 +225,7 @@ router.get('/tasks/:id/documentation', (req, res) => {
 });
 
 /**
- * PUT /api/v2/tasks/:id/documentation
+ * PUT /api/tasks/:id/documentation
  * Update task documentation (task-{id}.md)
  */
 router.put('/tasks/:id/documentation', (req, res) => {

@@ -43,6 +43,9 @@ if (process.env.DATABASE_PATH) {
 // Create database connection
 const db = new Database(DB_PATH);
 
+// Enable foreign key constraints (required for CASCADE to work)
+db.pragma('foreign_keys = ON');
+
 // Show app installation path prominently
 const appInstallPath = path.join(__dirname, '../..');
 console.log('');

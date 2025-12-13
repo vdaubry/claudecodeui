@@ -2,7 +2,7 @@
 
 ## Overview
 
-Claude Code UI is a web-based interface for Claude Code CLI and Cursor CLI. It provides a desktop/mobile-friendly way to manage coding projects and have conversations with Claude AI.
+Claude Code UI is a web-based interface for Claude Code CLI. It provides a desktop/mobile-friendly way to manage coding projects and have conversations with Claude AI.
 
 **Core Concept**: Each *project* is a folder on the machine. Each project contains multiple *sessions* (conversations). Sessions are stored as JSONL files in `~/.claude/projects/{project-name}/`.
 
@@ -128,8 +128,7 @@ The backend uses `chokidar` to watch `~/.claude/projects/` for file changes:
   id: string,              // Unique session ID (UUID)
   summary: string,         // Display name (auto-generated or user-set)
   messageCount: number,    // Total messages in session
-  lastActivity: Date,      // Timestamp of last interaction
-  __provider: 'claude'     // Added by frontend to distinguish from Cursor
+  lastActivity: Date       // Timestamp of last interaction
 }
 ```
 

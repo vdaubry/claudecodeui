@@ -67,20 +67,20 @@ describe('API Client - Phase 5', () => {
   });
 
   describe('api.projects', () => {
-    it('list() should call GET /api/v2/projects', async () => {
+    it('list() should call GET /api/projects', async () => {
       await api.projects.list();
 
-      expect(mockFetch).toHaveBeenCalledWith('/api/v2/projects', expect.objectContaining({
+      expect(mockFetch).toHaveBeenCalledWith('/api/projects', expect.objectContaining({
         headers: expect.objectContaining({
           'Authorization': 'Bearer test-token',
         }),
       }));
     });
 
-    it('create() should call POST /api/v2/projects with name and repoFolderPath', async () => {
+    it('create() should call POST /api/projects with name and repoFolderPath', async () => {
       await api.projects.create('My Project', '/path/to/repo');
 
-      expect(mockFetch).toHaveBeenCalledWith('/api/v2/projects', expect.objectContaining({
+      expect(mockFetch).toHaveBeenCalledWith('/api/projects', expect.objectContaining({
         method: 'POST',
         body: JSON.stringify({ name: 'My Project', repoFolderPath: '/path/to/repo' }),
         headers: expect.objectContaining({
@@ -89,39 +89,39 @@ describe('API Client - Phase 5', () => {
       }));
     });
 
-    it('get() should call GET /api/v2/projects/:id', async () => {
+    it('get() should call GET /api/projects/:id', async () => {
       await api.projects.get(123);
 
-      expect(mockFetch).toHaveBeenCalledWith('/api/v2/projects/123', expect.any(Object));
+      expect(mockFetch).toHaveBeenCalledWith('/api/projects/123', expect.any(Object));
     });
 
-    it('update() should call PUT /api/v2/projects/:id with data', async () => {
+    it('update() should call PUT /api/projects/:id with data', async () => {
       await api.projects.update(123, { name: 'Updated Name' });
 
-      expect(mockFetch).toHaveBeenCalledWith('/api/v2/projects/123', expect.objectContaining({
+      expect(mockFetch).toHaveBeenCalledWith('/api/projects/123', expect.objectContaining({
         method: 'PUT',
         body: JSON.stringify({ name: 'Updated Name' }),
       }));
     });
 
-    it('delete() should call DELETE /api/v2/projects/:id', async () => {
+    it('delete() should call DELETE /api/projects/:id', async () => {
       await api.projects.delete(123);
 
-      expect(mockFetch).toHaveBeenCalledWith('/api/v2/projects/123', expect.objectContaining({
+      expect(mockFetch).toHaveBeenCalledWith('/api/projects/123', expect.objectContaining({
         method: 'DELETE',
       }));
     });
 
-    it('getDoc() should call GET /api/v2/projects/:id/documentation', async () => {
+    it('getDoc() should call GET /api/projects/:id/documentation', async () => {
       await api.projects.getDoc(123);
 
-      expect(mockFetch).toHaveBeenCalledWith('/api/v2/projects/123/documentation', expect.any(Object));
+      expect(mockFetch).toHaveBeenCalledWith('/api/projects/123/documentation', expect.any(Object));
     });
 
-    it('saveDoc() should call PUT /api/v2/projects/:id/documentation with content', async () => {
+    it('saveDoc() should call PUT /api/projects/:id/documentation with content', async () => {
       await api.projects.saveDoc(123, '# Project Docs\n\nDescription here.');
 
-      expect(mockFetch).toHaveBeenCalledWith('/api/v2/projects/123/documentation', expect.objectContaining({
+      expect(mockFetch).toHaveBeenCalledWith('/api/projects/123/documentation', expect.objectContaining({
         method: 'PUT',
         body: JSON.stringify({ content: '# Project Docs\n\nDescription here.' }),
       }));
@@ -129,54 +129,54 @@ describe('API Client - Phase 5', () => {
   });
 
   describe('api.tasks', () => {
-    it('list() should call GET /api/v2/projects/:projectId/tasks', async () => {
+    it('list() should call GET /api/projects/:projectId/tasks', async () => {
       await api.tasks.list(456);
 
-      expect(mockFetch).toHaveBeenCalledWith('/api/v2/projects/456/tasks', expect.any(Object));
+      expect(mockFetch).toHaveBeenCalledWith('/api/projects/456/tasks', expect.any(Object));
     });
 
-    it('create() should call POST /api/v2/projects/:projectId/tasks with title', async () => {
+    it('create() should call POST /api/projects/:projectId/tasks with title', async () => {
       await api.tasks.create(456, 'New Task Title');
 
-      expect(mockFetch).toHaveBeenCalledWith('/api/v2/projects/456/tasks', expect.objectContaining({
+      expect(mockFetch).toHaveBeenCalledWith('/api/projects/456/tasks', expect.objectContaining({
         method: 'POST',
         body: JSON.stringify({ title: 'New Task Title' }),
       }));
     });
 
-    it('get() should call GET /api/v2/tasks/:id', async () => {
+    it('get() should call GET /api/tasks/:id', async () => {
       await api.tasks.get(789);
 
-      expect(mockFetch).toHaveBeenCalledWith('/api/v2/tasks/789', expect.any(Object));
+      expect(mockFetch).toHaveBeenCalledWith('/api/tasks/789', expect.any(Object));
     });
 
-    it('update() should call PUT /api/v2/tasks/:id with data', async () => {
+    it('update() should call PUT /api/tasks/:id with data', async () => {
       await api.tasks.update(789, { title: 'Updated Task' });
 
-      expect(mockFetch).toHaveBeenCalledWith('/api/v2/tasks/789', expect.objectContaining({
+      expect(mockFetch).toHaveBeenCalledWith('/api/tasks/789', expect.objectContaining({
         method: 'PUT',
         body: JSON.stringify({ title: 'Updated Task' }),
       }));
     });
 
-    it('delete() should call DELETE /api/v2/tasks/:id', async () => {
+    it('delete() should call DELETE /api/tasks/:id', async () => {
       await api.tasks.delete(789);
 
-      expect(mockFetch).toHaveBeenCalledWith('/api/v2/tasks/789', expect.objectContaining({
+      expect(mockFetch).toHaveBeenCalledWith('/api/tasks/789', expect.objectContaining({
         method: 'DELETE',
       }));
     });
 
-    it('getDoc() should call GET /api/v2/tasks/:id/documentation', async () => {
+    it('getDoc() should call GET /api/tasks/:id/documentation', async () => {
       await api.tasks.getDoc(789);
 
-      expect(mockFetch).toHaveBeenCalledWith('/api/v2/tasks/789/documentation', expect.any(Object));
+      expect(mockFetch).toHaveBeenCalledWith('/api/tasks/789/documentation', expect.any(Object));
     });
 
-    it('saveDoc() should call PUT /api/v2/tasks/:id/documentation with content', async () => {
+    it('saveDoc() should call PUT /api/tasks/:id/documentation with content', async () => {
       await api.tasks.saveDoc(789, '# Task Description\n\nImplement feature X.');
 
-      expect(mockFetch).toHaveBeenCalledWith('/api/v2/tasks/789/documentation', expect.objectContaining({
+      expect(mockFetch).toHaveBeenCalledWith('/api/tasks/789/documentation', expect.objectContaining({
         method: 'PUT',
         body: JSON.stringify({ content: '# Task Description\n\nImplement feature X.' }),
       }));
@@ -184,32 +184,50 @@ describe('API Client - Phase 5', () => {
   });
 
   describe('api.conversations', () => {
-    it('list() should call GET /api/v2/tasks/:taskId/conversations', async () => {
+    it('list() should call GET /api/tasks/:taskId/conversations', async () => {
       await api.conversations.list(789);
 
-      expect(mockFetch).toHaveBeenCalledWith('/api/v2/tasks/789/conversations', expect.any(Object));
+      expect(mockFetch).toHaveBeenCalledWith('/api/tasks/789/conversations', expect.any(Object));
     });
 
-    it('create() should call POST /api/v2/tasks/:taskId/conversations', async () => {
+    it('create() should call POST /api/tasks/:taskId/conversations', async () => {
       await api.conversations.create(789);
 
-      expect(mockFetch).toHaveBeenCalledWith('/api/v2/tasks/789/conversations', expect.objectContaining({
+      expect(mockFetch).toHaveBeenCalledWith('/api/tasks/789/conversations', expect.objectContaining({
         method: 'POST',
       }));
     });
 
-    it('get() should call GET /api/v2/conversations/:id', async () => {
+    it('get() should call GET /api/conversations/:id', async () => {
       await api.conversations.get(101);
 
-      expect(mockFetch).toHaveBeenCalledWith('/api/v2/conversations/101', expect.any(Object));
+      expect(mockFetch).toHaveBeenCalledWith('/api/conversations/101', expect.any(Object));
     });
 
-    it('delete() should call DELETE /api/v2/conversations/:id', async () => {
+    it('delete() should call DELETE /api/conversations/:id', async () => {
       await api.conversations.delete(101);
 
-      expect(mockFetch).toHaveBeenCalledWith('/api/v2/conversations/101', expect.objectContaining({
+      expect(mockFetch).toHaveBeenCalledWith('/api/conversations/101', expect.objectContaining({
         method: 'DELETE',
       }));
+    });
+
+    it('getMessages() should call GET /api/conversations/:id/messages', async () => {
+      await api.conversations.getMessages(101);
+
+      expect(mockFetch).toHaveBeenCalledWith('/api/conversations/101/messages', expect.any(Object));
+    });
+
+    it('getMessages() should include limit and offset query params', async () => {
+      await api.conversations.getMessages(101, 50, 10);
+
+      expect(mockFetch).toHaveBeenCalledWith('/api/conversations/101/messages?limit=50&offset=10', expect.any(Object));
+    });
+
+    it('getMessages() should include only limit when offset is 0', async () => {
+      await api.conversations.getMessages(101, 100, 0);
+
+      expect(mockFetch).toHaveBeenCalledWith('/api/conversations/101/messages?limit=100', expect.any(Object));
     });
   });
 

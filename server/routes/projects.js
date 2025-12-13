@@ -9,7 +9,7 @@ import {
 const router = express.Router();
 
 /**
- * GET /api/v2/projects
+ * GET /api/projects
  * List all projects for the authenticated user
  */
 router.get('/', (req, res) => {
@@ -24,7 +24,7 @@ router.get('/', (req, res) => {
 });
 
 /**
- * POST /api/v2/projects
+ * POST /api/projects
  * Create a new project
  */
 router.post('/', (req, res) => {
@@ -65,7 +65,7 @@ router.post('/', (req, res) => {
 });
 
 /**
- * GET /api/v2/projects/:id
+ * GET /api/projects/:id
  * Get a specific project by ID
  */
 router.get('/:id', (req, res) => {
@@ -91,7 +91,7 @@ router.get('/:id', (req, res) => {
 });
 
 /**
- * PUT /api/v2/projects/:id
+ * PUT /api/projects/:id
  * Update a project
  */
 router.put('/:id', (req, res) => {
@@ -131,7 +131,7 @@ router.put('/:id', (req, res) => {
 });
 
 /**
- * DELETE /api/v2/projects/:id
+ * DELETE /api/projects/:id
  * Delete a project
  */
 router.delete('/:id', (req, res) => {
@@ -157,7 +157,7 @@ router.delete('/:id', (req, res) => {
 });
 
 /**
- * GET /api/v2/projects/:id/documentation
+ * GET /api/projects/:id/documentation
  * Get project documentation (project.md)
  */
 router.get('/:id/documentation', (req, res) => {
@@ -184,7 +184,7 @@ router.get('/:id/documentation', (req, res) => {
 });
 
 /**
- * PUT /api/v2/projects/:id/documentation
+ * PUT /api/projects/:id/documentation
  * Update project documentation (project.md)
  */
 router.put('/:id/documentation', (req, res) => {

@@ -416,6 +416,13 @@ describe('Database Layer - Phase 1', () => {
     });
   });
 
+  describe('Foreign Key Constraints', () => {
+    it('should have foreign keys enabled', () => {
+      const result = testDb.db.pragma('foreign_keys');
+      expect(result[0].foreign_keys).toBe(1);
+    });
+  });
+
   describe('Cascade Delete Behavior', () => {
     it('should cascade delete from project to tasks to conversations', () => {
       const project = projectsDb.create(testUserId, 'Project', '/path/project');

@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { ChevronRight, ChevronLeft, Check, GitBranch, User, Mail, LogIn, ExternalLink, Loader2 } from 'lucide-react';
 import ClaudeLogo from './ClaudeLogo';
-import CursorLogo from './CursorLogo';
 import LoginModal from './LoginModal';
 import { authenticatedFetch } from '../utils/api';
 import { useAuth } from '../contexts/AuthContext';
@@ -25,13 +24,6 @@ const Onboarding = ({ onComplete }) => {
     error: null
   });
 
-  const [cursorAuthStatus, setCursorAuthStatus] = useState({
-    authenticated: false,
-    email: null,
-    loading: true,
-    error: null
-  });
-
   const { user } = useAuth();
 
   // Load existing git config on mount
@@ -42,7 +34,6 @@ const Onboarding = ({ onComplete }) => {
   // Check authentication status on mount and when modal closes
   useEffect(() => {
     checkClaudeAuthStatus();
-    checkCursorAuthStatus();
   }, []);
 
   const loadGitConfig = async () => {
@@ -59,15 +50,11 @@ const Onboarding = ({ onComplete }) => {
     }
   };
 
-  // Auto-check authentication status periodically when on CLI steps
+  // Auto-check authentication status periodically when on CLI step
   useEffect(() => {
-    if (currentStep === 1 || currentStep === 2) {
+    if (currentStep === 1) {
       const interval = setInterval(() => {
-        if (currentStep === 1) {
-          checkClaudeAuthStatus();
-        } else if (currentStep === 2) {
-          checkCursorAuthStatus();
-        }
+        checkClaudeAuthStatus();
       }, 3000); // Check every 3 seconds
 
       return () => clearInterval(interval);
@@ -104,53 +91,14 @@ const Onboarding = ({ onComplete }) => {
     }
   };
 
-  const checkCursorAuthStatus = async () => {
-    try {
-      const response = await authenticatedFetch('/api/cli/cursor/status');
-      if (response.ok) {
-        const data = await response.json();
-        setCursorAuthStatus({
-          authenticated: data.authenticated,
-          email: data.email,
-          loading: false,
-          error: data.error || null
-        });
-      } else {
-        setCursorAuthStatus({
-          authenticated: false,
-          email: null,
-          loading: false,
-          error: 'Failed to check authentication status'
-        });
-      }
-    } catch (error) {
-      console.error('Error checking Cursor auth status:', error);
-      setCursorAuthStatus({
-        authenticated: false,
-        email: null,
-        loading: false,
-        error: error.message
-      });
-    }
-  };
-
   const handleClaudeLogin = () => {
     setLoginProvider('claude');
     setShowLoginModal(true);
   };
 
-  const handleCursorLogin = () => {
-    setLoginProvider('cursor');
-    setShowLoginModal(true);
-  };
-
   const handleLoginComplete = (exitCode) => {
     if (exitCode === 0) {
-      if (loginProvider === 'claude') {
-        checkClaudeAuthStatus();
-      } else if (loginProvider === 'cursor') {
-        checkCursorAuthStatus();
-      }
+      checkClaudeAuthStatus();
     }
   };
 
@@ -240,12 +188,6 @@ const Onboarding = ({ onComplete }) => {
       title: 'Claude Code CLI',
       description: 'Connect your Claude Code account',
       icon: () => <ClaudeLogo size={24} />,
-      required: false
-    },
-    {
-      title: 'Cursor CLI',
-      description: 'Connect your Cursor account',
-      icon: () => <CursorLogo size={24} />,
       required: false
     }
   ];
@@ -377,74 +319,6 @@ const Onboarding = ({ onComplete }) => {
           </div>
         );
 
-      case 2:
-        return (
-          <div className="space-y-6">
-            <div className="text-center mb-8">
-              <div className="w-16 h-16 bg-purple-100 dark:bg-purple-900/30 rounded-full flex items-center justify-center mx-auto mb-4">
-                <CursorLogo size={32} />
-              </div>
-              <h2 className="text-2xl font-bold text-foreground mb-2">Cursor CLI</h2>
-              <p className="text-muted-foreground">
-                Connect your Cursor account to enable AI-powered features
-              </p>
-            </div>
-
-            {/* Auth Status Card */}
-            <div className="border border-border rounded-lg p-6 bg-card">
-              <div className="flex items-center justify-between mb-4">
-                <div className="flex items-center gap-3">
-                  <div className={`w-3 h-3 rounded-full ${
-                    cursorAuthStatus.loading ? 'bg-gray-400 animate-pulse' :
-                    cursorAuthStatus.authenticated ? 'bg-green-500' : 'bg-gray-300'
-                  }`} />
-                  <span className="font-medium text-foreground">
-                    {cursorAuthStatus.loading ? 'Checking...' :
-                     cursorAuthStatus.authenticated ? 'Connected' : 'Not Connected'}
-                  </span>
-                </div>
-                {cursorAuthStatus.authenticated && (
-                  <Check className="w-5 h-5 text-green-500" />
-                )}
-              </div>
-
-              {cursorAuthStatus.authenticated && cursorAuthStatus.email && (
-                <p className="text-sm text-muted-foreground mb-4">
-                  Signed in as: <span className="text-foreground font-medium">{cursorAuthStatus.email}</span>
-                </p>
-              )}
-
-              {!cursorAuthStatus.authenticated && (
-                <>
-                  <p className="text-sm text-muted-foreground mb-4">
-                    Click the button below to authenticate with Cursor CLI. A terminal will open with authentication instructions.
-                  </p>
-                  <button
-                    onClick={handleCursorLogin}
-                    className="w-full bg-purple-600 hover:bg-purple-700 text-white font-medium py-3 px-4 rounded-lg transition-colors duration-200 flex items-center justify-center gap-2"
-                  >
-                    <LogIn className="w-5 h-5" />
-                    Login to Cursor
-                  </button>
-                  <p className="text-xs text-muted-foreground mt-3 text-center">
-                    Or manually run: <code className="bg-muted px-2 py-1 rounded">cursor auth login</code>
-                  </p>
-                </>
-              )}
-
-              {cursorAuthStatus.error && !cursorAuthStatus.authenticated && (
-                <div className="mt-4 p-3 bg-yellow-100 dark:bg-yellow-900/20 border border-yellow-300 dark:border-yellow-800 rounded-lg">
-                  <p className="text-sm text-yellow-700 dark:text-yellow-400">{cursorAuthStatus.error}</p>
-                </div>
-              )}
-            </div>
-
-            <div className="text-center text-sm text-muted-foreground">
-              <p>This step is optional. You can skip and configure it later in Settings.</p>
-            </div>
-          </div>
-        );
-
       default:
         return null;
     }
@@ -455,8 +329,7 @@ const Onboarding = ({ onComplete }) => {
       case 0:
         return gitName.trim() && gitEmail.trim() && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(gitEmail);
       case 1:
-      case 2:
-        return true; // CLI steps are optional
+        return true; // CLI step is optional
       default:
         return false;
     }

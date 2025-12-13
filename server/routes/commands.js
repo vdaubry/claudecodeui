@@ -189,11 +189,6 @@ Custom commands can be created in:
         'claude-sonnet-4',
         'claude-opus-4',
         'claude-sonnet-3.5'
-      ],
-      cursor: [
-        'gpt-5',
-        'sonnet-4',
-        'opus-4.1'
       ]
     };
 
