@@ -75,19 +75,8 @@ function TaskDetailView({
 
       {/* Content - Split view */}
       <div className="flex-1 flex flex-col md:flex-row overflow-hidden">
-        {/* Left panel - Documentation */}
-        <div className="flex-1 flex flex-col min-h-0 border-b md:border-b-0 md:border-r border-border">
-          <MarkdownEditor
-            content={taskDoc}
-            onSave={onSaveTaskDoc}
-            isLoading={isLoadingDoc}
-            placeholder="No task documentation yet. Click Edit to describe what needs to be done."
-            className="h-full"
-          />
-        </div>
-
-        {/* Right panel - Conversations */}
-        <div className="w-full md:w-80 lg:w-96 flex flex-col min-h-0">
+        {/* Left panel - Conversations */}
+        <div className="w-full md:w-80 lg:w-96 flex flex-col min-h-0 border-b md:border-b-0 md:border-r border-border">
           <ConversationList
             conversations={conversations}
             isLoading={isLoadingConversations}
@@ -95,6 +84,17 @@ function TaskDetailView({
             onResumeConversation={onResumeConversation}
             onDeleteConversation={onDeleteConversation}
             activeConversationId={activeConversationId}
+            className="h-full"
+          />
+        </div>
+
+        {/* Right panel - Documentation */}
+        <div className="flex-1 flex flex-col min-h-0">
+          <MarkdownEditor
+            content={taskDoc}
+            onSave={onSaveTaskDoc}
+            isLoading={isLoadingDoc}
+            placeholder="No task documentation yet. Click Edit to describe what needs to be done."
             className="h-full"
           />
         </div>
