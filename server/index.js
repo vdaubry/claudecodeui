@@ -69,7 +69,7 @@ import userRoutes from './routes/user.js';
 import projectsRoutes from './routes/projects.js';
 import tasksRoutes from './routes/tasks.js';
 import conversationsRoutes from './routes/conversations.js';
-import { initializeDatabase, tasksDb, conversationsDb } from './database/db.js';
+import { initializeDatabase, projectsDb, tasksDb, conversationsDb } from './database/db.js';
 import { buildContextPrompt } from './services/documentation.js';
 import { validateApiKey, authenticateToken, authenticateWebSocket } from './middleware/auth.js';
 
@@ -172,8 +172,6 @@ app.use('/api', authenticateToken, conversationsRoutes);
 app.use(express.static(path.join(__dirname, '../public')));
 
 // API Routes (protected)
-// /api/config endpoint removed - no longer needed
-// Frontend now uses window.location for WebSocket URLs
 
 // System update endpoint
 app.post('/api/system/update', authenticateToken, async (req, res) => {
@@ -300,7 +298,30 @@ app.get('/api/browse-filesystem', authenticateToken, async (req, res) => {
     }
 });
 
-// Legacy /api/projects/:projectName/file routes have been removed - file operations should use V2 project paths
+// Get files for a project (for @ file referencing in chat input)
+app.get('/api/projects/:id/files', authenticateToken, async (req, res) => {
+    try {
+        const userId = req.user.id;
+        const projectId = parseInt(req.params.id, 10);
+
+        if (isNaN(projectId)) {
+            return res.status(400).json({ error: 'Invalid project ID' });
+        }
+
+        const project = projectsDb.getById(projectId, userId);
+
+        if (!project) {
+            return res.status(404).json({ error: 'Project not found' });
+        }
+
+        // Get file tree for the project directory
+        const fileTree = await getFileTree(project.repo_folder_path, 4, 0, false); // maxDepth=4, showHidden=false
+        res.json(fileTree);
+    } catch (error) {
+        console.error('Error getting project files:', error);
+        res.status(500).json({ error: 'Failed to get project files' });
+    }
+});
 
 // WebSocket connection handler that routes based on URL path
 wss.on('connection', (ws, request) => {
@@ -946,8 +967,6 @@ Agent instructions:`;
         res.status(500).json({ error: 'Internal server error' });
     }
 });
-
-// Legacy /api/projects/:projectName/upload-images and token-usage routes have been removed
 
 // Backend only serves API routes - frontend is handled by Vite on port 5173
 

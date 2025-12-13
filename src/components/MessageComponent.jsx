@@ -25,6 +25,24 @@ const CodeBlock = ({ children, className }) => {
   );
 };
 
+// Helper to check if children contain block-level elements
+const hasBlockElements = (children) => {
+  return React.Children.toArray(children).some(child => {
+    if (React.isValidElement(child)) {
+      // Check for block-level element types
+      const blockTypes = ['pre', 'div', 'table', 'ul', 'ol', 'blockquote'];
+      if (typeof child.type === 'string' && blockTypes.includes(child.type)) {
+        return true;
+      }
+      // Check for our CodeBlock component
+      if (child.type === CodeBlock) {
+        return true;
+      }
+    }
+    return false;
+  });
+};
+
 // Markdown components configuration
 const markdownComponents = {
   code: ({ node, inline, className, children, ...props }) => {
@@ -38,7 +56,13 @@ const markdownComponents = {
     return <CodeBlock className={className}>{children}</CodeBlock>;
   },
   pre: ({ children }) => <>{children}</>,
-  p: ({ children }) => <p className="mb-3 last:mb-0">{children}</p>,
+  p: ({ children }) => {
+    // If paragraph contains block-level elements, use div instead to avoid invalid nesting
+    if (hasBlockElements(children)) {
+      return <div className="mb-3 last:mb-0">{children}</div>;
+    }
+    return <p className="mb-3 last:mb-0">{children}</p>;
+  },
   ul: ({ children }) => <ul className="list-disc pl-5 mb-3 space-y-1">{children}</ul>,
   ol: ({ children }) => <ol className="list-decimal pl-5 mb-3 space-y-1">{children}</ol>,
   li: ({ children }) => <li className="text-gray-700 dark:text-gray-300">{children}</li>,

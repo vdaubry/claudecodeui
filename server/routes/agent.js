@@ -854,7 +854,6 @@ router.post('/', validateExternalApiKey, async (req, res) => {
       }
     }
 
-    // Note: Legacy project registration removed. External API uses project path directly.
     console.log('📦 Using project path:', finalProjectPath);
 
     // Set up writer based on streaming mode

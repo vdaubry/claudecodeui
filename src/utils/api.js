@@ -142,6 +142,10 @@ export const api = {
     return authenticatedFetch(`/api/browse-filesystem?${params}`);
   },
 
+  // Get files for a project (for @ file referencing)
+  getFiles: (projectId) =>
+    authenticatedFetch(`/api/projects/${projectId}/files`),
+
   // User endpoints
   user: {
     gitConfig: () => authenticatedFetch('/api/user/git-config'),

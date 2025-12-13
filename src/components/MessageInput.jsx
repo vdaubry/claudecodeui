@@ -77,13 +77,13 @@ const MessageInput = memo(function MessageInput({
   // Fetch project files when project changes
   useEffect(() => {
     const fetchProjectFiles = async () => {
-      if (!selectedProject?.name) {
+      if (!selectedProject?.id) {
         setFileList([]);
         return;
       }
 
       try {
-        const response = await api.getFiles(selectedProject.name);
+        const response = await api.getFiles(selectedProject.id);
         if (response.ok) {
           const files = await response.json();
           const flatFiles = flattenFileTree(files);
@@ -95,7 +95,7 @@ const MessageInput = memo(function MessageInput({
     };
 
     fetchProjectFiles();
-  }, [selectedProject?.name]);
+  }, [selectedProject?.id]);
 
   // Detect @ symbol and filter files
   useEffect(() => {

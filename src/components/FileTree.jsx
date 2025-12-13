@@ -80,15 +80,15 @@ function FileTree({ selectedProject }) {
   const fetchFiles = async () => {
     setLoading(true);
     try {
-      const response = await api.getFiles(selectedProject.name);
-      
+      const response = await api.getFiles(selectedProject.id);
+
       if (!response.ok) {
         const errorText = await response.text();
         console.error('❌ File fetch failed:', response.status, errorText);
         setFiles([]);
         return;
       }
-      
+
       const data = await response.json();
       setFiles(data);
     } catch (error) {
