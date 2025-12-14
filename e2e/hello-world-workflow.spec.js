@@ -112,8 +112,8 @@ test.describe('Hello World Workflow', () => {
     await expect(page.locator('h3:has-text("hello world")')).toBeVisible({ timeout: 5000 });
 
     // Step 4: Click on the project card to expand it
-    // The project card header is a div with cursor-pointer class containing the project name
-    const projectCard = page.locator('div.cursor-pointer').filter({ hasText: 'hello world' }).first();
+    // Use data-testid for reliable selection
+    const projectCard = page.locator('[data-testid="project-card-hello-world"]');
     await projectCard.click();
 
     // Wait for the project to expand - should show task list area
@@ -148,8 +148,8 @@ test.describe('Hello World Workflow', () => {
     await expect(page.locator('text=Hello World').first()).toBeVisible({ timeout: 5000 });
 
     // Step 7: Click on the task row to navigate to Task Detail view
-    // Task rows are clickable divs with cursor-pointer class
-    const taskRow = page.locator('div[class*="cursor-pointer"]').filter({ hasText: 'Hello World' }).first();
+    // Use data-testid prefix for reliable task row selection
+    const taskRow = page.locator('[data-testid^="task-row-"]').filter({ hasText: 'Hello World' }).first();
     await taskRow.click();
 
     // Wait for Task Detail view to load
@@ -220,7 +220,8 @@ test.describe('Hello World Workflow', () => {
     await expect(page.locator('h1:has-text("Claude Code UI")')).toBeVisible({ timeout: 5000 });
 
     // Expand the hello world project to see the task
-    const projectCardForLive = page.locator('div.cursor-pointer').filter({ hasText: 'hello world' }).first();
+    // Use data-testid for reliable selection
+    const projectCardForLive = page.locator('[data-testid="project-card-hello-world"]');
     const isProjectVisible = await projectCardForLive.isVisible().catch(() => false);
     if (isProjectVisible) {
       await projectCardForLive.click();
@@ -242,15 +243,22 @@ test.describe('Hello World Workflow', () => {
 
     // Step 13: Wait for streaming to complete
     // Navigate back to the chat to see when it finishes
-    const helloWorldTask = page.locator('div[class*="cursor-pointer"]').filter({ hasText: 'Hello World' }).first();
+    // Use data-testid prefix for reliable task row selection
+    const helloWorldTask = page.locator('[data-testid^="task-row-"]').filter({ hasText: 'Hello World' }).first();
     await helloWorldTask.click();
 
     // Wait for Task Detail view
     await expect(page.locator('h1:has-text("Hello World")')).toBeVisible({ timeout: 10000 });
 
-    // Click into the conversation
-    const conversationRow = page.locator('div[class*="cursor-pointer"]').first();
-    const hasConversation = await conversationRow.isVisible().catch(() => false);
+    // Wait for conversation row to appear (use data-testid for reliable selection)
+    // The conversation might take a moment to appear after the Task Detail view loads
+    await expect(async () => {
+      const conversationRowVisible = await page.locator('[data-testid^="conversation-row-"]').first().isVisible().catch(() => false);
+      expect(conversationRowVisible).toBeTruthy();
+    }).toPass({ timeout: 10000 });
+
+    const conversationRow = page.locator('[data-testid^="conversation-row-"]').first();
+    const hasConversation = true; // We verified it exists above
 
     if (hasConversation) {
       await conversationRow.click();
@@ -283,7 +291,8 @@ test.describe('Hello World Workflow', () => {
       await expect(page.locator('h1:has-text("Claude Code UI")')).toBeVisible({ timeout: 5000 });
 
       // Expand the hello world project again to see the task
-      const projectCardFinal = page.locator('div.cursor-pointer').filter({ hasText: 'hello world' }).first();
+      // Use data-testid for reliable selection
+      const projectCardFinal = page.locator('[data-testid="project-card-hello-world"]');
       const isProjectVisibleFinal = await projectCardFinal.isVisible().catch(() => false);
       if (isProjectVisibleFinal) {
         await projectCardFinal.click();

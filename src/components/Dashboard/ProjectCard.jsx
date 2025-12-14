@@ -72,6 +72,7 @@ function ProjectCard({
     >
       {/* Project Header */}
       <div
+        data-testid={`project-card-${project.name.toLowerCase().replace(/\s+/g, '-')}`}
         className="w-full p-4 flex items-center gap-3 hover:bg-accent/50 rounded-t-lg transition-colors cursor-pointer"
         onClick={onToggle}
         role="button"

@@ -64,6 +64,7 @@ function TaskRow({
 
   return (
     <div
+      data-testid={`task-row-${task.id}`}
       className={cn(
         'group flex items-center gap-3 p-3 hover:bg-accent/50 cursor-pointer transition-colors',
         isLive && 'bg-red-500/5'
