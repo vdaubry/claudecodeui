@@ -108,7 +108,10 @@ function TaskRow({
       {/* Status Badge */}
       <div className="flex-shrink-0 flex items-center gap-2">
         {isLive ? (
-          <span className="flex items-center gap-1.5 text-xs font-medium px-2 py-1 rounded-full bg-red-500/10 text-red-500">
+          <span
+            data-testid="live-badge"
+            className="flex items-center gap-1.5 text-xs font-medium px-2 py-1 rounded-full bg-red-500/10 text-red-500"
+          >
             <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />
             LIVE
           </span>

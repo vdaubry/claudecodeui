@@ -112,8 +112,8 @@ test.describe('Hello World Workflow', () => {
     await expect(page.locator('h3:has-text("hello world")')).toBeVisible({ timeout: 5000 });
 
     // Step 4: Click on the project card to expand it
-    // The project card header is a button containing the project name
-    const projectCard = page.locator('button').filter({ hasText: 'hello world' }).first();
+    // The project card header is a div with cursor-pointer class containing the project name
+    const projectCard = page.locator('div.cursor-pointer').filter({ hasText: 'hello world' }).first();
     await projectCard.click();
 
     // Wait for the project to expand - should show task list area
@@ -173,14 +173,14 @@ test.describe('Hello World Workflow', () => {
 
     // Step 9: Type and send a message
     const messageInput = page.locator('textarea').first();
-    await messageInput.fill('Build the hello world');
+    await messageInput.fill('What is 1+1?');
 
     // Send the message by pressing Enter
     await messageInput.press('Enter');
 
     // Step 10: Wait for streaming response to start
     // First, verify the user message appears in the chat
-    await expect(page.locator('text=Build the hello world')).toBeVisible({ timeout: 5000 });
+    await expect(page.locator('text=What is 1+1?')).toBeVisible({ timeout: 5000 });
 
     // Wait for Claude's response to start streaming
     // Look for responding indicator or tool calls
@@ -201,22 +201,26 @@ test.describe('Hello World Workflow', () => {
     console.log('Streaming started! Now navigating back to Dashboard to check live indicator.');
 
     // Step 11: Navigate back to Dashboard to verify live indicator
-    // First go back to Task Detail view
-    let backButton = page.locator('button:has-text("Back"), button[title*="Back"]').first();
+    // First go back to Task Detail view by clicking the back button (ArrowLeft icon)
+    let backButton = page.locator('button[title="Back to Task"]').first();
+    if (!await backButton.isVisible().catch(() => false)) {
+      // Fall back to any back button with ArrowLeft
+      backButton = page.locator('button').filter({ has: page.locator('svg.lucide-arrow-left') }).first();
+    }
     await backButton.click();
 
     // Wait for Task Detail view
     await expect(page.locator('h3:has-text("Conversations")')).toBeVisible({ timeout: 5000 });
 
-    // Now go back to Dashboard
-    backButton = page.locator('button:has-text("Back to Dashboard"), button[title="Back to Dashboard"], button:has-text("Back")').first();
+    // Now go back to Dashboard by clicking the back button again
+    backButton = page.locator('button').filter({ has: page.locator('svg.lucide-arrow-left') }).first();
     await backButton.click();
 
     // Wait for Dashboard to load
     await expect(page.locator('h1:has-text("Claude Code UI")')).toBeVisible({ timeout: 5000 });
 
     // Expand the hello world project to see the task
-    const projectCardForLive = page.locator('button').filter({ hasText: 'hello world' }).first();
+    const projectCardForLive = page.locator('div.cursor-pointer').filter({ hasText: 'hello world' }).first();
     const isProjectVisible = await projectCardForLive.isVisible().catch(() => false);
     if (isProjectVisible) {
       await projectCardForLive.click();
@@ -229,14 +233,9 @@ test.describe('Hello World Workflow', () => {
     // Step 12: Verify the LIVE badge is displayed
     // The task should show "LIVE" badge while streaming is active
     await expect(async () => {
-      // Look for LIVE badge in the task list
-      const liveBadgeVisible = await page.locator('text=LIVE').first().isVisible().catch(() => false);
-
-      // Also check for the pulsing indicator dot (has animate-pulse class)
-      const pulsingDotVisible = await page.locator('.animate-pulse').first().isVisible().catch(() => false);
-
-      // At least one of these should be visible
-      expect(liveBadgeVisible || pulsingDotVisible).toBeTruthy();
+      // Look for LIVE badge using data-testid for reliable selection
+      const liveBadgeVisible = await page.locator('[data-testid="live-badge"]').first().isVisible().catch(() => false);
+      expect(liveBadgeVisible).toBeTruthy();
     }).toPass({ timeout: 10000 });
 
     console.log('Live indicator is displayed! Waiting for streaming to complete.');
@@ -269,36 +268,33 @@ test.describe('Hello World Workflow', () => {
       console.log('Streaming completed! Navigating back to Dashboard to verify live indicator is gone.');
 
       // Step 14: Navigate back to Dashboard and verify live indicator is gone
-      // First go back to Task Detail view
-      let backBtnFinal = page.locator('button:has-text("Back"), button[title*="Back"]').first();
+      // First go back to Task Detail view by clicking the back button
+      let backBtnFinal = page.locator('button').filter({ has: page.locator('svg.lucide-arrow-left') }).first();
       await backBtnFinal.click();
 
       // Wait for Task Detail view
       await expect(page.locator('h3:has-text("Conversations")')).toBeVisible({ timeout: 5000 });
 
-      // Now go back to Dashboard
-      backBtnFinal = page.locator('button:has-text("Back to Dashboard"), button[title="Back to Dashboard"], button:has-text("Back")').first();
+      // Now go back to Dashboard by clicking the back button again
+      backBtnFinal = page.locator('button').filter({ has: page.locator('svg.lucide-arrow-left') }).first();
       await backBtnFinal.click();
 
       // Wait for Dashboard
       await expect(page.locator('h1:has-text("Claude Code UI")')).toBeVisible({ timeout: 5000 });
 
       // Expand the hello world project again to see the task
-      const projectCardFinal = page.locator('button').filter({ hasText: 'hello world' }).first();
+      const projectCardFinal = page.locator('div.cursor-pointer').filter({ hasText: 'hello world' }).first();
       const isProjectVisibleFinal = await projectCardFinal.isVisible().catch(() => false);
       if (isProjectVisibleFinal) {
         await projectCardFinal.click();
         await page.waitForTimeout(500);
       }
 
-      // Wait for WebSocket events to propagate
-      await page.waitForTimeout(1000);
-
-      // Verify LIVE badge is no longer displayed for this task
-      const liveBadgeStillVisible = await page.locator('text=LIVE').first().isVisible().catch(() => false);
-
-      // The LIVE badge should be gone now
-      expect(liveBadgeStillVisible).toBeFalsy();
+      // Step 14: Verify LIVE badge disappears (poll with retry for WebSocket propagation)
+      await expect(async () => {
+        const liveBadgeStillVisible = await page.locator('[data-testid="live-badge"]').first().isVisible().catch(() => false);
+        expect(liveBadgeStillVisible).toBeFalsy();
+      }).toPass({ timeout: 15000, intervals: [1000] }); // Poll every 1 second for up to 15 seconds
 
       console.log('Test completed successfully! Live indicator correctly appeared and disappeared.');
     } else {
@@ -317,7 +313,7 @@ test.describe('Hello World Workflow', () => {
     await expect(page.locator('h1:has-text("Claude Code UI")')).toBeVisible({ timeout: 5000 });
 
     // Look for an existing project with tasks
-    const projectCard = page.locator('button').filter({ hasText: /hello world|podcast/i }).first();
+    const projectCard = page.locator('div.cursor-pointer').filter({ hasText: /hello world|podcast/i }).first();
     const hasProject = await projectCard.isVisible().catch(() => false);
 
     if (!hasProject) {
@@ -343,8 +339,8 @@ test.describe('Hello World Workflow', () => {
     // Wait for Task Detail view
     await expect(page.locator('h3:has-text("Conversations")')).toBeVisible({ timeout: 10000 });
 
-    // Verify back button is visible
-    const backButton = page.locator('button:has-text("Back to Dashboard"), button[title="Back to Dashboard"]').first();
+    // Verify back button is visible (ArrowLeft icon button)
+    const backButton = page.locator('button').filter({ has: page.locator('svg.lucide-arrow-left') }).first();
     await expect(backButton).toBeVisible({ timeout: 5000 });
 
     // Click back button
@@ -366,27 +362,25 @@ test.describe('Hello World Workflow', () => {
     // Wait for Dashboard to load
     await expect(page.locator('h1:has-text("Claude Code UI")')).toBeVisible({ timeout: 5000 });
 
-    // Find the view toggle buttons
+    // Find the view toggle buttons (ViewToggle.jsx uses "By Project" and "In Progress")
     const byProjectBtn = page.locator('button:has-text("By Project")');
-    const byStatusBtn = page.locator('button:has-text("By Status")');
+    const inProgressBtn = page.locator('button:has-text("In Progress")');
 
     // Verify both toggle buttons are visible
     await expect(byProjectBtn).toBeVisible({ timeout: 5000 });
-    await expect(byStatusBtn).toBeVisible({ timeout: 5000 });
+    await expect(inProgressBtn).toBeVisible({ timeout: 5000 });
 
-    // Click "By Status" to switch views
-    await byStatusBtn.click();
+    // Click "In Progress" to switch views
+    await inProgressBtn.click();
     await page.waitForTimeout(500);
 
-    // In Status view, we should see status sections like "PENDING", "IN PROGRESS", etc.
-    // At least one status section should be visible
-    const statusSectionVisible = await page.locator('text=PENDING').isVisible().catch(() => false) ||
-                                  await page.locator('text=IN PROGRESS').isVisible().catch(() => false) ||
-                                  await page.locator('text=ACTIVE NOW').isVisible().catch(() => false) ||
-                                  await page.locator('text=COMPLETED').isVisible().catch(() => false);
+    // In In Progress view, we should see the in-progress section header
+    // or an empty state message
+    const inProgressSectionVisible = await page.locator('text=In Progress').nth(1).isVisible().catch(() => false) ||
+                                      await page.locator('text=No tasks in progress').isVisible().catch(() => false);
 
-    // If there are tasks, status sections should be visible
-    // If no tasks, we might just see an empty state
+    // If there are in-progress tasks, section should be visible
+    // If no tasks, we might see the empty state
 
     // Switch back to "By Project" view
     await byProjectBtn.click();

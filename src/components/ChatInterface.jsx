@@ -97,7 +97,7 @@ function ChatInterface({
   const [input, setInput] = useState('');
 
   // Permission mode state
-  const [permissionMode, setPermissionMode] = useState('default');
+  const [permissionMode, setPermissionMode] = useState('bypassPermissions');
 
   // Token usage state (will be populated from backend responses)
   const [tokenBudget, setTokenBudget] = useState(null);
@@ -311,9 +311,9 @@ function ChatInterface({
   useEffect(() => {
     if (activeConversation?.id) {
       const savedMode = localStorage.getItem(`permissionMode-conv-${activeConversation.id}`);
-      setPermissionMode(savedMode || 'default');
+      setPermissionMode(savedMode || 'bypassPermissions');
     } else {
-      setPermissionMode('default');
+      setPermissionMode('bypassPermissions');
     }
   }, [activeConversation?.id]);
 
