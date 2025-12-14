@@ -77,6 +77,7 @@ const MessageInput = memo(function MessageInput({
 
   // Collapsed state for minimizing input on scroll
   const [isCollapsed, setIsCollapsed] = useState(false);
+  const [isFocused, setIsFocused] = useState(false);
   const collapseTimeoutRef = useRef(null);
   const [fileList, setFileList] = useState([]);
   const [filteredFiles, setFilteredFiles] = useState([]);
@@ -87,13 +88,13 @@ const MessageInput = memo(function MessageInput({
   const internalTextareaRef = useRef(null);
   const textareaRef = externalTextareaRef || internalTextareaRef;
 
-  // Handle collapse on scroll
+  // Handle collapse on scroll (only if not focused)
   useEffect(() => {
-    if (isScrolling && !isCollapsed) {
-      // Collapse when scrolling starts
+    if (isScrolling && !isCollapsed && !isFocused) {
+      // Collapse when scrolling starts (but not if textarea is focused)
       setIsCollapsed(true);
     }
-  }, [isScrolling, isCollapsed]);
+  }, [isScrolling, isCollapsed, isFocused]);
 
   // Clean up timeout on unmount
   useEffect(() => {
@@ -109,11 +110,13 @@ const MessageInput = memo(function MessageInput({
     if (collapseTimeoutRef.current) {
       clearTimeout(collapseTimeoutRef.current);
     }
+    setIsFocused(true);
     setIsCollapsed(false);
   }, []);
 
   // Handle blur - don't collapse immediately, allow time for button clicks
   const handleBlur = useCallback(() => {
+    setIsFocused(false);
     // Only auto-collapse after a delay if there's no input
     if (!input.trim()) {
       collapseTimeoutRef.current = setTimeout(() => {
