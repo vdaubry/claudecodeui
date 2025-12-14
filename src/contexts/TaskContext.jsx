@@ -237,7 +237,7 @@ export function TaskContextProvider({ children }) {
       const response = await api.tasks.create(projectId, title);
       if (response.ok) {
         const newTask = await response.json();
-        setTasks(prev => [...prev, newTask]);
+        setTasks(prev => [newTask, ...prev]);
 
         // Save documentation if provided
         if (documentation && documentation.trim()) {

@@ -11,6 +11,13 @@ import { api } from '../utils/api';
 import TokenUsagePie from './TokenUsagePie';
 import { MicButton } from './MicButton';
 
+// Detect if the device is mobile (touch-primary device)
+const isMobileDevice = () => {
+  if (typeof window === 'undefined') return false;
+  // Check for touch-primary device (coarse pointer = finger/touch)
+  return window.matchMedia('(pointer: coarse)').matches;
+};
+
 // Helper function to flatten nested file tree
 const flattenFileTree = (files, basePath = '') => {
   const result = [];
@@ -284,9 +291,13 @@ const MessageInput = memo(function MessageInput({
     }
 
     // Handle regular Enter to submit (Shift+Enter for new line)
+    // On mobile, Enter creates a newline - users must use the send button
     if (e.key === 'Enter' && !e.shiftKey && !showFileDropdown && !showCommandMenu) {
-      e.preventDefault();
-      handleSubmit(e);
+      if (!isMobileDevice()) {
+        e.preventDefault();
+        handleSubmit(e);
+      }
+      // On mobile, let the default behavior (newline) happen
     }
   }, [showFileDropdown, filteredFiles, selectedFileIndex, selectFile, handleSubmit, permissionMode, onModeChange, showCommandMenu, filteredCommands, selectedCommandIndex, onCommandSelect, onCloseCommandMenu]);
 
