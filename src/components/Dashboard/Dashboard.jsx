@@ -131,7 +131,12 @@ function Dashboard({
     }
   }, []);
 
-  // Load in-progress tasks when switching to that view
+  // Load in-progress tasks on mount for badge count
+  useEffect(() => {
+    loadInProgressTasks();
+  }, [loadInProgressTasks]);
+
+  // Reload in-progress tasks when switching to that view
   useEffect(() => {
     if (viewMode === 'in_progress') {
       loadInProgressTasks();
