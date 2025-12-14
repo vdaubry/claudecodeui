@@ -426,7 +426,7 @@ const MessageInput = memo(function MessageInput({
             placeholder="Type / for commands, @ for files, or ask Claude anything..."
             className="w-full sm:flex-1 resize-none rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-4 py-2 text-sm text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
             rows={rows}
-            disabled={!isConnected || isSending || isStreaming}
+            disabled={isSending || isStreaming}
           />
           <div className="flex items-center gap-3 justify-end">
             <MicButton

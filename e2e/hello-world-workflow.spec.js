@@ -70,6 +70,12 @@ test.describe('Hello World Workflow', () => {
     await cleanupTestData();
   });
 
+  test.afterAll(async () => {
+    // Clean up all test data after tests complete
+    // This ensures hello world project ends with 0 tasks
+    await cleanupTestData();
+  });
+
   test('complete workflow: create project, task, and conversation', async ({ page }) => {
     // Set longer timeout for streaming responses
     test.setTimeout(180000); // 3 minutes
@@ -321,8 +327,8 @@ test.describe('Hello World Workflow', () => {
     // Wait for Dashboard to load
     await expect(page.locator('h1:has-text("Claude Code UI")')).toBeVisible({ timeout: 5000 });
 
-    // Look for an existing project with tasks
-    const projectCard = page.locator('div.cursor-pointer').filter({ hasText: /hello world|podcast/i }).first();
+    // Look for the hello world project specifically
+    const projectCard = page.locator('[data-testid="project-card-hello-world"]');
     const hasProject = await projectCard.isVisible().catch(() => false);
 
     if (!hasProject) {
@@ -334,8 +340,8 @@ test.describe('Hello World Workflow', () => {
     await projectCard.click();
     await page.waitForTimeout(500);
 
-    // Find and click on a task
-    const taskRow = page.locator('div[class*="cursor-pointer"]').filter({ hasText: /Hello World|RSS/i }).first();
+    // Find and click on the Hello World task specifically
+    const taskRow = page.locator('[data-testid^="task-row-"]').filter({ hasText: 'Hello World' }).first();
     const hasTask = await taskRow.isVisible().catch(() => false);
 
     if (!hasTask) {
