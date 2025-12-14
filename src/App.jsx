@@ -3,14 +3,13 @@
  *
  * Task-driven workflow architecture:
  * - Projects, Tasks, Conversations managed via TaskContext
- * - Sidebar shows projects and tasks from API
- * - MainContent renders views based on selection state
+ * - Full-screen Dashboard replaces sidebar
+ * - MainContent renders views: Dashboard -> TaskDetail -> Chat
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
-import { Settings as SettingsIcon, Sparkles } from 'lucide-react';
-import Sidebar from './components/Sidebar';
+import { Sparkles } from 'lucide-react';
 import MainContent from './components/MainContent';
 import MobileNav from './components/MobileNav';
 import Settings from './components/Settings';
@@ -31,15 +30,13 @@ function AppContent() {
   const [showVersionModal, setShowVersionModal] = useState(false);
 
   // TaskContext for state management
-  const { createProject } = useTaskContext();
+  const { createProject, updateProject, saveProjectDoc } = useTaskContext();
 
   // UI state
   const [isMobile, setIsMobile] = useState(false);
-  const [sidebarOpen, setSidebarOpen] = useState(false);
   const [isInputFocused, setIsInputFocused] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [settingsInitialTab, setSettingsInitialTab] = useState('tools');
-  const [sidebarVisible, setSidebarVisible] = useLocalStorage('sidebarVisible', true);
 
   // Display settings
   const [autoExpandTools, setAutoExpandTools] = useLocalStorage('autoExpandTools', false);
@@ -48,6 +45,7 @@ function AppContent() {
 
   // Project form modal state
   const [showProjectForm, setShowProjectForm] = useState(false);
+  const [editingProject, setEditingProject] = useState(null);
   const [isCreatingProject, setIsCreatingProject] = useState(false);
 
   // Detect if running as PWA
@@ -94,19 +92,37 @@ function AppContent() {
     setShowSettings(true);
   }, []);
 
-  // Handle project creation from modal
-  const handleCreateProject = async ({ name, repoFolderPath, documentation }) => {
+  // Handle project creation/update from modal
+  const handleProjectSubmit = async ({ name, repoFolderPath, documentation }) => {
     setIsCreatingProject(true);
     try {
-      const result = await createProject(name, repoFolderPath, documentation);
+      let result;
+      if (editingProject) {
+        // Update existing project
+        result = await updateProject(editingProject.id, { name });
+        if (result.success && documentation !== undefined) {
+          // Save documentation separately
+          await saveProjectDoc(editingProject.id, documentation);
+        }
+      } else {
+        // Create new project
+        result = await createProject(name, repoFolderPath, documentation);
+      }
       if (result.success) {
         setShowProjectForm(false);
+        setEditingProject(null);
       }
       return result;
     } finally {
       setIsCreatingProject(false);
     }
   };
+
+  // Handle opening project edit form
+  const handleEditProject = useCallback((project) => {
+    setEditingProject(project);
+    setShowProjectForm(true);
+  }, []);
 
   // Version Upgrade Modal Component
   const VersionUpgradeModal = () => {
@@ -234,98 +250,21 @@ function AppContent() {
 
   return (
     <div className="fixed inset-0 flex bg-background">
-      {/* Desktop Sidebar */}
-      {!isMobile && (
-        <div
-          className={`h-full flex-shrink-0 border-r border-border bg-card transition-all duration-300 ${
-            sidebarVisible ? 'w-80' : 'w-14'
-          }`}
-        >
-          <div className="h-full overflow-hidden">
-            {sidebarVisible ? (
-              <Sidebar
-                onShowSettings={() => setShowSettings(true)}
-                updateAvailable={updateAvailable}
-                latestVersion={latestVersion}
-                releaseInfo={releaseInfo}
-                onShowVersionModal={() => setShowVersionModal(true)}
-                isPWA={isPWA}
-                isMobile={isMobile}
-                onToggleSidebar={() => setSidebarVisible(false)}
-                onShowProjectForm={() => setShowProjectForm(true)}
-              />
-            ) : (
-              <div className="h-full flex flex-col items-center py-4 gap-4">
-                <button
-                  onClick={() => setSidebarVisible(true)}
-                  className="p-2 hover:bg-accent rounded-md transition-colors group"
-                  title="Show sidebar"
-                >
-                  <svg className="w-5 h-5 text-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 5l7 7-7 7M5 5l7 7-7 7" />
-                  </svg>
-                </button>
-                <button
-                  onClick={() => setShowSettings(true)}
-                  className="p-2 hover:bg-accent rounded-md transition-colors"
-                  title="Settings"
-                >
-                  <SettingsIcon className="w-5 h-5 text-muted-foreground" />
-                </button>
-                {updateAvailable && (
-                  <button
-                    onClick={() => setShowVersionModal(true)}
-                    className="relative p-2 hover:bg-accent rounded-md transition-colors"
-                    title="Update available"
-                  >
-                    <Sparkles className="w-5 h-5 text-blue-500" />
-                    <span className="absolute top-1 right-1 w-2 h-2 bg-blue-500 rounded-full animate-pulse" />
-                  </button>
-                )}
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* Mobile Sidebar Overlay */}
-      {isMobile && (
-        <div className={`fixed inset-0 z-50 flex transition-all duration-150 ${sidebarOpen ? 'opacity-100 visible' : 'opacity-0 invisible'}`}>
-          <button
-            className="fixed inset-0 bg-background/80 backdrop-blur-sm"
-            onClick={() => setSidebarOpen(false)}
-            aria-label="Close sidebar"
-          />
-          <div
-            className={`relative w-[85vw] max-w-sm h-full bg-card border-r border-border transform transition-transform duration-150 ${
-              sidebarOpen ? 'translate-x-0' : '-translate-x-full'
-            }`}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <Sidebar
-              onShowSettings={() => setShowSettings(true)}
-              updateAvailable={updateAvailable}
-              latestVersion={latestVersion}
-              releaseInfo={releaseInfo}
-              onShowVersionModal={() => setShowVersionModal(true)}
-              isPWA={isPWA}
-              isMobile={isMobile}
-              onShowProjectForm={() => setShowProjectForm(true)}
-            />
-          </div>
-        </div>
-      )}
-
-      {/* Main Content Area */}
+      {/* Main Content Area - Full Screen (no sidebar) */}
       <div className={`flex-1 flex flex-col min-w-0 ${isMobile && !isInputFocused ? 'pb-mobile-nav' : ''}`}>
         <MainContent
           isMobile={isMobile}
           isPWA={isPWA}
-          onMenuClick={() => setSidebarOpen(true)}
           onShowSettings={() => setShowSettings(true)}
+          onShowProjectForm={() => setShowProjectForm(true)}
+          onEditProject={handleEditProject}
           autoExpandTools={autoExpandTools}
           showRawParameters={showRawParameters}
           showThinking={showThinking}
+          updateAvailable={updateAvailable}
+          latestVersion={latestVersion}
+          releaseInfo={releaseInfo}
+          onShowVersionModal={() => setShowVersionModal(true)}
         />
       </div>
 
@@ -349,8 +288,12 @@ function AppContent() {
       {/* Project Form Modal */}
       <ProjectForm
         isOpen={showProjectForm}
-        onClose={() => setShowProjectForm(false)}
-        onSubmit={handleCreateProject}
+        onClose={() => {
+          setShowProjectForm(false);
+          setEditingProject(null);
+        }}
+        onSubmit={handleProjectSubmit}
+        initialData={editingProject}
         isSubmitting={isCreatingProject}
       />
 

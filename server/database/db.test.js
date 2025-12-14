@@ -201,6 +201,127 @@ describe('Database Layer - Phase 1', () => {
         expect(task).toBeDefined();
         expect(task.title).toBeNull();
       });
+
+      it('should set status to pending by default', () => {
+        const task = tasksDb.create(testProjectId, 'My Task');
+
+        expect(task.status).toBe('pending');
+
+        // Verify in database
+        const fetchedTask = tasksDb.getById(task.id);
+        expect(fetchedTask.status).toBe('pending');
+      });
+    });
+
+    describe('getAll', () => {
+      it('should return all tasks for a user', () => {
+        const project2 = projectsDb.create(testUserId, 'Project 2', '/path/project2');
+        tasksDb.create(testProjectId, 'Task 1');
+        tasksDb.create(testProjectId, 'Task 2');
+        tasksDb.create(project2.id, 'Task 3');
+
+        const tasks = tasksDb.getAll(testUserId);
+
+        expect(tasks).toHaveLength(3);
+        expect(tasks.every(t => t.project_name)).toBe(true);
+      });
+
+      it('should filter by status when provided', () => {
+        tasksDb.create(testProjectId, 'Pending Task');
+        const inProgressTask = tasksDb.create(testProjectId, 'In Progress Task');
+        tasksDb.updateStatus(inProgressTask.id, 'in_progress');
+        const completedTask = tasksDb.create(testProjectId, 'Completed Task');
+        tasksDb.updateStatus(completedTask.id, 'completed');
+
+        const inProgressTasks = tasksDb.getAll(testUserId, 'in_progress');
+        expect(inProgressTasks).toHaveLength(1);
+        expect(inProgressTasks[0].title).toBe('In Progress Task');
+        expect(inProgressTasks[0].status).toBe('in_progress');
+
+        const pendingTasks = tasksDb.getAll(testUserId, 'pending');
+        expect(pendingTasks).toHaveLength(1);
+        expect(pendingTasks[0].title).toBe('Pending Task');
+
+        const completedTasks = tasksDb.getAll(testUserId, 'completed');
+        expect(completedTasks).toHaveLength(1);
+        expect(completedTasks[0].title).toBe('Completed Task');
+      });
+
+      it('should return max 50 tasks', () => {
+        // Create 55 tasks
+        for (let i = 0; i < 55; i++) {
+          tasksDb.create(testProjectId, `Task ${i}`);
+        }
+
+        const tasks = tasksDb.getAll(testUserId);
+
+        expect(tasks).toHaveLength(50);
+      });
+
+      it('should order by updated_at DESC', () => {
+        const task1 = tasksDb.create(testProjectId, 'First Task');
+        const task2 = tasksDb.create(testProjectId, 'Second Task');
+
+        // Update task1 to make it more recent
+        tasksDb.update(task1.id, { title: 'Updated First Task' });
+
+        const tasks = tasksDb.getAll(testUserId);
+
+        expect(tasks).toHaveLength(2);
+        // The updated task should come first (most recently updated)
+        expect(tasks[0].title).toBe('Updated First Task');
+        expect(tasks[1].title).toBe('Second Task');
+      });
+
+      it('should include project_name on tasks', () => {
+        tasksDb.create(testProjectId, 'My Task');
+
+        const tasks = tasksDb.getAll(testUserId);
+
+        expect(tasks).toHaveLength(1);
+        expect(tasks[0].project_name).toBe('Test Project');
+        expect(tasks[0].repo_folder_path).toBe('/path/project');
+      });
+    });
+
+    describe('updateStatus', () => {
+      it('should update task status from pending to in_progress', () => {
+        const task = tasksDb.create(testProjectId, 'My Task');
+        expect(task.status).toBe('pending');
+
+        const updated = tasksDb.updateStatus(task.id, 'in_progress');
+
+        expect(updated.status).toBe('in_progress');
+
+        // Verify in database
+        const fetched = tasksDb.getById(task.id);
+        expect(fetched.status).toBe('in_progress');
+      });
+
+      it('should update task status from in_progress to completed', () => {
+        const task = tasksDb.create(testProjectId, 'My Task');
+        tasksDb.updateStatus(task.id, 'in_progress');
+
+        const updated = tasksDb.updateStatus(task.id, 'completed');
+
+        expect(updated.status).toBe('completed');
+      });
+
+      it('should reject invalid status values', () => {
+        const task = tasksDb.create(testProjectId, 'My Task');
+
+        expect(() => {
+          tasksDb.updateStatus(task.id, 'invalid');
+        }).toThrow('Invalid status: invalid');
+      });
+
+      it('should reject empty status', () => {
+        const task = tasksDb.create(testProjectId, 'My Task');
+
+        expect(() => {
+          tasksDb.updateStatus(task.id, '');
+        }).toThrow('Invalid status:');
+      });
     });
 
     describe('getByProject', () => {
@@ -295,6 +416,19 @@ describe('Database Layer - Phase 1', () => {
         const updated = tasksDb.update(created.id, {});
 
         expect(updated.title).toBe('My Task');
+      });
+
+      it('should allow status in allowed fields', () => {
+        const created = tasksDb.create(testProjectId, 'My Task');
+        expect(created.status).toBe('pending');
+
+        const updated = tasksDb.update(created.id, { status: 'in_progress' });
+
+        expect(updated.status).toBe('in_progress');
+
+        // Also test completed status
+        const completed = tasksDb.update(created.id, { status: 'completed' });
+        expect(completed.status).toBe('completed');
       });
     });
 

@@ -66,16 +66,19 @@ CREATE INDEX IF NOT EXISTS idx_projects_user_id ON projects(user_id);
 CREATE INDEX IF NOT EXISTS idx_projects_repo_folder_path ON projects(repo_folder_path);
 
 -- Tasks table - Work items belonging to projects
+-- Status: 'pending' (default), 'in_progress', 'completed'
 CREATE TABLE IF NOT EXISTS tasks (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     project_id INTEGER NOT NULL,
     title TEXT,
+    status TEXT DEFAULT 'pending' CHECK(status IN ('pending', 'in_progress', 'completed')),
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
 );
 
 CREATE INDEX IF NOT EXISTS idx_tasks_project_id ON tasks(project_id);
+-- Note: idx_tasks_status index is created in migration (db.js) for existing databases
 
 -- Conversations table - Links Claude sessions to tasks
 CREATE TABLE IF NOT EXISTS conversations (

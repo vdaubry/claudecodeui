@@ -5,7 +5,8 @@ import express from 'express';
 // Mock the database module
 vi.mock('../database/db.js', () => ({
   tasksDb: {
-    getWithProject: vi.fn()
+    getWithProject: vi.fn(),
+    updateStatus: vi.fn()
   },
   conversationsDb: {
     create: vi.fn(),
@@ -84,7 +85,7 @@ describe('Conversations Routes - Phase 3', () => {
 
   describe('POST /api/tasks/:taskId/conversations', () => {
     it('should create a new conversation', async () => {
-      const mockTaskWithProject = { id: 1, user_id: testUserId };
+      const mockTaskWithProject = { id: 1, user_id: testUserId, status: 'in_progress' };
       const newConversation = { id: 1, taskId: 1, claudeConversationId: null };
       tasksDb.getWithProject.mockReturnValue(mockTaskWithProject);
       conversationsDb.create.mockReturnValue(newConversation);
@@ -107,6 +108,49 @@ describe('Conversations Routes - Phase 3', () => {
 
       expect(response.status).toBe(404);
       expect(response.body.error).toBe('Task not found');
+    });
+
+    it('should set task status to in_progress when pending', async () => {
+      const mockTaskWithProject = { id: 1, user_id: testUserId, status: 'pending' };
+      const newConversation = { id: 1, taskId: 1, claudeConversationId: null };
+      tasksDb.getWithProject.mockReturnValue(mockTaskWithProject);
+      conversationsDb.create.mockReturnValue(newConversation);
+      tasksDb.updateStatus.mockReturnValue({ ...mockTaskWithProject, status: 'in_progress' });
+
+      const response = await request(app)
+        .post('/api/tasks/1/conversations')
+        .send({});
+
+      expect(response.status).toBe(201);
+      expect(tasksDb.updateStatus).toHaveBeenCalledWith(1, 'in_progress');
+    });
+
+    it('should not change status if already in_progress', async () => {
+      const mockTaskWithProject = { id: 1, user_id: testUserId, status: 'in_progress' };
+      const newConversation = { id: 1, taskId: 1, claudeConversationId: null };
+      tasksDb.getWithProject.mockReturnValue(mockTaskWithProject);
+      conversationsDb.create.mockReturnValue(newConversation);
+
+      const response = await request(app)
+        .post('/api/tasks/1/conversations')
+        .send({});
+
+      expect(response.status).toBe(201);
+      expect(tasksDb.updateStatus).not.toHaveBeenCalled();
+    });
+
+    it('should not change status if completed', async () => {
+      const mockTaskWithProject = { id: 1, user_id: testUserId, status: 'completed' };
+      const newConversation = { id: 1, taskId: 1, claudeConversationId: null };
+      tasksDb.getWithProject.mockReturnValue(mockTaskWithProject);
+      conversationsDb.create.mockReturnValue(newConversation);
+
+      const response = await request(app)
+        .post('/api/tasks/1/conversations')
+        .send({});
+
+      expect(response.status).toBe(201);
+      expect(tasksDb.updateStatus).not.toHaveBeenCalled();
     });
   });
 

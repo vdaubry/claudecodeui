@@ -3,18 +3,25 @@
  *
  * Displays task details including:
  * - Breadcrumb navigation
- * - Task title and metadata
+ * - Task title, status, and metadata
  * - Task documentation (editable markdown)
  * - Conversation history with +/Resume buttons
  */
 
-import React from 'react';
-import { FileText, ArrowLeft } from 'lucide-react';
+import React, { useState } from 'react';
+import { FileText, ArrowLeft, ChevronDown, Check } from 'lucide-react';
 import { Button } from './ui/button';
 import Breadcrumb from './Breadcrumb';
 import MarkdownEditor from './MarkdownEditor';
 import ConversationList from './ConversationList';
 import { cn } from '../lib/utils';
+
+// Status configuration
+const STATUS_OPTIONS = [
+  { value: 'pending', label: 'Pending', color: 'bg-gray-500/10 text-gray-600 dark:text-gray-400' },
+  { value: 'in_progress', label: 'In Progress', color: 'bg-yellow-500/10 text-yellow-600 dark:text-yellow-400' },
+  { value: 'completed', label: 'Completed', color: 'bg-green-500/10 text-green-600 dark:text-green-400' },
+];
 
 function TaskDetailView({
   project,
@@ -28,12 +35,30 @@ function TaskDetailView({
   onProjectClick,
   onHomeClick,
   onSaveTaskDoc,
+  onStatusChange,
   onNewConversation,
   onResumeConversation,
   onDeleteConversation,
   className
 }) {
+  const [showStatusDropdown, setShowStatusDropdown] = useState(false);
+  const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
+
   if (!task) return null;
+
+  const currentStatus = STATUS_OPTIONS.find(s => s.value === task.status) || STATUS_OPTIONS[0];
+
+  const handleStatusChange = async (newStatus) => {
+    if (newStatus === task.status || !onStatusChange) return;
+
+    setIsUpdatingStatus(true);
+    setShowStatusDropdown(false);
+    try {
+      await onStatusChange(task.id, newStatus);
+    } finally {
+      setIsUpdatingStatus(false);
+    }
+  };
 
   return (
     <div className={cn('h-full flex flex-col', className)}>
@@ -62,13 +87,63 @@ function TaskDetailView({
           <div className="w-10 h-10 rounded-lg bg-blue-500/10 flex items-center justify-center flex-shrink-0">
             <FileText className="w-5 h-5 text-blue-500" />
           </div>
-          <div className="min-w-0">
+          <div className="min-w-0 flex-1">
             <h1 className="text-xl font-semibold text-foreground truncate">
               {task.title || `Task ${task.id}`}
             </h1>
             <p className="text-sm text-muted-foreground">
               Task #{task.id} in {project?.name || 'Unknown Project'}
             </p>
+          </div>
+
+          {/* Status selector */}
+          <div className="relative flex-shrink-0">
+            <button
+              onClick={() => setShowStatusDropdown(!showStatusDropdown)}
+              disabled={isUpdatingStatus}
+              className={cn(
+                'flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium transition-colors',
+                currentStatus.color,
+                'hover:opacity-80',
+                isUpdatingStatus && 'opacity-50 cursor-not-allowed'
+              )}
+            >
+              {isUpdatingStatus ? (
+                <div className="w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin" />
+              ) : (
+                currentStatus.label
+              )}
+              <ChevronDown className="w-3.5 h-3.5" />
+            </button>
+
+            {/* Dropdown */}
+            {showStatusDropdown && (
+              <>
+                <div
+                  className="fixed inset-0 z-10"
+                  onClick={() => setShowStatusDropdown(false)}
+                />
+                <div className="absolute right-0 top-full mt-1 z-20 bg-popover border border-border rounded-lg shadow-lg py-1 min-w-[140px]">
+                  {STATUS_OPTIONS.map((option) => (
+                    <button
+                      key={option.value}
+                      onClick={() => handleStatusChange(option.value)}
+                      className={cn(
+                        'w-full flex items-center justify-between px-3 py-2 text-sm hover:bg-accent transition-colors',
+                        option.value === task.status && 'bg-accent/50'
+                      )}
+                    >
+                      <span className={cn('px-2 py-0.5 rounded-full text-xs font-medium', option.color)}>
+                        {option.label}
+                      </span>
+                      {option.value === task.status && (
+                        <Check className="w-4 h-4 text-primary" />
+                      )}
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
           </div>
         </div>
       </div>

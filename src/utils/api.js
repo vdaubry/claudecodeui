@@ -74,6 +74,13 @@ export const api = {
 
   // Tasks API
   tasks: {
+    // Get all tasks across all projects, optionally filtered by status
+    listAll: (status = null) => {
+      const params = new URLSearchParams();
+      if (status) params.append('status', status);
+      const queryString = params.toString();
+      return authenticatedFetch(`/api/tasks${queryString ? '?' + queryString : ''}`);
+    },
     list: (projectId) => authenticatedFetch(`/api/projects/${projectId}/tasks`),
     create: (projectId, title) =>
       authenticatedFetch(`/api/projects/${projectId}/tasks`, {
@@ -117,6 +124,11 @@ export const api = {
       const queryString = params.toString();
       return authenticatedFetch(`/api/conversations/${id}/messages${queryString ? '?' + queryString : ''}`);
     },
+  },
+
+  // Streaming sessions (for live indicator)
+  streamingSessions: {
+    getActive: () => authenticatedFetch('/api/streaming-sessions'),
   },
 
   // Voice transcription
