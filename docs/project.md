@@ -13,16 +13,18 @@ Users create projects, define tasks as units of work, and start conversations sc
 
 ## Architecture
 
+The frontend uses a **Dual-View Dashboard** design with a 3-screen navigation flow:
+
 ```
 +-------------------------------------------------------------+
 |                        Frontend                              |
 |  React (Vite) - Port 5173                                   |
-|  +-------------+  +-----------------+  +------------------+ |
-|  | Sidebar     |  | TaskDetailView  |  | ChatInterface    | |
-|  |             |  |                 |  |                  | |
-|  | Projects    |  | Task docs       |  | Messages         | |
-|  | Tasks       |  | Conversations   |  | Input            | |
-|  +-------------+  +-----------------+  +------------------+ |
+|  +---------------+  +-----------------+  +----------------+ |
+|  | Dashboard     |  | TaskDetailView  |  | ChatInterface  | |
+|  |               |  |                 |  |                | |
+|  | By Project    |  | Task docs       |  | Messages       | |
+|  | By Status     |  | Conversations   |  | Input          | |
+|  +---------------+  +-----------------+  +----------------+ |
 +-------------------------------------------------------------+
                           |
               WebSocket /ws  |  REST API /api/*
@@ -52,15 +54,20 @@ Users create projects, define tasks as units of work, and start conversations sc
 
 | File | Purpose |
 |------|---------|
-| `src/App.jsx` | Root component, state for selectedTask/activeConversation, view routing |
-| `src/contexts/TaskContext.jsx` | State management for projects, tasks, conversations |
-| `src/components/Sidebar.jsx` | Project list with expandable task lists |
-| `src/components/MainContent.jsx` | View routing (ProjectDetail/TaskDetail/Chat) |
-| `src/components/TaskDetailView.jsx` | Task docs (editable), conversation history |
-| `src/components/ProjectDetailView.jsx` | Project name, edit button, task list |
+| `src/App.jsx` | Root component, providers, project form modal |
+| `src/contexts/TaskContext.jsx` | State management for projects, tasks, conversations, navigation |
+| `src/components/MainContent.jsx` | View routing: Dashboard -> TaskDetail -> Chat |
+| `src/components/Dashboard/Dashboard.jsx` | Full-screen dashboard with project/status toggle |
+| `src/components/Dashboard/ViewToggle.jsx` | "By Project" / "By Status" toggle buttons |
+| `src/components/Dashboard/ProjectCard.jsx` | Collapsible project card with task list |
+| `src/components/Dashboard/TaskRow.jsx` | Task row with status badge and LIVE indicator |
+| `src/components/Dashboard/CompletedCollapse.jsx` | Collapsed section for completed tasks |
+| `src/components/Dashboard/InProgressSection.jsx` | Section for in-progress tasks (status view) |
+| `src/components/TaskDetailView.jsx` | Task docs (editable), conversation list |
 | `src/components/ChatInterface.jsx` | Message display, WebSocket, message input |
-| `src/components/ConversationList.jsx` | List with +New/Resume buttons |
+| `src/components/ConversationList.jsx` | Conversation cards with Open/Resume buttons |
 | `src/components/MarkdownEditor.jsx` | View/edit toggle for documentation |
+| `src/components/Breadcrumb.jsx` | Navigation breadcrumb (Home > Project > Task) |
 | `src/utils/api.js` | REST API client for projects/tasks/conversations |
 
 ### Backend
@@ -126,24 +133,34 @@ Three tables manage the task-driven workflow:
 
 ## State Management
 
-### Frontend State (App.jsx)
+### TaskContext State
+
+The `TaskContext` manages all navigation and data state:
 
 | State | Purpose |
 |-------|---------|
 | `selectedProject` | Currently selected project object |
 | `selectedTask` | Currently selected task object |
 | `activeConversation` | Currently active conversation object |
-| `currentView` | Derived: 'project', 'task', or 'chat' |
-| `activeTab` | Current tab: 'chat', 'files', 'shell', 'git' |
-
-### TaskContext State
-
-| State | Purpose |
-|-------|---------|
+| `currentView` | View state: `'empty'`, `'project-detail'`, `'task-detail'`, or `'chat'` |
+| `dashboardViewMode` | Dashboard toggle: `'project'` or `'status'` |
 | `projects` | Array of all user projects |
 | `tasks` | Array of tasks for selected project |
 | `conversations` | Array of conversations for selected task |
+| `projectDoc` | Current project documentation content |
+| `taskDoc` | Current task documentation content |
 | `isLoading*` | Loading states for each resource |
+
+### Navigation Actions
+
+| Action | Purpose |
+|--------|---------|
+| `selectProject(project)` | Navigate to project (loads tasks) |
+| `selectTask(task)` | Navigate to task detail view |
+| `selectConversation(conversation)` | Navigate to chat view |
+| `navigateBack()` | Go back one level in navigation |
+| `clearSelection()` | Return to dashboard |
+| `setDashboardViewMode(mode)` | Toggle between 'project' and 'status' views |
 
 ### Object Shapes
 
@@ -211,23 +228,59 @@ Three tables manage the task-driven workflow:
 
 ## UI Navigation Flow
 
+The app uses a **3-screen navigation** model (no sidebar):
+
 ```
-+----------------------------------+------------------------------+
-| SIDEBAR                          | MAIN CONTENT                 |
-+----------------------------------+------------------------------+
-|                                  |                              |
-| > Project A  <-(click name)------+-> Project Detail View        |
-|   +-- Task 1  <-(click)----------+-> Task Detail View           |
-|   +-- Task 2                     |       |                      |
-|                                  |       v (click New/Resume)   |
-| v Project B  <-(click arrow)     |    Chat View                 |
-|   +-- Task 3                     |       |                      |
-|   +-- Task 4                     |       v (click Back)         |
-|                                  |    Task Detail View          |
-+----------------------------------+------------------------------+
+Dashboard ────────────────► Task Detail ────────────────► Chat
+    ◄── Back to Dashboard ────     ◄──── Back to Task ────
 ```
 
+### Screen 1: Dashboard (Full Screen)
+
+Two view modes toggle between:
+
+**By Project View (Default)**
+- First project unfolded by default, others folded
+- Click ▼/▶ arrow to toggle fold/unfold each project
+- Task rows show: title, status badge, LIVE indicator, View button
+- Collapsed "Completed (N)" section at bottom of each project
+
+**By Status View**
+- Groups all tasks by status across all projects
+- Sections: ACTIVE NOW, IN PROGRESS, PENDING, COMPLETED
+- Shows "Project > Task" for each row
+
+### Screen 2: Task Detail
+
+- Back button returns to Dashboard
+- Task documentation preview with Edit button
+- List of conversations with status (LIVE/Paused) and time since last activity
+- "+ New Conversation" button
+
+### Screen 3: Chat Interface
+
+- Back button returns to Task Detail
+- Breadcrumb navigation: Home > Project > Task
+- Full chat interface with message input
+
+### Visual Indicators
+
+| Status | Indicator |
+|--------|-----------|
+| LIVE | Pulsing red dot - Claude session is streaming |
+| In Progress | Yellow - Has conversation history, not active |
+| Pending | Gray circle - No conversation started |
+| Completed | Checkmark - Task marked done |
+
 ## Quick Reference: Key Methods
+
+### Navigation
+
+- `TaskContext.jsx:selectProject()` - Select project and load its tasks
+- `TaskContext.jsx:selectTask()` - Navigate to task detail view
+- `TaskContext.jsx:selectConversation()` - Navigate to chat view
+- `TaskContext.jsx:navigateBack()` - Go back one level
+- `TaskContext.jsx:clearSelection()` - Return to dashboard
 
 ### Project/Task/Conversation Management
 
@@ -247,3 +300,10 @@ Three tables manage the task-driven workflow:
 - `server/index.js` - WebSocket handler for `claude-command`
 - `server/claude-sdk.js:queryClaudeSDK()` - SDK integration with context injection
 - `server/services/sessions.js:getSessionMessages()` - Reads JSONL files
+
+### Dashboard Components
+
+- `Dashboard.jsx` - Main container with view toggle and project/status views
+- `ProjectCard.jsx` - Collapsible project with fold/unfold and task list
+- `TaskRow.jsx` - Task display with status badge and live indicator
+- `ViewToggle.jsx` - "By Project" / "By Status" toggle
