@@ -115,11 +115,11 @@ describe('mapCliOptionsToSDK', () => {
       });
     });
 
-    it('should use preset_with_append type when customSystemPrompt is provided', () => {
+    it('should use preset type with append when customSystemPrompt is provided', () => {
       const customPrompt = '## Project Context\n\nThis is a test project.';
       const result = mapCliOptionsToSDK({ customSystemPrompt: customPrompt });
       expect(result.systemPrompt).toEqual({
-        type: 'preset_with_append',
+        type: 'preset',
         preset: 'claude_code',
         append: customPrompt
       });
@@ -169,7 +169,7 @@ The task to implement:
       expect(result.resume).toBe('session-456');
       expect(result.model).toBe('opus');
       expect(result.permissionMode).toBe('plan');
-      expect(result.systemPrompt.type).toBe('preset_with_append');
+      expect(result.systemPrompt.type).toBe('preset');
       expect(result.systemPrompt.append).toBe('## Task\nImplement feature X');
       expect(result.allowedTools).toContain('Read');
       expect(result.allowedTools).toContain('Task');

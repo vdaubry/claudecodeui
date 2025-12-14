@@ -80,9 +80,27 @@ export function createTestDatabase() {
 
   const tasksDb = {
     create: (projectId, title = null) => {
-      const stmt = db.prepare('INSERT INTO tasks (project_id, title) VALUES (?, ?)');
-      const result = stmt.run(projectId, title);
-      return { id: result.lastInsertRowid, projectId, title };
+      const stmt = db.prepare('INSERT INTO tasks (project_id, title, status) VALUES (?, ?, ?)');
+      const result = stmt.run(projectId, title, 'pending');
+      return { id: result.lastInsertRowid, projectId, title, status: 'pending' };
+    },
+    getAll: (userId, status = null) => {
+      let query = `
+        SELECT t.*, p.name as project_name, p.repo_folder_path
+        FROM tasks t
+        JOIN projects p ON t.project_id = p.id
+        WHERE p.user_id = ?
+      `;
+      const params = [userId];
+
+      if (status) {
+        query += ' AND t.status = ?';
+        params.push(status);
+      }
+
+      query += ' ORDER BY t.updated_at DESC LIMIT 50';
+
+      return db.prepare(query).all(...params);
     },
     getByProject: (projectId) => {
       return db.prepare('SELECT * FROM tasks WHERE project_id = ? ORDER BY created_at DESC').all(projectId);
@@ -99,7 +117,7 @@ export function createTestDatabase() {
       `).get(taskId);
     },
     update: (id, updates) => {
-      const allowedFields = ['title'];
+      const allowedFields = ['title', 'status'];
       const setClause = [];
       const values = [];
 
@@ -125,6 +143,13 @@ export function createTestDatabase() {
       }
 
       return tasksDb.getById(id);
+    },
+    updateStatus: (id, status) => {
+      const validStatuses = ['pending', 'in_progress', 'completed'];
+      if (!validStatuses.includes(status)) {
+        throw new Error(`Invalid status: ${status}. Must be one of: ${validStatuses.join(', ')}`);
+      }
+      return tasksDb.update(id, { status });
     },
     delete: (id) => {
       const stmt = db.prepare('DELETE FROM tasks WHERE id = ?');

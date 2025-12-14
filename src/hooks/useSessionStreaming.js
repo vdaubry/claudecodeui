@@ -68,9 +68,23 @@ export function useSessionStreaming({
   const [isSending, setIsSending] = useState(false);
   const [claudeStatus, setClaudeStatus] = useState(null);
 
+  // Use refs to store latest callback values to avoid effect re-runs
+  const onMessagesRefreshRef = useRef(onMessagesRefresh);
+  const selectedSessionIdRef = useRef(selectedSession?.id);
+
+  // Keep refs updated
+  useEffect(() => {
+    onMessagesRefreshRef.current = onMessagesRefresh;
+  }, [onMessagesRefresh]);
+
+  useEffect(() => {
+    selectedSessionIdRef.current = selectedSession?.id;
+  }, [selectedSession?.id]);
+
   // Handle incoming claude-response messages
+  // Use ref for session ID to avoid recreating this callback
   const handleClaudeResponse = useCallback((data) => {
-    const currentSessionId = selectedSession?.id;
+    const currentSessionId = selectedSessionIdRef.current;
     const messageSessionId = data.session_id;
 
     // For new conversations (session ID starts with "new-"), accept all messages
@@ -90,9 +104,10 @@ export function useSessionStreaming({
     if (transformed.length > 0) {
       setStreamingMessages(prev => [...prev, ...transformed]);
     }
-  }, [selectedSession?.id]);
+  }, []); // No deps - uses ref
 
   // Handle claude-complete event
+  // Use ref for callback to avoid recreating this handler
   const handleClaudeComplete = useCallback(async () => {
     setIsStreaming(false);
     setIsSending(false);
@@ -100,11 +115,11 @@ export function useSessionStreaming({
 
     // Refresh messages from REST API to get persisted messages
     // Then clear streaming messages
-    if (onMessagesRefresh) {
-      await onMessagesRefresh();
+    if (onMessagesRefreshRef.current) {
+      await onMessagesRefreshRef.current();
     }
     setStreamingMessages([]);
-  }, [onMessagesRefresh]);
+  }, []); // No deps - uses ref
 
   // Handle errors
   const handleClaudeError = useCallback((error) => {
@@ -149,13 +164,14 @@ export function useSessionStreaming({
   }, []);
 
   // Subscribe to WebSocket messages
+  // Only re-subscribe when selectedSession changes (not on every render)
   useEffect(() => {
     if (!selectedSession) return;
 
     const handleResponse = (msg) => handleClaudeResponse(msg.data);
-    const handleComplete = (msg) => handleClaudeComplete();
+    const handleComplete = () => handleClaudeComplete();
     const handleError = (msg) => handleClaudeError(msg.error);
-    const handleAborted = (msg) => handleSessionAborted();
+    const handleAborted = () => handleSessionAborted();
     const handleStatus = (msg) => handleClaudeStatusMsg(msg);
 
     subscribe('claude-response', handleResponse);
@@ -171,16 +187,7 @@ export function useSessionStreaming({
       unsubscribe('session-aborted', handleAborted);
       unsubscribe('claude-status', handleStatus);
     };
-  }, [
-    selectedSession,
-    subscribe,
-    unsubscribe,
-    handleClaudeResponse,
-    handleClaudeComplete,
-    handleClaudeError,
-    handleSessionAborted,
-    handleClaudeStatusMsg,
-  ]);
+  }, [selectedSession?.id, subscribe, unsubscribe]); // Only depend on session ID, not full object
 
   // Escape key to stop generation
   useEffect(() => {

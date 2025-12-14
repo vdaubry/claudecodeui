@@ -74,6 +74,18 @@ import { validateApiKey, authenticateToken, authenticateWebSocket } from './midd
 // Track which session each client is subscribed to for targeted message delivery
 const clientSubscriptions = new Map(); // Map<WebSocket, { sessionId: string | null, provider: string }>
 
+// Track active streaming sessions with their task IDs
+const activeStreamingSessions = new Map(); // Map<sessionId, { taskId, conversationId }>
+
+// Broadcast message to all connected WebSocket clients
+function broadcastToAll(wss, message) {
+    wss.clients.forEach(client => {
+        if (client.readyState === WebSocket.OPEN) {
+            client.send(JSON.stringify(message));
+        }
+    });
+}
+
 
 const app = express();
 const server = http.createServer(app);
@@ -159,6 +171,19 @@ app.use('/api/agent', agentRoutes);
 app.use('/api/projects', authenticateToken, projectsRoutes);
 app.use('/api', authenticateToken, tasksRoutes);
 app.use('/api', authenticateToken, conversationsRoutes);
+
+// Get active streaming sessions (for Dashboard live indicator)
+app.get('/api/streaming-sessions', authenticateToken, (req, res) => {
+    const sessions = [];
+    for (const [sessionId, data] of activeStreamingSessions.entries()) {
+        sessions.push({
+            sessionId,
+            taskId: data.taskId,
+            conversationId: data.conversationId
+        });
+    }
+    res.json({ sessions });
+});
 
 // Serve public files (like api-docs.html)
 app.use(express.static(path.join(__dirname, '../public')));
@@ -364,10 +389,17 @@ function handleChatConnection(ws) {
                         return;
                     }
 
-                    // 2. Create conversation record in DB
-                    const conversation = conversationsDb.create(taskId);
-                    dbConversationId = conversation.id;
-                    console.log('[DEBUG] Created conversation record:', dbConversationId);
+                    // 2. Use existing conversation if provided, otherwise create new one
+                    if (conversationId) {
+                        // Frontend already created the conversation, use it
+                        dbConversationId = conversationId;
+                        console.log('[DEBUG] Using existing conversation record:', dbConversationId);
+                    } else {
+                        // Create conversation record in DB
+                        const conversation = conversationsDb.create(taskId);
+                        dbConversationId = conversation.id;
+                        console.log('[DEBUG] Created conversation record:', dbConversationId);
+                    }
 
                     // 3. Build context prompt from project.md and task markdown
                     const contextPrompt = buildContextPrompt(taskWithProject.repo_folder_path, taskId);
@@ -407,22 +439,78 @@ function handleChatConnection(ws) {
                     const taskWithProject = tasksDb.getWithProject(conversation.task_id);
                     if (taskWithProject) {
                         sdkOptions.cwd = taskWithProject.repo_folder_path;
+                        // Track task ID for resume case
+                        sdkOptions._taskId = conversation.task_id;
                     }
 
                     // Resume using Claude's session ID
                     sdkOptions.sessionId = conversation.claude_conversation_id;
                     dbConversationId = conversationId;
+
+                    // Track and broadcast streaming-started for resumed conversations
+                    activeStreamingSessions.set(conversation.claude_conversation_id, {
+                        taskId: conversation.task_id,
+                        conversationId: conversationId
+                    });
+                    broadcastToAll(wss, {
+                        type: 'streaming-started',
+                        taskId: conversation.task_id,
+                        conversationId: conversationId,
+                        claudeSessionId: conversation.claude_conversation_id
+                    });
+                    console.log('[DEBUG] Broadcast streaming-started (resume) for task:', conversation.task_id);
+
                     console.log('[DEBUG] Resuming Claude session:', conversation.claude_conversation_id);
                 }
 
                 // Create a wrapper around ws to capture session ID for new task-based conversations
                 const wsWrapper = {
-                    send: ws.send.bind(ws),
+                    send: (msgStr) => {
+                        ws.send(msgStr);
+                        // Check for completion/error events to broadcast streaming-ended
+                        try {
+                            const msg = JSON.parse(msgStr);
+                            if (msg.type === 'claude-complete' || msg.type === 'claude-error') {
+                                // Find and remove from active sessions
+                                for (const [sessionId, sessionData] of activeStreamingSessions.entries()) {
+                                    if (sessionData.conversationId === dbConversationId) {
+                                        activeStreamingSessions.delete(sessionId);
+                                        // Broadcast streaming-ended to all clients
+                                        broadcastToAll(wss, {
+                                            type: 'streaming-ended',
+                                            taskId: sessionData.taskId,
+                                            conversationId: sessionData.conversationId
+                                        });
+                                        console.log('[DEBUG] Broadcast streaming-ended for task:', sessionData.taskId);
+                                        break;
+                                    }
+                                }
+                            }
+                        } catch (e) {
+                            // Ignore parse errors
+                        }
+                    },
                     setSessionId: (claudeSessionId) => {
                         // Update the conversation record with Claude's session ID
                         if (sdkOptions._dbConversationId && claudeSessionId) {
                             conversationsDb.updateClaudeId(sdkOptions._dbConversationId, claudeSessionId);
                             console.log('[DEBUG] Updated conversation', sdkOptions._dbConversationId, 'with Claude session:', claudeSessionId);
+
+                            // Track active streaming session
+                            if (taskId) {
+                                activeStreamingSessions.set(claudeSessionId, {
+                                    taskId: taskId,
+                                    conversationId: sdkOptions._dbConversationId
+                                });
+                                // Broadcast streaming-started to all clients
+                                broadcastToAll(wss, {
+                                    type: 'streaming-started',
+                                    taskId: taskId,
+                                    conversationId: sdkOptions._dbConversationId,
+                                    claudeSessionId
+                                });
+                                console.log('[DEBUG] Broadcast streaming-started for task:', taskId);
+                            }
 
                             // Also send the dbConversationId to frontend
                             ws.send(JSON.stringify({

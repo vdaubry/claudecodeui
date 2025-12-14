@@ -9,6 +9,7 @@ vi.mock('../database/db.js', () => ({
   },
   tasksDb: {
     create: vi.fn(),
+    getAll: vi.fn(),
     getByProject: vi.fn(),
     getById: vi.fn(),
     getWithProject: vi.fn(),
@@ -42,6 +43,82 @@ describe('Tasks Routes - Phase 3', () => {
       next();
     });
     app.use('/api', tasksRoutes);
+  });
+
+  describe('GET /api/tasks', () => {
+    it('should return all tasks for user', async () => {
+      const mockTasks = [
+        { id: 1, title: 'Task 1', status: 'pending', project_name: 'Project A' },
+        { id: 2, title: 'Task 2', status: 'in_progress', project_name: 'Project B' }
+      ];
+      tasksDb.getAll.mockReturnValue(mockTasks);
+
+      const response = await request(app).get('/api/tasks');
+
+      expect(response.status).toBe(200);
+      expect(response.body.tasks).toEqual(mockTasks);
+      expect(tasksDb.getAll).toHaveBeenCalledWith(testUserId, null);
+    });
+
+    it('should filter by status=pending', async () => {
+      const mockTasks = [
+        { id: 1, title: 'Pending Task', status: 'pending', project_name: 'Project A' }
+      ];
+      tasksDb.getAll.mockReturnValue(mockTasks);
+
+      const response = await request(app).get('/api/tasks?status=pending');
+
+      expect(response.status).toBe(200);
+      expect(response.body.tasks).toEqual(mockTasks);
+      expect(tasksDb.getAll).toHaveBeenCalledWith(testUserId, 'pending');
+    });
+
+    it('should filter by status=in_progress', async () => {
+      const mockTasks = [
+        { id: 2, title: 'In Progress Task', status: 'in_progress', project_name: 'Project B' }
+      ];
+      tasksDb.getAll.mockReturnValue(mockTasks);
+
+      const response = await request(app).get('/api/tasks?status=in_progress');
+
+      expect(response.status).toBe(200);
+      expect(response.body.tasks).toEqual(mockTasks);
+      expect(tasksDb.getAll).toHaveBeenCalledWith(testUserId, 'in_progress');
+    });
+
+    it('should filter by status=completed', async () => {
+      const mockTasks = [
+        { id: 3, title: 'Completed Task', status: 'completed', project_name: 'Project C' }
+      ];
+      tasksDb.getAll.mockReturnValue(mockTasks);
+
+      const response = await request(app).get('/api/tasks?status=completed');
+
+      expect(response.status).toBe(200);
+      expect(response.body.tasks).toEqual(mockTasks);
+      expect(tasksDb.getAll).toHaveBeenCalledWith(testUserId, 'completed');
+    });
+
+    it('should return 400 for invalid status', async () => {
+      const response = await request(app).get('/api/tasks?status=invalid');
+
+      expect(response.status).toBe(400);
+      expect(response.body.error).toBe('Invalid status. Must be one of: pending, in_progress, completed');
+      expect(tasksDb.getAll).not.toHaveBeenCalled();
+    });
+
+    it('should include project_name on tasks', async () => {
+      const mockTasks = [
+        { id: 1, title: 'Task 1', status: 'pending', project_name: 'My Project', repo_folder_path: '/path/to/project' }
+      ];
+      tasksDb.getAll.mockReturnValue(mockTasks);
+
+      const response = await request(app).get('/api/tasks');
+
+      expect(response.status).toBe(200);
+      expect(response.body.tasks[0].project_name).toBe('My Project');
+      expect(response.body.tasks[0].repo_folder_path).toBe('/path/to/project');
+    });
   });
 
   describe('GET /api/projects/:projectId/tasks', () => {
@@ -174,6 +251,34 @@ describe('Tasks Routes - Phase 3', () => {
 
       expect(response.status).toBe(404);
       expect(response.body.error).toBe('Task not found');
+    });
+
+    it('should update task status', async () => {
+      const mockTaskWithProject = { id: 1, project_id: 1, user_id: testUserId, status: 'pending' };
+      const updatedTask = { id: 1, project_id: 1, title: 'Task 1', status: 'in_progress' };
+      tasksDb.getWithProject.mockReturnValue(mockTaskWithProject);
+      tasksDb.update.mockReturnValue(updatedTask);
+
+      const response = await request(app)
+        .put('/api/tasks/1')
+        .send({ status: 'in_progress' });
+
+      expect(response.status).toBe(200);
+      expect(response.body.status).toBe('in_progress');
+      expect(tasksDb.update).toHaveBeenCalledWith(1, { status: 'in_progress' });
+    });
+
+    it('should return 400 for invalid status', async () => {
+      const mockTaskWithProject = { id: 1, project_id: 1, user_id: testUserId };
+      tasksDb.getWithProject.mockReturnValue(mockTaskWithProject);
+
+      const response = await request(app)
+        .put('/api/tasks/1')
+        .send({ status: 'invalid_status' });
+
+      expect(response.status).toBe(400);
+      expect(response.body.error).toBe('Invalid status. Must be one of: pending, in_progress, completed');
+      expect(tasksDb.update).not.toHaveBeenCalled();
     });
   });
 

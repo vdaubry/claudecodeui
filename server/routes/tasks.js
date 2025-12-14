@@ -9,6 +9,33 @@ import {
 const router = express.Router();
 
 /**
+ * GET /api/tasks
+ * List all tasks across all projects for the current user
+ * Query params:
+ *   - status: Filter by status ('pending', 'in_progress', 'completed')
+ * Returns max 50 tasks, ordered by updated_at DESC
+ */
+router.get('/tasks', (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { status } = req.query;
+
+    // Validate status if provided
+    if (status && !['pending', 'in_progress', 'completed'].includes(status)) {
+      return res.status(400).json({
+        error: 'Invalid status. Must be one of: pending, in_progress, completed'
+      });
+    }
+
+    const tasks = tasksDb.getAll(userId, status || null);
+    res.json({ tasks });
+  } catch (error) {
+    console.error('Error listing all tasks:', error);
+    res.status(500).json({ error: 'Failed to list tasks' });
+  }
+});
+
+/**
  * GET /api/projects/:projectId/tasks
  * List all tasks for a project
  */
@@ -134,6 +161,15 @@ router.put('/tasks/:id', (req, res) => {
     const updates = {};
     if (req.body.title !== undefined) {
       updates.title = req.body.title?.trim() || null;
+    }
+    if (req.body.status !== undefined) {
+      const validStatuses = ['pending', 'in_progress', 'completed'];
+      if (!validStatuses.includes(req.body.status)) {
+        return res.status(400).json({
+          error: `Invalid status. Must be one of: ${validStatuses.join(', ')}`
+        });
+      }
+      updates.status = req.body.status;
     }
 
     const task = tasksDb.update(taskId, updates);

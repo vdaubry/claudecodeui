@@ -80,9 +80,11 @@ function mapCliOptionsToSDK(options = {}) {
 
   // Map system prompt configuration
   // If customSystemPrompt is provided, append it to the claude_code preset
+  // Note: The SDK uses type: 'preset' with an optional 'append' field
+  // (NOT 'preset_with_append' which was incorrect)
   if (customSystemPrompt) {
     sdkOptions.systemPrompt = {
-      type: 'preset_with_append',
+      type: 'preset',
       preset: 'claude_code',
       append: customSystemPrompt
     };

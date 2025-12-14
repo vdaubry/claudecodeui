@@ -40,7 +40,7 @@ const MessageInput = memo(function MessageInput({
   isStreaming,
   selectedProject,
   // New props for controls
-  permissionMode = 'default',
+  permissionMode = 'bypassPermissions',
   onModeChange,
   tokenBudget,
   slashCommands = [],

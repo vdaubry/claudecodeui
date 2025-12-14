@@ -63,6 +63,12 @@ router.post('/tasks/:taskId/conversations', (req, res) => {
     }
 
     const conversation = conversationsDb.create(taskId);
+
+    // Set task status to 'in_progress' if it's currently 'pending'
+    if (taskWithProject.status === 'pending') {
+      tasksDb.updateStatus(taskId, 'in_progress');
+    }
+
     res.status(201).json(conversation);
   } catch (error) {
     console.error('Error creating conversation:', error);

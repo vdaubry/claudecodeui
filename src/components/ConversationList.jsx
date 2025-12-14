@@ -122,6 +122,7 @@ function ConversationList({
               return (
                 <div
                   key={conversation.id}
+                  data-testid={`conversation-row-${conversation.id}`}
                   className={cn(
                     'group p-3 rounded-lg border transition-colors cursor-pointer',
                     isActive

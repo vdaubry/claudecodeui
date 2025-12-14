@@ -78,6 +78,17 @@ const runMigrations = () => {
       db.exec('ALTER TABLE users ADD COLUMN has_completed_onboarding BOOLEAN DEFAULT 0');
     }
 
+    // Tasks table migrations
+    const tasksTableInfo = db.prepare("PRAGMA table_info(tasks)").all();
+    const taskColumnNames = tasksTableInfo.map(col => col.name);
+
+    if (!taskColumnNames.includes('status')) {
+      console.log('Running migration: Adding status column to tasks');
+      db.exec("ALTER TABLE tasks ADD COLUMN status TEXT DEFAULT 'pending'");
+      // Create index for status column
+      db.exec('CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status)');
+    }
+
     console.log('Database migrations completed successfully');
   } catch (error) {
     console.error('Error running migrations:', error.message);
@@ -435,12 +446,38 @@ const projectsDb = {
 
 // Tasks database operations
 const tasksDb = {
-  // Create a new task
+  // Create a new task (status defaults to 'pending')
   create: (projectId, title = null) => {
     try {
-      const stmt = db.prepare('INSERT INTO tasks (project_id, title) VALUES (?, ?)');
-      const result = stmt.run(projectId, title);
-      return { id: result.lastInsertRowid, projectId, title };
+      const stmt = db.prepare('INSERT INTO tasks (project_id, title, status) VALUES (?, ?, ?)');
+      const result = stmt.run(projectId, title, 'pending');
+      return { id: result.lastInsertRowid, projectId, title, status: 'pending' };
+    } catch (err) {
+      throw err;
+    }
+  },
+
+  // Get all tasks across all projects for a user, with optional status filter
+  // Returns max 50 tasks, ordered by updated_at DESC
+  getAll: (userId, status = null) => {
+    try {
+      let query = `
+        SELECT t.*, p.name as project_name, p.repo_folder_path
+        FROM tasks t
+        JOIN projects p ON t.project_id = p.id
+        WHERE p.user_id = ?
+      `;
+      const params = [userId];
+
+      if (status) {
+        query += ' AND t.status = ?';
+        params.push(status);
+      }
+
+      query += ' ORDER BY t.updated_at DESC LIMIT 50';
+
+      const rows = db.prepare(query).all(...params);
+      return rows;
     } catch (err) {
       throw err;
     }
@@ -484,7 +521,7 @@ const tasksDb = {
   // Update a task
   update: (id, updates) => {
     try {
-      const allowedFields = ['title'];
+      const allowedFields = ['title', 'status'];
       const setClause = [];
       const values = [];
 
@@ -510,6 +547,19 @@ const tasksDb = {
       }
 
       return tasksDb.getById(id);
+    } catch (err) {
+      throw err;
+    }
+  },
+
+  // Update task status
+  updateStatus: (id, status) => {
+    try {
+      const validStatuses = ['pending', 'in_progress', 'completed'];
+      if (!validStatuses.includes(status)) {
+        throw new Error(`Invalid status: ${status}. Must be one of: ${validStatuses.join(', ')}`);
+      }
+      return tasksDb.update(id, { status });
     } catch (err) {
       throw err;
     }

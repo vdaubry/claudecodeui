@@ -97,7 +97,7 @@ function ChatInterface({
   const [input, setInput] = useState('');
 
   // Permission mode state
-  const [permissionMode, setPermissionMode] = useState('default');
+  const [permissionMode, setPermissionMode] = useState('bypassPermissions');
 
   // Token usage state (will be populated from backend responses)
   const [tokenBudget, setTokenBudget] = useState(null);
@@ -135,15 +135,16 @@ function ChatInterface({
   const claudeSessionId = activeConversation?.claude_conversation_id;
 
   // Refresh session messages from REST API
+  const conversationId = activeConversation?.id;
   const refreshSessionMessages = useCallback(async () => {
-    if (!activeConversation) {
+    if (!conversationId) {
       setSessionMessages([]);
       return;
     }
 
     // Fetch messages for the conversation
     try {
-      const response = await api.conversations.getMessages(activeConversation.id, 1000, 0);
+      const response = await api.conversations.getMessages(conversationId, 1000, 0);
       if (response.ok) {
         const data = await response.json();
         setSessionMessages(data.messages || []);
@@ -155,7 +156,7 @@ function ChatInterface({
       console.error('Error loading messages:', error);
       setSessionMessages([]);
     }
-  }, [activeConversation]);
+  }, [conversationId]);
 
   // Combined callback for when streaming completes
   const handleStreamingComplete = useCallback(async () => {
@@ -163,13 +164,14 @@ function ChatInterface({
   }, [refreshSessionMessages]);
 
   // Create a session-like object for the streaming hook
+  // Use stable primitive values to avoid unnecessary re-renders
   const sessionForStreaming = useMemo(() => {
-    if (!activeConversation) return null;
+    if (!conversationId) return null;
     return {
-      id: claudeSessionId || `new-${activeConversation.id}`,
+      id: claudeSessionId || `new-${conversationId}`,
       __provider: 'claude'
     };
-  }, [activeConversation, claudeSessionId]);
+  }, [conversationId, claudeSessionId]);
 
   // Session streaming via hook (handles streaming, abort, status, WebSocket subscriptions)
   const {
@@ -309,9 +311,9 @@ function ChatInterface({
   useEffect(() => {
     if (activeConversation?.id) {
       const savedMode = localStorage.getItem(`permissionMode-conv-${activeConversation.id}`);
-      setPermissionMode(savedMode || 'default');
+      setPermissionMode(savedMode || 'bypassPermissions');
     } else {
-      setPermissionMode('default');
+      setPermissionMode('bypassPermissions');
     }
   }, [activeConversation?.id]);
 
@@ -325,24 +327,25 @@ function ChatInterface({
     if (!isConnected || !claudeSessionId) return;
 
     const currentSubscription = subscribedSessionRef.current;
+    const isSessionChange = currentSubscription !== claudeSessionId;
 
-    // Unsubscribe from previous session
-    if (currentSubscription && currentSubscription !== claudeSessionId) {
+    // Unsubscribe from previous session (only if changing sessions)
+    if (currentSubscription && isSessionChange) {
       sendMessage('unsubscribe-session', {});
     }
 
-    // Subscribe to new session
+    // Subscribe to new session (or resubscribe on reconnect)
     sendMessage('subscribe-session', {
       sessionId: claudeSessionId,
       provider: 'claude'
     });
     subscribedSessionRef.current = claudeSessionId;
 
-    // Clear streaming state when switching
-    if (currentSubscription !== claudeSessionId) {
+    // Clear streaming state only when actually switching sessions, not on reconnect
+    if (isSessionChange) {
       setStreamingMessages([]);
+      setIsStreaming(false);
     }
-    setIsStreaming(false);
   }, [claudeSessionId, isConnected, sendMessage]);
 
   // Handle scroll events to track if user is at bottom

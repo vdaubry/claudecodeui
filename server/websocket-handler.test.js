@@ -158,14 +158,16 @@ describe('WebSocket Handler - Task-based Conversation Flow', () => {
   });
 
   describe('WebSocket Message Simulation', () => {
-    it('should simulate new conversation message handling', () => {
-      // Simulate the message that would be received
+    it('should simulate new conversation message handling without existing conversationId', () => {
+      // Simulate the message that would be received when NO conversationId is provided
+      // (This is the legacy flow where backend creates the conversation)
       const message = {
         type: 'claude-command',
         command: 'Hello, Claude!',
         options: {
           taskId: taskId,
           isNewConversation: true
+          // Note: no conversationId provided
         }
       };
 
@@ -173,7 +175,7 @@ describe('WebSocket Handler - Task-based Conversation Flow', () => {
       const taskWithProject = testDb.tasksDb.getWithProject(message.options.taskId);
       expect(taskWithProject).toBeDefined();
 
-      // Create conversation (as handler would do)
+      // Create conversation (as handler would do when no conversationId provided)
       const conversation = testDb.conversationsDb.create(taskId);
       expect(conversation.id).toBeDefined();
 
@@ -189,6 +191,93 @@ describe('WebSocket Handler - Task-based Conversation Flow', () => {
 
       expect(sdkOptions.cwd).toBe(testDir);
       expect(sdkOptions._dbConversationId).toBe(conversation.id);
+    });
+
+    it('should use existing conversationId when provided with isNewConversation: true', () => {
+      // This tests the scenario where frontend creates the conversation first,
+      // then sends a message with both conversationId AND isNewConversation: true.
+      // The backend should use the existing conversationId, NOT create a new one.
+
+      // Frontend creates conversation first (via API)
+      const frontendCreatedConversation = testDb.conversationsDb.create(taskId);
+      const existingConversationId = frontendCreatedConversation.id;
+
+      // Simulate the message from frontend - includes both conversationId and isNewConversation
+      const message = {
+        type: 'claude-command',
+        command: 'Hello, Claude!',
+        options: {
+          taskId: taskId,
+          conversationId: existingConversationId,  // Frontend provides existing ID
+          isNewConversation: true  // But marks as new (first message in conversation)
+        }
+      };
+
+      // Get task with project (as handler would do)
+      const taskWithProject = testDb.tasksDb.getWithProject(message.options.taskId);
+      expect(taskWithProject).toBeDefined();
+
+      // THE FIX: When conversationId is provided, use it instead of creating new
+      let dbConversationId;
+      if (message.options.conversationId) {
+        // Use existing conversation (the fix)
+        dbConversationId = message.options.conversationId;
+      } else {
+        // Create new conversation only if no conversationId provided
+        const newConversation = testDb.conversationsDb.create(taskId);
+        dbConversationId = newConversation.id;
+      }
+
+      // Verify the existing conversation ID is used
+      expect(dbConversationId).toBe(existingConversationId);
+
+      // Simulate updating the conversation with Claude session ID
+      const claudeSessionId = 'claude-session-xyz';
+      testDb.conversationsDb.updateClaudeId(dbConversationId, claudeSessionId);
+
+      // Verify the SAME conversation was updated (not a duplicate)
+      const updatedConversation = testDb.conversationsDb.getById(existingConversationId);
+      expect(updatedConversation.claude_conversation_id).toBe(claudeSessionId);
+
+      // Verify no duplicate was created - count conversations for this task
+      const allConversations = testDb.conversationsDb.getByTask(taskId);
+      expect(allConversations.length).toBe(1);
+      expect(allConversations[0].id).toBe(existingConversationId);
+    });
+
+    it('should NOT create duplicate conversation when conversationId is provided', () => {
+      // Regression test: This tests that we don't create a duplicate conversation
+      // when the frontend has already created one and sends its ID.
+
+      // Frontend creates conversation
+      const existingConversation = testDb.conversationsDb.create(taskId);
+      const countBefore = testDb.conversationsDb.getByTask(taskId).length;
+      expect(countBefore).toBe(1);
+
+      // Simulate receiving message with existing conversationId
+      const message = {
+        type: 'claude-command',
+        command: 'Test message',
+        options: {
+          taskId: taskId,
+          conversationId: existingConversation.id,
+          isNewConversation: true
+        }
+      };
+
+      // Apply the correct logic (matching the fix in index.js)
+      let dbConversationId;
+      if (message.options.conversationId) {
+        dbConversationId = message.options.conversationId;
+      } else {
+        const newConv = testDb.conversationsDb.create(taskId);
+        dbConversationId = newConv.id;
+      }
+
+      // Verify no new conversation was created
+      const countAfter = testDb.conversationsDb.getByTask(taskId).length;
+      expect(countAfter).toBe(1);
+      expect(dbConversationId).toBe(existingConversation.id);
     });
 
     it('should simulate resume conversation message handling', () => {

@@ -129,6 +129,36 @@ describe('API Client - Phase 5', () => {
   });
 
   describe('api.tasks', () => {
+    it('listAll() should call GET /api/tasks', async () => {
+      await api.tasks.listAll();
+
+      expect(mockFetch).toHaveBeenCalledWith('/api/tasks', expect.any(Object));
+    });
+
+    it('listAll(\'in_progress\') should call GET /api/tasks?status=in_progress', async () => {
+      await api.tasks.listAll('in_progress');
+
+      expect(mockFetch).toHaveBeenCalledWith('/api/tasks?status=in_progress', expect.any(Object));
+    });
+
+    it('listAll(\'pending\') should call GET /api/tasks?status=pending', async () => {
+      await api.tasks.listAll('pending');
+
+      expect(mockFetch).toHaveBeenCalledWith('/api/tasks?status=pending', expect.any(Object));
+    });
+
+    it('listAll(\'completed\') should call GET /api/tasks?status=completed', async () => {
+      await api.tasks.listAll('completed');
+
+      expect(mockFetch).toHaveBeenCalledWith('/api/tasks?status=completed', expect.any(Object));
+    });
+
+    it('listAll(null) should call GET /api/tasks without query param', async () => {
+      await api.tasks.listAll(null);
+
+      expect(mockFetch).toHaveBeenCalledWith('/api/tasks', expect.any(Object));
+    });
+
     it('list() should call GET /api/projects/:projectId/tasks', async () => {
       await api.tasks.list(456);
 
@@ -228,6 +258,14 @@ describe('API Client - Phase 5', () => {
       await api.conversations.getMessages(101, 100, 0);
 
       expect(mockFetch).toHaveBeenCalledWith('/api/conversations/101/messages?limit=100', expect.any(Object));
+    });
+  });
+
+  describe('api.streamingSessions', () => {
+    it('getActive() should call GET /api/streaming-sessions', async () => {
+      await api.streamingSessions.getActive();
+
+      expect(mockFetch).toHaveBeenCalledWith('/api/streaming-sessions', expect.any(Object));
     });
   });
 

@@ -9,8 +9,9 @@
  * All state is fetched from /api/ endpoints.
  */
 
-import React, { createContext, useContext, useState, useCallback, useEffect } from 'react';
+import React, { createContext, useContext, useState, useCallback, useEffect, useRef } from 'react';
 import { api } from '../utils/api';
+import { useWebSocket } from './WebSocketContext';
 
 // Create context
 const TaskContext = createContext(null);
@@ -26,6 +27,9 @@ export function useTaskContext() {
 
 // Provider component
 export function TaskContextProvider({ children }) {
+  // WebSocket for streaming events
+  const { subscribe, unsubscribe, isConnected } = useWebSocket() || {};
+
   // Projects state
   const [projects, setProjects] = useState([]);
   const [isLoadingProjects, setIsLoadingProjects] = useState(false);
@@ -35,6 +39,10 @@ export function TaskContextProvider({ children }) {
   const [tasks, setTasks] = useState([]);
   const [isLoadingTasks, setIsLoadingTasks] = useState(false);
   const [tasksError, setTasksError] = useState(null);
+
+  // Live task tracking - Set of task IDs that have active streaming
+  const [liveTaskIds, setLiveTaskIds] = useState(new Set());
+  const liveTaskIdsRef = useRef(new Set());
 
   // Conversations state (for currently selected task)
   const [conversations, setConversations] = useState([]);
@@ -460,6 +468,67 @@ export function TaskContextProvider({ children }) {
     loadProjects();
   }, [loadProjects]);
 
+  // Fetch active streaming sessions on mount and when WebSocket connects
+  useEffect(() => {
+    const fetchActiveSessions = async () => {
+      try {
+        const response = await api.streamingSessions.getActive();
+        if (response.ok) {
+          const data = await response.json();
+          const taskIds = new Set(data.sessions.map(s => s.taskId));
+          setLiveTaskIds(taskIds);
+          liveTaskIdsRef.current = taskIds;
+        }
+      } catch (error) {
+        console.error('Error fetching active streaming sessions:', error);
+      }
+    };
+
+    fetchActiveSessions();
+  }, [isConnected]);
+
+  // Subscribe to streaming events via WebSocket
+  useEffect(() => {
+    if (!subscribe || !unsubscribe) return;
+
+    const handleStreamingStarted = (message) => {
+      const { taskId } = message;
+      if (taskId) {
+        setLiveTaskIds(prev => {
+          const next = new Set(prev);
+          next.add(taskId);
+          liveTaskIdsRef.current = next;
+          return next;
+        });
+      }
+    };
+
+    const handleStreamingEnded = (message) => {
+      const { taskId } = message;
+      if (taskId) {
+        setLiveTaskIds(prev => {
+          const next = new Set(prev);
+          next.delete(taskId);
+          liveTaskIdsRef.current = next;
+          return next;
+        });
+      }
+    };
+
+    subscribe('streaming-started', handleStreamingStarted);
+    subscribe('streaming-ended', handleStreamingEnded);
+
+    return () => {
+      unsubscribe('streaming-started', handleStreamingStarted);
+      unsubscribe('streaming-ended', handleStreamingEnded);
+    };
+  }, [subscribe, unsubscribe]);
+
+  // Helper to check if a task is live
+  const isTaskLive = useCallback((taskId) => {
+    return liveTaskIdsRef.current.has(taskId);
+  }, []);
+
   // ========== Context Value ==========
 
   const value = {
@@ -514,6 +583,10 @@ export function TaskContextProvider({ children }) {
     // View state
     currentView: getCurrentView(),
     getCurrentView,
+
+    // Live task tracking
+    liveTaskIds,
+    isTaskLive,
   };
 
   return (
