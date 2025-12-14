@@ -130,6 +130,8 @@ function ChatInterface({
   const messagesContainerRef = useRef(null);
   const [isAtBottom, setIsAtBottom] = useState(true);
   const [hasNewMessages, setHasNewMessages] = useState(false);
+  const [isScrolling, setIsScrolling] = useState(false);
+  const scrollTimeoutRef = useRef(null);
 
   // Get the claude session ID from the conversation
   const claudeSessionId = activeConversation?.claude_conversation_id;
@@ -348,7 +350,7 @@ function ChatInterface({
     }
   }, [claudeSessionId, isConnected, sendMessage]);
 
-  // Handle scroll events to track if user is at bottom
+  // Handle scroll events to track if user is at bottom and trigger collapse
   const handleScroll = useCallback(() => {
     const container = messagesContainerRef.current;
     if (!container) return;
@@ -361,6 +363,19 @@ function ChatInterface({
     if (atBottom) {
       setHasNewMessages(false);
     }
+
+    // Signal scrolling to collapse the message input
+    setIsScrolling(true);
+
+    // Clear any existing timeout
+    if (scrollTimeoutRef.current) {
+      clearTimeout(scrollTimeoutRef.current);
+    }
+
+    // Reset scrolling state after scroll stops (debounce)
+    scrollTimeoutRef.current = setTimeout(() => {
+      setIsScrolling(false);
+    }, 150);
   }, []);
 
   // Attach scroll listener to messages container
@@ -368,7 +383,13 @@ function ChatInterface({
     const container = messagesContainerRef.current;
     if (container) {
       container.addEventListener('scroll', handleScroll);
-      return () => container.removeEventListener('scroll', handleScroll);
+      return () => {
+        container.removeEventListener('scroll', handleScroll);
+        // Clean up timeout on unmount
+        if (scrollTimeoutRef.current) {
+          clearTimeout(scrollTimeoutRef.current);
+        }
+      };
     }
   }, [handleScroll]);
 
@@ -489,6 +510,7 @@ function ChatInterface({
         filteredCommands={filteredCommands}
         onCommandSelect={handleCommandSelect}
         onCloseCommandMenu={handleCloseCommandMenu}
+        isScrolling={isScrolling}
       />
 
       {/* Command Menu - positioned above input */}

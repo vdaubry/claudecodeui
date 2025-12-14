@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Mic, Loader2, Brain } from 'lucide-react';
+import { Mic, Loader2 } from 'lucide-react';
 import { transcribeWithWhisper } from '../utils/whisper';
 
 export function MicButton({ onTranscript, className = '' }) {
-  const [state, setState] = useState('idle'); // idle, recording, transcribing, processing
+  const [state, setState] = useState('idle'); // idle, recording, transcribing
   const [error, setError] = useState(null);
   const [isSupported, setIsSupported] = useState(true);
 
@@ -73,18 +73,6 @@ export function MicButton({ onTranscript, className = '' }) {
         // Start transcribing
         setState('transcribing');
 
-        // Check if we're in an enhancement mode
-        const whisperMode = window.localStorage.getItem('whisperMode') || 'default';
-        const isEnhancementMode = whisperMode === 'prompt' || whisperMode === 'vibe' || whisperMode === 'instructions' || whisperMode === 'architect';
-
-        // Set up a timer to switch to processing state for enhancement modes
-        let processingTimer;
-        if (isEnhancementMode) {
-          processingTimer = setTimeout(() => {
-            setState('processing');
-          }, 2000); // Switch to processing after 2 seconds
-        }
-
         try {
           const text = await transcribeWithWhisper(blob);
           if (text && onTranscript) {
@@ -94,9 +82,6 @@ export function MicButton({ onTranscript, className = '' }) {
           console.error('Transcription error:', err);
           setError(err.message);
         } finally {
-          if (processingTimer) {
-            clearTimeout(processingTimer);
-          }
           setState('idle');
         }
       };
@@ -207,12 +192,6 @@ export function MicButton({ onTranscript, className = '' }) {
           className: 'bg-blue-500 hover:bg-blue-600',
           disabled: true
         };
-      case 'processing':
-        return {
-          icon: <Brain className="w-5 h-5 text-white animate-pulse" />,
-          className: 'bg-purple-500 hover:bg-purple-600',
-          disabled: true
-        };
       default: // idle
         return {
           icon: <Mic className="w-5 h-5 text-white" />,
@@ -231,7 +210,6 @@ export function MicButton({ onTranscript, className = '' }) {
         style={{
           backgroundColor: state === 'recording' ? '#ef4444' :
                           state === 'transcribing' ? '#3b82f6' :
-                          state === 'processing' ? '#a855f7' :
                           '#374151'
         }}
         className={`
@@ -262,10 +240,6 @@ export function MicButton({ onTranscript, className = '' }) {
 
       {state === 'recording' && (
         <div className="absolute -inset-1 rounded-full border-2 border-red-500 animate-ping pointer-events-none" />
-      )}
-
-      {state === 'processing' && (
-        <div className="absolute -inset-1 rounded-full border-2 border-purple-500 animate-ping pointer-events-none" />
       )}
     </div>
   );

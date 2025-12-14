@@ -1,21 +1,13 @@
 import { api } from './api';
 
-export async function transcribeWithWhisper(audioBlob, onStatusChange) {
+export async function transcribeWithWhisper(audioBlob) {
     const formData = new FormData();
     const fileName = `recording_${Date.now()}.webm`;
     const file = new File([audioBlob], fileName, { type: audioBlob.type });
 
     formData.append('audio', file);
 
-    const whisperMode = window.localStorage.getItem('whisperMode') || 'default';
-    formData.append('mode', whisperMode);
-
     try {
-      // Start with transcribing state
-      if (onStatusChange) {
-        onStatusChange('transcribing');
-      }
-
       const response = await api.transcribe(formData);
 
       if (!response.ok) {

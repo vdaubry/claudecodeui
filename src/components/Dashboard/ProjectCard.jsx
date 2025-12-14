@@ -5,8 +5,8 @@
  * - Fold/unfold toggle (arrow)
  * - Project name and path
  * - Active task count indicator
- * - Task list when expanded
- * - Collapsed completed section
+ * - Task list when expanded (pending/in_progress by default)
+ * - Show/Hide Completed toggle at bottom
  */
 
 import React, { useState } from 'react';
@@ -17,11 +17,12 @@ import {
   Folder,
   Trash2,
   Plus,
-  Pencil
+  Pencil,
+  Eye,
+  EyeOff
 } from 'lucide-react';
 import { Button } from '../ui/button';
 import TaskRow from './TaskRow';
-import CompletedCollapse from './CompletedCollapse';
 import { cn } from '../../lib/utils';
 
 function ProjectCard({
@@ -37,11 +38,18 @@ function ProjectCard({
   onDeleteTask
 }) {
   const [isDeleting, setIsDeleting] = useState(false);
+  const [showCompleted, setShowCompleted] = useState(false);
 
-  // Separate tasks by status (for now, we treat all as "pending" or "in_progress")
-  // In a real implementation, tasks would have a status field
-  const activeTasks = tasks.filter(t => !t.completed);
-  const completedTasks = tasks.filter(t => t.completed);
+  // Separate tasks by status
+  const pendingTasks = tasks.filter(t => t.status === 'pending' || (!t.status && !t.completed));
+  const inProgressTasks = tasks.filter(t => t.status === 'in_progress');
+  const completedTasks = tasks.filter(t => t.status === 'completed' || t.completed);
+
+  // Active tasks = pending + in_progress (shown by default)
+  const activeTasks = [...inProgressTasks, ...pendingTasks];
+
+  // Tasks to display based on showCompleted toggle
+  const displayedTasks = showCompleted ? [...activeTasks, ...completedTasks] : activeTasks;
 
   // Check if any task has active conversations (would need WebSocket status)
   // For now, we'll simulate this
@@ -173,62 +181,72 @@ function ProjectCard({
               <div className="w-5 h-5 mx-auto border-2 border-muted-foreground border-t-transparent rounded-full animate-spin" />
               <p className="mt-2 text-sm">Loading tasks...</p>
             </div>
-          ) : activeTasks.length === 0 && completedTasks.length === 0 ? (
-            // Empty State
-            <div className="p-4 text-center text-muted-foreground">
-              <p className="text-sm">No tasks yet</p>
-              <p className="text-xs mt-1 mb-3">Create a task to get started</p>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onNewTask?.();
-                }}
-              >
-                <Plus className="w-4 h-4 mr-2" />
-                New Task
-              </Button>
-            </div>
           ) : (
             <>
-              {/* Active Tasks */}
-              <div className="divide-y divide-border">
-                {activeTasks.map(task => (
-                  <TaskRow
-                    key={task.id}
-                    task={task}
-                    onClick={() => onTaskClick(task)}
-                    onDelete={() => onDeleteTask(task.id)}
-                  />
-                ))}
+              {/* New Task Button - Always at top */}
+              <div className="p-3 border-b border-border">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-8 text-sm"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onNewTask?.();
+                  }}
+                >
+                  <Plus className="w-4 h-4 mr-2" />
+                  New Task
+                </Button>
               </div>
 
-              {/* Completed Tasks (Collapsed) */}
+              {/* Task List */}
+              {displayedTasks.length === 0 ? (
+                // Empty State
+                <div className="p-4 text-center text-muted-foreground">
+                  <p className="text-sm">No active tasks</p>
+                  <p className="text-xs mt-1">Create a task to get started</p>
+                </div>
+              ) : (
+                <div className="divide-y divide-border">
+                  {displayedTasks.map(task => (
+                    <TaskRow
+                      key={task.id}
+                      task={task}
+                      onClick={() => onTaskClick(task)}
+                      onDelete={() => onDeleteTask(task.id)}
+                    />
+                  ))}
+                </div>
+              )}
+
+              {/* Show/Hide Completed Toggle - Only show if there are completed tasks */}
               {completedTasks.length > 0 && (
-                <CompletedCollapse
-                  tasks={completedTasks}
-                  onTaskClick={onTaskClick}
-                />
+                <div className="p-3 border-t border-border bg-muted/30">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 text-xs text-muted-foreground hover:text-foreground"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setShowCompleted(!showCompleted);
+                    }}
+                  >
+                    {showCompleted ? (
+                      <>
+                        <EyeOff className="w-3 h-3 mr-1" />
+                        Hide Completed ({completedTasks.length})
+                      </>
+                    ) : (
+                      <>
+                        <Eye className="w-3 h-3 mr-1" />
+                        Show Completed ({completedTasks.length})
+                      </>
+                    )}
+                  </Button>
+                </div>
               )}
             </>
           )}
-
-          {/* Footer with New Task button */}
-          <div className="p-3 border-t border-border bg-muted/30">
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-7 text-xs"
-              onClick={(e) => {
-                e.stopPropagation();
-                onNewTask?.();
-              }}
-            >
-              <Plus className="w-3 h-3 mr-1" />
-              New Task
-            </Button>
-          </div>
         </div>
       )}
     </div>

@@ -69,6 +69,7 @@ import tasksRoutes from './routes/tasks.js';
 import conversationsRoutes from './routes/conversations.js';
 import { initializeDatabase, projectsDb, tasksDb, conversationsDb } from './database/db.js';
 import { buildContextPrompt } from './services/documentation.js';
+import { transcribeAudio } from './services/transcription.js';
 import { validateApiKey, authenticateToken, authenticateWebSocket } from './middleware/auth.js';
 
 // Track which session each client is subscribed to for targeted message delivery
@@ -610,160 +611,9 @@ app.post('/api/transcribe', authenticateToken, async (req, res) => {
                 return res.status(400).json({ error: 'No audio file provided' });
             }
 
-            const apiKey = process.env.OPENAI_API_KEY;
-            if (!apiKey) {
-                return res.status(500).json({ error: 'OpenAI API key not configured. Please set OPENAI_API_KEY in server environment.' });
-            }
-
             try {
-                // Convert audio to mp3 format for GPT-4o-mini (only supports wav and mp3)
-                const ffmpeg = (await import('fluent-ffmpeg')).default;
-                const ffmpegPath = (await import('ffmpeg-static')).default;
-                const { Readable } = await import('stream');
-                const { promisify } = await import('util');
-                const tmpDir = await import('os').then(os => os.tmpdir());
-                const pathModule = await import('path');
-
-                ffmpeg.setFfmpegPath(ffmpegPath);
-
-                // Create temp files for conversion
-                const inputPath = pathModule.default.join(tmpDir, `input_${Date.now()}.webm`);
-                const outputPath = pathModule.default.join(tmpDir, `output_${Date.now()}.mp3`);
-
-                // Write input buffer to temp file
-                await fsPromises.writeFile(inputPath, req.file.buffer);
-
-                // Convert to mp3
-                await new Promise((resolve, reject) => {
-                    ffmpeg(inputPath)
-                        .toFormat('mp3')
-                        .on('end', resolve)
-                        .on('error', reject)
-                        .save(outputPath);
-                });
-
-                // Read converted file
-                const convertedBuffer = await fsPromises.readFile(outputPath);
-                const audioBase64 = convertedBuffer.toString('base64');
-
-                // Clean up temp files
-                await fsPromises.unlink(inputPath).catch(() => {});
-                await fsPromises.unlink(outputPath).catch(() => {});
-
-                // Use GPT-4o-mini for transcription
-                const OpenAI = (await import('openai')).default;
-                const openai = new OpenAI({ apiKey });
-
-                const completion = await openai.chat.completions.create({
-                    model: 'gpt-4o-mini-audio-preview',
-                    modalities: ['text'],
-                    messages: [
-                        {
-                            role: 'user',
-                            content: [
-                                {
-                                    type: 'text',
-                                    text: 'Please transcribe the audio accurately. Only provide the transcription text, nothing else.'
-                                },
-                                {
-                                    type: 'input_audio',
-                                    input_audio: {
-                                        data: audioBase64,
-                                        format: 'mp3'
-                                    }
-                                }
-                            ]
-                        }
-                    ],
-                    temperature: 0.0
-                });
-
-                let transcribedText = completion.choices[0].message.content || '';
-
-                // Check if enhancement mode is enabled
-                const mode = req.body.mode || 'default';
-
-                // If no transcribed text, return empty
-                if (!transcribedText) {
-                    return res.json({ text: '' });
-                }
-
-                // If default mode, return transcribed text without enhancement
-                if (mode === 'default') {
-                    return res.json({ text: transcribedText });
-                }
-
-                // Handle different enhancement modes
-                try {
-                    let prompt, systemMessage, temperature = 0.7, maxTokens = 800;
-
-                    switch (mode) {
-                        case 'prompt':
-                            systemMessage = 'You are an expert prompt engineer who creates clear, detailed, and effective prompts.';
-                            prompt = `You are an expert prompt engineer. Transform the following rough instruction into a clear, detailed, and context-aware AI prompt.
-
-Your enhanced prompt should:
-1. Be specific and unambiguous
-2. Include relevant context and constraints
-3. Specify the desired output format
-4. Use clear, actionable language
-5. Include examples where helpful
-6. Consider edge cases and potential ambiguities
-
-Transform this rough instruction into a well-crafted prompt:
-"${transcribedText}"
-
-Enhanced prompt:`;
-                            break;
-
-                        case 'vibe':
-                        case 'instructions':
-                        case 'architect':
-                            systemMessage = 'You are a helpful assistant that formats ideas into clear, actionable instructions for AI agents.';
-                            temperature = 0.5; // Lower temperature for more controlled output
-                            prompt = `Transform the following idea into clear, well-structured instructions that an AI agent can easily understand and execute.
-
-IMPORTANT RULES:
-- Format as clear, step-by-step instructions
-- Add reasonable implementation details based on common patterns
-- Only include details directly related to what was asked
-- Do NOT add features or functionality not mentioned
-- Keep the original intent and scope intact
-- Use clear, actionable language an agent can follow
-
-Transform this idea into agent-friendly instructions:
-"${transcribedText}"
-
-Agent instructions:`;
-                            break;
-
-                        default:
-                            // No enhancement needed
-                            break;
-                    }
-
-                    // Only make GPT call if we have a prompt
-                    if (prompt) {
-                        const completion = await openai.chat.completions.create({
-                            model: 'gpt-4o-mini',
-                            messages: [
-                                { role: 'system', content: systemMessage },
-                                { role: 'user', content: prompt }
-                            ],
-                            temperature: temperature,
-                            max_tokens: maxTokens
-                        });
-
-                        transcribedText = completion.choices[0].message.content || transcribedText;
-                    }
-
-                } catch (gptError) {
-                    console.error('GPT processing error:', gptError);
-                    // Fall back to original transcription if GPT fails
-                }
-
-                res.json({ text: transcribedText });
-
+                const text = await transcribeAudio(req.file.buffer);
+                res.json({ text });
             } catch (error) {
                 console.error('Transcription error:', error);
                 res.status(500).json({ error: error.message });
