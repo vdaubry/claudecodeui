@@ -63,6 +63,10 @@ async function sendTestNotification(username) {
 
     console.log(`✅ Found user: ${user.username} (id: ${user.id})`);
 
+    // Convert to OneSignal external_id format (must match nativeBridge.js)
+    const externalId = `user_${user.id}`;
+    console.log(`📱 OneSignal external_id: ${externalId}`);
+
     // Initialize OneSignal client
     const configuration = OneSignal.createConfiguration({
         restApiKey: ONESIGNAL_REST_API_KEY,
@@ -77,7 +81,7 @@ async function sendTestNotification(username) {
         notification.headings = { en: 'Test Notification' };
         notification.contents = { en: `Hello ${user.username}! This is a test notification from Claude Tasks.` };
         notification.include_aliases = {
-            external_id: [String(user.id)]
+            external_id: [externalId]
         };
         notification.target_channel = 'push';
         notification.ios_sound = 'default';
@@ -86,8 +90,17 @@ async function sendTestNotification(username) {
             timestamp: new Date().toISOString()
         };
 
+        console.log('   Payload:', JSON.stringify({
+            app_id: notification.app_id,
+            headings: notification.headings,
+            contents: notification.contents,
+            include_aliases: notification.include_aliases,
+            target_channel: notification.target_channel
+        }, null, 2));
+
         const response = await client.createNotification(notification);
         console.log('✅ Banner notification sent!');
+        console.log('   Full response:', JSON.stringify(response, null, 2));
         console.log(`   Notification ID: ${response.id}`);
         console.log(`   Recipients: ${response.recipients || 'unknown'}`);
     } catch (error) {

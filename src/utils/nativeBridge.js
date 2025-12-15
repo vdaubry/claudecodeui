@@ -26,11 +26,13 @@ export function isNativeApp() {
 export function loginUserToNative(userId) {
     if (isNativeApp() && userId) {
         try {
+            // Prefix with "user_" to avoid OneSignal blocking simple IDs like "1"
+            const externalId = `user_${userId}`;
             window.webkit.messageHandlers.nativeApp.postMessage({
                 action: 'loginUser',
-                userId: String(userId)
+                userId: externalId
             });
-            console.log('[NativeBridge] Sent loginUser with userId:', userId);
+            console.log('[NativeBridge] Sent loginUser with userId:', externalId);
         } catch (error) {
             console.error('[NativeBridge] Failed to send loginUser:', error);
         }

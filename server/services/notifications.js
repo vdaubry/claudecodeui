@@ -42,6 +42,16 @@ function isConfigured() {
 }
 
 /**
+ * Convert backend user ID to OneSignal external_id format
+ * Uses "user_" prefix to avoid OneSignal blocking simple IDs like "1"
+ * @param {string|number} userId - Backend user ID
+ * @returns {string} OneSignal-compatible external_id
+ */
+function toExternalId(userId) {
+    return `user_${userId}`;
+}
+
+/**
  * Send a banner notification when Claude completes a response
  * @param {string|number} userId - Backend user ID (external_id in OneSignal)
  * @param {string} title - Notification title
@@ -63,7 +73,7 @@ async function sendBannerNotification(userId, title, message, data = {}) {
         notification.headings = { en: title };
         notification.contents = { en: message };
         notification.include_aliases = {
-            external_id: [String(userId)]
+            external_id: [toExternalId(userId)]
         };
         notification.target_channel = 'push';
         notification.data = data;
@@ -99,7 +109,7 @@ async function sendBadgeUpdate(userId, badgeCount) {
         const notification = new OneSignal.Notification();
         notification.app_id = ONESIGNAL_APP_ID;
         notification.include_aliases = {
-            external_id: [String(userId)]
+            external_id: [toExternalId(userId)]
         };
         notification.target_channel = 'push';
 
