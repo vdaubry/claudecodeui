@@ -116,9 +116,9 @@ async function sendBadgeUpdate(userId, badgeCount) {
         // Silent notification settings (iOS content-available)
         notification.content_available = true;
 
-        // Badge settings - set to exact count
-        notification.ios_badgeType = 'SetTo';
-        notification.ios_badgeCount = badgeCount;
+        // Badge settings - set to exact count (snake_case for SDK)
+        notification.ios_badge_type = 'SetTo';
+        notification.ios_badge_count = badgeCount;
 
         // Empty content for silent push (no visible alert)
         notification.contents = { en: '' };

@@ -111,24 +111,36 @@ async function sendTestNotification(username) {
     }
 
     // Send badge update notification
-    console.log('📤 Sending test badge update (silent)...');
-    try {
-        const badgeNotification = new OneSignal.Notification();
-        badgeNotification.app_id = ONESIGNAL_APP_ID;
-        badgeNotification.include_aliases = {
-            external_id: [String(user.id)]
-        };
-        badgeNotification.target_channel = 'push';
-        badgeNotification.content_available = true;
-        badgeNotification.ios_badgeType = 'SetTo';
-        badgeNotification.ios_badgeCount = 3; // Test with badge count of 3
-        badgeNotification.contents = { en: '' };
+    // Try multiple approaches to see which works
 
-        const response = await client.createNotification(badgeNotification);
-        console.log('✅ Badge update sent! (badge count: 3)');
-        console.log(`   Notification ID: ${response.id}`);
+    // Approach 1: Badge with visible notification (minimal content)
+    console.log('📤 Approach 1: Badge with minimal visible notification...');
+    try {
+        const badgeNotification1 = new OneSignal.Notification();
+        badgeNotification1.app_id = ONESIGNAL_APP_ID;
+        badgeNotification1.include_aliases = {
+            external_id: [externalId]
+        };
+        badgeNotification1.target_channel = 'push';
+        badgeNotification1.headings = { en: 'Badge Test' };
+        badgeNotification1.contents = { en: 'Testing badge update' };
+        badgeNotification1.ios_badge_type = 'SetTo';
+        badgeNotification1.ios_badge_count = 3;
+
+        console.log('   Payload:', JSON.stringify({
+            app_id: badgeNotification1.app_id,
+            include_aliases: badgeNotification1.include_aliases,
+            headings: badgeNotification1.headings,
+            contents: badgeNotification1.contents,
+            ios_badge_type: badgeNotification1.ios_badge_type,
+            ios_badge_count: badgeNotification1.ios_badge_count
+        }, null, 2));
+
+        const response1 = await client.createNotification(badgeNotification1);
+        console.log('✅ Approach 1 sent!');
+        console.log('   Full response:', JSON.stringify(response1, null, 2));
     } catch (error) {
-        console.error('❌ Failed to send badge update:', error.message);
+        console.error('❌ Approach 1 failed:', error.message);
         if (error.body) {
             console.error('   Details:', JSON.stringify(error.body, null, 2));
         }
