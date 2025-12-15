@@ -5,6 +5,7 @@ import {
   writeTaskDoc,
   deleteTaskDoc
 } from '../services/documentation.js';
+import { notifyTaskStatusChange } from '../services/notifications.js';
 
 const router = express.Router();
 
@@ -137,7 +138,7 @@ router.get('/tasks/:id', (req, res) => {
  * PUT /api/tasks/:id
  * Update a task
  */
-router.put('/tasks/:id', (req, res) => {
+router.put('/tasks/:id', async (req, res) => {
   try {
     const userId = req.user.id;
     const taskId = parseInt(req.params.id, 10);
@@ -158,6 +159,9 @@ router.put('/tasks/:id', (req, res) => {
       return res.status(404).json({ error: 'Task not found' });
     }
 
+    // Capture old status for notification
+    const oldStatus = taskWithProject.status;
+
     const updates = {};
     if (req.body.title !== undefined) {
       updates.title = req.body.title?.trim() || null;
@@ -173,6 +177,15 @@ router.put('/tasks/:id', (req, res) => {
     }
 
     const task = tasksDb.update(taskId, updates);
+
+    // Send badge update notification if status changed
+    if (updates.status && updates.status !== oldStatus) {
+      // Fire and forget - don't block the response
+      notifyTaskStatusChange(userId, oldStatus, updates.status).catch(err => {
+        console.error('[Notifications] Failed to send task status notification:', err);
+      });
+    }
+
     res.json(task);
   } catch (error) {
     console.error('Error updating task:', error);

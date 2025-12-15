@@ -1,0 +1,55 @@
+/**
+ * NATIVE BRIDGE
+ * =============
+ *
+ * Utility for communicating with the native iOS app via WKWebView's message handler.
+ * Used to send user authentication events to the native app for OneSignal user linking.
+ *
+ * The native iOS app listens for messages on the "nativeApp" handler and processes:
+ * - loginUser: Links the iOS device to the backend user via OneSignal external_id
+ * - logoutUser: Unlinks the iOS device from the current user
+ */
+
+/**
+ * Check if the PWA is running inside the native iOS app
+ * @returns {boolean} True if running in native iOS WKWebView
+ */
+export function isNativeApp() {
+    return !!(window.webkit?.messageHandlers?.nativeApp);
+}
+
+/**
+ * Send user ID to native app for OneSignal login
+ * Call this after successful user authentication
+ * @param {string|number} userId - The backend user ID to link with OneSignal
+ */
+export function loginUserToNative(userId) {
+    if (isNativeApp() && userId) {
+        try {
+            window.webkit.messageHandlers.nativeApp.postMessage({
+                action: 'loginUser',
+                userId: String(userId)
+            });
+            console.log('[NativeBridge] Sent loginUser with userId:', userId);
+        } catch (error) {
+            console.error('[NativeBridge] Failed to send loginUser:', error);
+        }
+    }
+}
+
+/**
+ * Notify native app of user logout
+ * Call this when user logs out to unlink their OneSignal subscription
+ */
+export function logoutUserFromNative() {
+    if (isNativeApp()) {
+        try {
+            window.webkit.messageHandlers.nativeApp.postMessage({
+                action: 'logoutUser'
+            });
+            console.log('[NativeBridge] Sent logoutUser');
+        } catch (error) {
+            console.error('[NativeBridge] Failed to send logoutUser:', error);
+        }
+    }
+}

@@ -71,6 +71,7 @@ import { initializeDatabase, projectsDb, tasksDb, conversationsDb } from './data
 import { buildContextPrompt } from './services/documentation.js';
 import { transcribeAudio } from './services/transcription.js';
 import { validateApiKey, authenticateToken, authenticateWebSocket } from './middleware/auth.js';
+import { notifyClaudeComplete } from './services/notifications.js';
 
 // Track which session each client is subscribed to for targeted message delivery
 const clientSubscriptions = new Map(); // Map<WebSocket, { sessionId: string | null, provider: string }>
@@ -351,7 +352,7 @@ wss.on('connection', (ws, request) => {
     const pathname = urlObj.pathname;
 
     if (pathname === '/ws') {
-        handleChatConnection(ws);
+        handleChatConnection(ws, request);
     } else {
         console.log('[WARN] Unknown WebSocket path:', pathname);
         ws.close();
@@ -359,7 +360,7 @@ wss.on('connection', (ws, request) => {
 });
 
 // Handle chat WebSocket connections
-function handleChatConnection(ws) {
+function handleChatConnection(ws, request) {
     console.log('[INFO] Chat WebSocket connected');
 
     ws.on('message', async (message) => {
@@ -483,6 +484,25 @@ function handleChatConnection(ws) {
                                             conversationId: sessionData.conversationId
                                         });
                                         console.log('[DEBUG] Broadcast streaming-ended for task:', sessionData.taskId);
+
+                                        // Send push notification for claude-complete (not errors)
+                                        if (msg.type === 'claude-complete' && request?.user?.id) {
+                                            const userId = request.user.id;
+                                            // Get task title for notification context
+                                            const taskInfo = tasksDb.getById(sessionData.taskId);
+                                            const taskTitle = taskInfo?.title || null;
+
+                                            // Fire and forget notification
+                                            notifyClaudeComplete(
+                                                userId,
+                                                taskTitle,
+                                                sessionData.taskId,
+                                                sessionData.conversationId
+                                            ).catch(err => {
+                                                console.error('[Notifications] Failed to send claude-complete notification:', err);
+                                            });
+                                        }
+
                                         break;
                                     }
                                 }

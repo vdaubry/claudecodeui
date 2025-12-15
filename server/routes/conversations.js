@@ -1,6 +1,7 @@
 import express from 'express';
 import { tasksDb, conversationsDb, projectsDb } from '../database/db.js';
 import { getSessionMessages } from '../services/sessions.js';
+import { updateUserBadge } from '../services/notifications.js';
 
 const router = express.Router();
 
@@ -41,7 +42,7 @@ router.get('/tasks/:taskId/conversations', (req, res) => {
  * POST /api/tasks/:taskId/conversations
  * Create a new conversation for a task
  */
-router.post('/tasks/:taskId/conversations', (req, res) => {
+router.post('/tasks/:taskId/conversations', async (req, res) => {
   try {
     const userId = req.user.id;
     const taskId = parseInt(req.params.taskId, 10);
@@ -67,6 +68,11 @@ router.post('/tasks/:taskId/conversations', (req, res) => {
     // Set task status to 'in_progress' if it's currently 'pending'
     if (taskWithProject.status === 'pending') {
       tasksDb.updateStatus(taskId, 'in_progress');
+
+      // Send badge update notification (fire and forget)
+      updateUserBadge(userId).catch(err => {
+        console.error('[Notifications] Failed to update badge on conversation creation:', err);
+      });
     }
 
     res.status(201).json(conversation);
