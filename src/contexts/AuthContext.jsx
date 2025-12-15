@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { api } from '../utils/api';
+import { loginUserToNative, logoutUserFromNative } from '../utils/nativeBridge';
 
 const AuthContext = createContext({
   user: null,
@@ -93,6 +94,10 @@ export const AuthProvider = ({ children }) => {
             setUser(userData.user);
             setNeedsSetup(false);
             await checkOnboardingStatus();
+            // Link iOS device to user for push notifications
+            if (userData.user?.id) {
+              loginUserToNative(userData.user.id);
+            }
           } else {
             // Token is invalid
             localStorage.removeItem('auth-token');
@@ -125,6 +130,10 @@ export const AuthProvider = ({ children }) => {
         setToken(data.token);
         setUser(data.user);
         localStorage.setItem('auth-token', data.token);
+        // Link iOS device to user for push notifications
+        if (data.user?.id) {
+          loginUserToNative(data.user.id);
+        }
         return { success: true };
       } else {
         setError(data.error || 'Login failed');
@@ -150,6 +159,10 @@ export const AuthProvider = ({ children }) => {
         setUser(data.user);
         setNeedsSetup(false);
         localStorage.setItem('auth-token', data.token);
+        // Link iOS device to user for push notifications
+        if (data.user?.id) {
+          loginUserToNative(data.user.id);
+        }
         return { success: true };
       } else {
         setError(data.error || 'Registration failed');
@@ -167,7 +180,10 @@ export const AuthProvider = ({ children }) => {
     setToken(null);
     setUser(null);
     localStorage.removeItem('auth-token');
-    
+
+    // Unlink iOS device from user for push notifications
+    logoutUserFromNative();
+
     // Optional: Call logout endpoint for logging
     if (token) {
       api.auth.logout().catch(error => {
