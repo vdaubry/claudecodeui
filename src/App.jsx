@@ -11,7 +11,6 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import { Sparkles } from 'lucide-react';
 import MainContent from './components/MainContent';
-import MobileNav from './components/MobileNav';
 import Settings from './components/Settings';
 import ProjectForm from './components/ProjectForm';
 
@@ -34,7 +33,6 @@ function AppContent() {
 
   // UI state
   const [isMobile, setIsMobile] = useState(false);
-  const [isInputFocused, setIsInputFocused] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [settingsInitialTab, setSettingsInitialTab] = useState('tools');
 
@@ -251,7 +249,7 @@ function AppContent() {
   return (
     <div className="fixed inset-0 flex bg-background">
       {/* Main Content Area - Full Screen (no sidebar) */}
-      <div className={`flex-1 flex flex-col min-w-0 ${isMobile && !isInputFocused ? 'pb-mobile-nav' : ''}`}>
+      <div className="flex-1 flex flex-col min-w-0">
         <MainContent
           isMobile={isMobile}
           isPWA={isPWA}
@@ -267,15 +265,6 @@ function AppContent() {
           onShowVersionModal={() => setShowVersionModal(true)}
         />
       </div>
-
-      {/* Mobile Bottom Navigation */}
-      {isMobile && (
-        <MobileNav
-          activeTab="chat"
-          setActiveTab={() => {}}
-          isInputFocused={isInputFocused}
-        />
-      )}
 
       {/* Settings Modal */}
       <Settings

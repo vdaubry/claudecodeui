@@ -16,6 +16,7 @@ function InProgressSection({
   isLoading,
   onTaskClick,
   onDeleteTask,
+  onCompleteTask,
   onRefresh
 }) {
   if (isLoading && tasks.length === 0) {
@@ -68,6 +69,7 @@ function InProgressSection({
             showProject
             onClick={() => onTaskClick(task)}
             onDelete={() => onDeleteTask(task.id)}
+            onComplete={() => onCompleteTask(task.id)}
           />
         ))}
       </div>

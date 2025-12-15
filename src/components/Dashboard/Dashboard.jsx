@@ -38,8 +38,10 @@ function Dashboard({
     selectedProject,
     selectProject,
     selectTask,
+    selectConversation,
     deleteProject,
     deleteTask,
+    updateTask,
     createTask,
     loadProjects
   } = useTaskContext();
@@ -131,21 +133,46 @@ function Dashboard({
     }
   }, []);
 
-  // Load in-progress tasks when switching to that view
+  // Load in-progress tasks on mount for badge count
+  useEffect(() => {
+    loadInProgressTasks();
+  }, [loadInProgressTasks]);
+
+  // Reload in-progress tasks when switching to that view
   useEffect(() => {
     if (viewMode === 'in_progress') {
       loadInProgressTasks();
     }
   }, [viewMode, loadInProgressTasks]);
 
-  // Handle task click
-  const handleTaskClick = async (task) => {
+  // Handle task click - optionally navigate directly to latest conversation
+  const handleTaskClick = async (task, navigateToLatestConversation = false) => {
     // Make sure the project is selected first
     const project = projects.find(p => p.id === task.project_id) || task.project;
     if (project && (!selectedProject || selectedProject.id !== project.id)) {
       await selectProject(project);
     }
     await selectTask(task);
+
+    // If navigating to latest conversation, fetch and select it
+    if (navigateToLatestConversation) {
+      try {
+        const response = await api.conversations.list(task.id);
+        if (response.ok) {
+          const data = await response.json();
+          const conversations = data.conversations || data || [];
+          if (conversations.length > 0) {
+            // Select the first conversation (latest, since ordered by created_at DESC)
+            selectConversation(conversations[0]);
+            // Don't call onTaskClick since we're navigating to conversation, not task detail
+            return;
+          }
+        }
+      } catch (error) {
+        console.error('Error fetching conversations:', error);
+      }
+    }
+
     onTaskClick?.(task);
   };
 
@@ -177,6 +204,16 @@ function Dashboard({
       setIsCreatingTask(false);
     }
   }, [taskFormProject, selectedProject, selectProject, createTask]);
+
+  // Handle marking task as completed
+  const handleCompleteTask = useCallback(async (taskId) => {
+    const result = await updateTask(taskId, { status: 'completed' });
+    if (result.success) {
+      // Remove from in-progress list
+      setInProgressTasks(prev => prev.filter(t => t.id !== taskId));
+    }
+    return result;
+  }, [updateTask]);
 
   // Loading state
   if (isLoadingProjects && projects.length === 0) {
@@ -290,12 +327,13 @@ function Dashboard({
               ))}
             </div>
           ) : (
-            // In Progress view
+            // In Progress view - navigate directly to latest conversation
             <InProgressSection
               tasks={inProgressTasks}
               isLoading={isLoadingInProgress}
-              onTaskClick={handleTaskClick}
+              onTaskClick={(task) => handleTaskClick(task, true)}
               onDeleteTask={deleteTask}
+              onCompleteTask={handleCompleteTask}
               onRefresh={loadInProgressTasks}
             />
           )}

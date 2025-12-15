@@ -130,6 +130,8 @@ function ChatInterface({
   const messagesContainerRef = useRef(null);
   const [isAtBottom, setIsAtBottom] = useState(true);
   const [hasNewMessages, setHasNewMessages] = useState(false);
+  const [isScrolling, setIsScrolling] = useState(false);
+  const scrollTimeoutRef = useRef(null);
 
   // Get the claude session ID from the conversation
   const claudeSessionId = activeConversation?.claude_conversation_id;
@@ -348,18 +350,39 @@ function ChatInterface({
     }
   }, [claudeSessionId, isConnected, sendMessage]);
 
-  // Handle scroll events to track if user is at bottom
+  // Handle scroll events to track if user is at bottom and trigger collapse
   const handleScroll = useCallback(() => {
     const container = messagesContainerRef.current;
     if (!container) return;
 
     // In column-reverse, scrollTop is 0 when at bottom (newest messages)
     // scrollTop becomes negative as user scrolls up to older messages
-    const atBottom = container.scrollTop >= -50; // 50px threshold
+    const scrollPos = container.scrollTop;
+    const atBottom = scrollPos >= -50; // 50px threshold
 
     setIsAtBottom(atBottom);
     if (atBottom) {
       setHasNewMessages(false);
+      // Reset scrolling state when back at bottom
+      setIsScrolling(false);
+      return;
+    }
+
+    // Only signal scrolling to collapse when user has scrolled 200+ px from bottom
+    // This prevents accidental collapse from small movements
+    const COLLAPSE_THRESHOLD = -200;
+    if (scrollPos < COLLAPSE_THRESHOLD) {
+      setIsScrolling(true);
+
+      // Clear any existing timeout
+      if (scrollTimeoutRef.current) {
+        clearTimeout(scrollTimeoutRef.current);
+      }
+
+      // Reset scrolling state after scroll stops (debounce)
+      scrollTimeoutRef.current = setTimeout(() => {
+        setIsScrolling(false);
+      }, 150);
     }
   }, []);
 
@@ -368,7 +391,13 @@ function ChatInterface({
     const container = messagesContainerRef.current;
     if (container) {
       container.addEventListener('scroll', handleScroll);
-      return () => container.removeEventListener('scroll', handleScroll);
+      return () => {
+        container.removeEventListener('scroll', handleScroll);
+        // Clean up timeout on unmount
+        if (scrollTimeoutRef.current) {
+          clearTimeout(scrollTimeoutRef.current);
+        }
+      };
     }
   }, [handleScroll]);
 
@@ -489,6 +518,7 @@ function ChatInterface({
         filteredCommands={filteredCommands}
         onCommandSelect={handleCommandSelect}
         onCloseCommandMenu={handleCloseCommandMenu}
+        isScrolling={isScrolling}
       />
 
       {/* Command Menu - positioned above input */}
