@@ -41,6 +41,7 @@ function Dashboard({
     selectConversation,
     deleteProject,
     deleteTask,
+    updateTask,
     createTask,
     loadProjects
   } = useTaskContext();
@@ -204,6 +205,16 @@ function Dashboard({
     }
   }, [taskFormProject, selectedProject, selectProject, createTask]);
 
+  // Handle marking task as completed
+  const handleCompleteTask = useCallback(async (taskId) => {
+    const result = await updateTask(taskId, { status: 'completed' });
+    if (result.success) {
+      // Remove from in-progress list
+      setInProgressTasks(prev => prev.filter(t => t.id !== taskId));
+    }
+    return result;
+  }, [updateTask]);
+
   // Loading state
   if (isLoadingProjects && projects.length === 0) {
     return (
@@ -322,6 +333,7 @@ function Dashboard({
               isLoading={isLoadingInProgress}
               onTaskClick={(task) => handleTaskClick(task, true)}
               onDeleteTask={deleteTask}
+              onCompleteTask={handleCompleteTask}
               onRefresh={loadInProgressTasks}
             />
           )}

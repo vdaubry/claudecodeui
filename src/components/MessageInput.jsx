@@ -79,6 +79,8 @@ const MessageInput = memo(function MessageInput({
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [isFocused, setIsFocused] = useState(false);
   const collapseTimeoutRef = useRef(null);
+  const justCollapsedByScrollRef = useRef(false); // Prevents auto-expand after scroll collapse
+  const justFocusedRef = useRef(false); // Prevents re-collapse when browser scrolls on focus
   const [fileList, setFileList] = useState([]);
   const [filteredFiles, setFilteredFiles] = useState([]);
   const [selectedFileIndex, setSelectedFileIndex] = useState(-1);
@@ -88,13 +90,30 @@ const MessageInput = memo(function MessageInput({
   const internalTextareaRef = useRef(null);
   const textareaRef = externalTextareaRef || internalTextareaRef;
 
-  // Handle collapse on scroll (only if not focused)
+  // Handle collapse on scroll
   useEffect(() => {
-    if (isScrolling && !isCollapsed && !isFocused) {
-      // Collapse when scrolling starts (but not if textarea is focused)
+    if (isScrolling && !isCollapsed) {
+      // Don't collapse if we just focused (browser may scroll to show textarea)
+      if (justFocusedRef.current) {
+        return;
+      }
+
+      // Collapse when scrolling starts
+      justCollapsedByScrollRef.current = true;
       setIsCollapsed(true);
+      setIsFocused(false); // Clear focus state
+
+      // Blur the textarea to prevent browser from keeping focus
+      if (textareaRef.current) {
+        textareaRef.current.blur();
+      }
+
+      // Clear the flag after a short delay to allow normal focus behavior
+      setTimeout(() => {
+        justCollapsedByScrollRef.current = false;
+      }, 300);
     }
-  }, [isScrolling, isCollapsed, isFocused]);
+  }, [isScrolling, isCollapsed]);
 
   // Clean up timeout on unmount
   useEffect(() => {
@@ -107,9 +126,20 @@ const MessageInput = memo(function MessageInput({
 
   // Handle focus to expand
   const handleFocus = useCallback(() => {
+    // Don't auto-expand if we just collapsed due to scroll (prevents browser refocus loop)
+    if (justCollapsedByScrollRef.current) {
+      return;
+    }
     if (collapseTimeoutRef.current) {
       clearTimeout(collapseTimeoutRef.current);
     }
+
+    // Set flag to prevent re-collapse when browser scrolls to show textarea
+    justFocusedRef.current = true;
+    setTimeout(() => {
+      justFocusedRef.current = false;
+    }, 300);
+
     setIsFocused(true);
     setIsCollapsed(false);
   }, []);
@@ -497,7 +527,11 @@ const MessageInput = memo(function MessageInput({
             <div className={`transition-all duration-200 ${isCollapsed ? 'w-0 opacity-0 overflow-hidden' : 'w-auto opacity-100'}`}>
               <MicButton
                 onTranscript={(transcript) => {
-                  setInput(transcript);
+                  // Append transcript to existing input (with space if needed)
+                  setInput(prev => {
+                    if (!prev.trim()) return transcript;
+                    return prev.trimEnd() + ' ' + transcript;
+                  });
                   // Focus the textarea after transcription
                   requestAnimationFrame(() => {
                     if (textareaRef.current) {

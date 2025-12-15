@@ -357,25 +357,33 @@ function ChatInterface({
 
     // In column-reverse, scrollTop is 0 when at bottom (newest messages)
     // scrollTop becomes negative as user scrolls up to older messages
-    const atBottom = container.scrollTop >= -50; // 50px threshold
+    const scrollPos = container.scrollTop;
+    const atBottom = scrollPos >= -50; // 50px threshold
 
     setIsAtBottom(atBottom);
     if (atBottom) {
       setHasNewMessages(false);
-    }
-
-    // Signal scrolling to collapse the message input
-    setIsScrolling(true);
-
-    // Clear any existing timeout
-    if (scrollTimeoutRef.current) {
-      clearTimeout(scrollTimeoutRef.current);
-    }
-
-    // Reset scrolling state after scroll stops (debounce)
-    scrollTimeoutRef.current = setTimeout(() => {
+      // Reset scrolling state when back at bottom
       setIsScrolling(false);
-    }, 150);
+      return;
+    }
+
+    // Only signal scrolling to collapse when user has scrolled 200+ px from bottom
+    // This prevents accidental collapse from small movements
+    const COLLAPSE_THRESHOLD = -200;
+    if (scrollPos < COLLAPSE_THRESHOLD) {
+      setIsScrolling(true);
+
+      // Clear any existing timeout
+      if (scrollTimeoutRef.current) {
+        clearTimeout(scrollTimeoutRef.current);
+      }
+
+      // Reset scrolling state after scroll stops (debounce)
+      scrollTimeoutRef.current = setTimeout(() => {
+        setIsScrolling(false);
+      }, 150);
+    }
   }, []);
 
   // Attach scroll listener to messages container

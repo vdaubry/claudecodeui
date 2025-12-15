@@ -9,7 +9,7 @@
  */
 
 import React, { useState } from 'react';
-import { FileText, Trash2, ChevronRight, Circle } from 'lucide-react';
+import { FileText, Trash2, ChevronRight, Circle, CheckCircle } from 'lucide-react';
 import { Button } from '../ui/button';
 import { cn } from '../../lib/utils';
 import { useTaskContext } from '../../contexts/TaskContext';
@@ -40,9 +40,11 @@ function TaskRow({
   project, // Optional - for status view
   onClick,
   onDelete,
+  onComplete,
   showProject = false
 }) {
   const [isDeleting, setIsDeleting] = useState(false);
+  const [isCompleting, setIsCompleting] = useState(false);
   const { isTaskLive } = useTaskContext();
 
   // Determine task status from context's live task tracking
@@ -59,6 +61,19 @@ function TaskRow({
       await onDelete();
     } finally {
       setIsDeleting(false);
+    }
+  };
+
+  const handleComplete = async (e) => {
+    e.stopPropagation();
+    if (!confirm('Mark this task as completed?')) {
+      return;
+    }
+    setIsCompleting(true);
+    try {
+      await onComplete();
+    } finally {
+      setIsCompleting(false);
     }
   };
 
@@ -128,6 +143,21 @@ function TaskRow({
           <span className="text-xs px-2 py-1 rounded-full bg-muted text-muted-foreground">
             Pending
           </span>
+        )}
+
+        {/* Complete Button - only show if onComplete is provided */}
+        {onComplete && (
+          <button
+            className="opacity-0 group-hover:opacity-100 transition-opacity p-1 hover:bg-green-500/10 rounded"
+            onClick={handleComplete}
+            title="Mark as completed"
+          >
+            {isCompleting ? (
+              <div className="w-3.5 h-3.5 border-2 border-green-500 border-t-transparent rounded-full animate-spin" />
+            ) : (
+              <CheckCircle className="w-3.5 h-3.5 text-muted-foreground hover:text-green-500" />
+            )}
+          </button>
         )}
 
         {/* Delete Button */}
