@@ -137,7 +137,12 @@ const authenticateWebSocket = (token) => {
 
   try {
     const decoded = jwt.verify(token, JWT_SECRET);
-    return decoded;
+    // Return consistent user object with both id and userId for compatibility
+    return {
+      id: decoded.userId,
+      userId: decoded.userId,
+      username: decoded.username
+    };
   } catch (error) {
     console.error('WebSocket token verification error:', error);
     return null;

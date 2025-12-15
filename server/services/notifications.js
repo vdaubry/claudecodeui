@@ -12,25 +12,46 @@
 import * as OneSignal from '@onesignal/node-onesignal';
 import { tasksDb } from '../database/db.js';
 
-// OneSignal configuration from environment
-const ONESIGNAL_APP_ID = process.env.ONESIGNAL_APP_ID;
-const ONESIGNAL_REST_API_KEY = process.env.ONESIGNAL_REST_API_KEY;
-
+// OneSignal client singleton
 let client = null;
+let clientAppId = null;
+
+/**
+ * Get OneSignal configuration from environment
+ * Read at runtime to ensure .env is loaded first
+ */
+function getConfig() {
+    return {
+        appId: process.env.ONESIGNAL_APP_ID,
+        restApiKey: process.env.ONESIGNAL_REST_API_KEY
+    };
+}
 
 /**
  * Get or create the OneSignal client
  * @returns {OneSignal.DefaultApi|null} OneSignal API client or null if not configured
  */
 function getClient() {
-    if (!client && ONESIGNAL_APP_ID && ONESIGNAL_REST_API_KEY) {
+    const { appId, restApiKey } = getConfig();
+
+    if (!client && appId && restApiKey) {
         const configuration = OneSignal.createConfiguration({
-            restApiKey: ONESIGNAL_REST_API_KEY,
+            restApiKey: restApiKey,
         });
         client = new OneSignal.DefaultApi(configuration);
-        console.log('[OneSignal] Client initialized');
+        clientAppId = appId;
+        console.log('[OneSignal] Client initialized with app:', appId);
     }
     return client;
+}
+
+/**
+ * Get the app ID for notifications
+ * @returns {string|null}
+ */
+function getAppId() {
+    if (clientAppId) return clientAppId;
+    return getConfig().appId;
 }
 
 /**
@@ -38,7 +59,8 @@ function getClient() {
  * @returns {boolean}
  */
 function isConfigured() {
-    return !!(ONESIGNAL_APP_ID && ONESIGNAL_REST_API_KEY);
+    const { appId, restApiKey } = getConfig();
+    return !!(appId && restApiKey);
 }
 
 /**
@@ -69,7 +91,7 @@ async function sendBannerNotification(userId, title, message, data = {}) {
 
     try {
         const notification = new OneSignal.Notification();
-        notification.app_id = ONESIGNAL_APP_ID;
+        notification.app_id = getAppId();
         notification.headings = { en: title };
         notification.contents = { en: message };
         notification.include_aliases = {
@@ -93,6 +115,7 @@ async function sendBannerNotification(userId, title, message, data = {}) {
 
 /**
  * Send a silent notification to update badge count
+ * Uses content_available for iOS background processing
  * @param {string|number} userId - Backend user ID (external_id in OneSignal)
  * @param {number} badgeCount - Number to display on app badge
  * @returns {Promise<object|null>} OneSignal response or null on failure
@@ -105,29 +128,34 @@ async function sendBadgeUpdate(userId, badgeCount) {
         return null;
     }
 
+    console.log(`[OneSignal] Sending silent badge update to user ${userId}: count=${badgeCount}`);
+
     try {
         const notification = new OneSignal.Notification();
-        notification.app_id = ONESIGNAL_APP_ID;
+        notification.app_id = getAppId();
         notification.include_aliases = {
             external_id: [toExternalId(userId)]
         };
         notification.target_channel = 'push';
 
-        // Silent notification settings (iOS content-available)
+        // Silent notification (content-available for iOS background processing)
         notification.content_available = true;
 
         // Badge settings - set to exact count (snake_case for SDK)
         notification.ios_badge_type = 'SetTo';
         notification.ios_badge_count = badgeCount;
 
-        // Empty content for silent push (no visible alert)
+        // Empty content for silent push
         notification.contents = { en: '' };
 
         const response = await onesignalClient.createNotification(notification);
-        console.log(`[OneSignal] Badge update sent to user ${userId}: count=${badgeCount}`);
+        console.log(`[OneSignal] Badge update sent to user ${userId}: count=${badgeCount}, id=${response.id}`);
         return response;
     } catch (error) {
         console.error('[OneSignal] Failed to send badge update:', error.message);
+        if (error.body) {
+            console.error('[OneSignal] Error details:', JSON.stringify(error.body, null, 2));
+        }
         return null;
     }
 }
@@ -187,10 +215,15 @@ async function notifyClaudeComplete(userId, taskTitle, taskId, conversationId) {
  * @returns {Promise<object|null>} OneSignal response or null
  */
 async function notifyTaskStatusChange(userId, oldStatus, newStatus) {
+    console.log(`[OneSignal] Task status changed for user ${userId}: ${oldStatus} -> ${newStatus}`);
+
     // Update badge when status changes to/from in_progress
     if (oldStatus === 'in_progress' || newStatus === 'in_progress') {
+        console.log('[OneSignal] Status involves in_progress, updating badge...');
         return updateUserBadge(userId);
     }
+
+    console.log('[OneSignal] Status change does not involve in_progress, skipping badge update');
     return null;
 }
 

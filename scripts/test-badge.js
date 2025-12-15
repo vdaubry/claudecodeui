@@ -1,12 +1,13 @@
 #!/usr/bin/env node
 /**
- * Test Push Notification Script
+ * Test Silent Badge Notification Script
  *
- * Sends a test push notification to a specific user via OneSignal.
+ * Sends a silent push notification to update the app badge count.
+ * This tests whether iOS can receive badge-only updates without a visible notification.
  *
  * Usage:
- *   node scripts/test-notification.js <username>
- *   node scripts/test-notification.js dev-box
+ *   node scripts/test-badge.js <username> [badge_count]
+ *   node scripts/test-badge.js dev-box 5
  */
 
 import path from 'path';
@@ -43,7 +44,7 @@ const ONESIGNAL_APP_ID = process.env.ONESIGNAL_APP_ID;
 const ONESIGNAL_REST_API_KEY = process.env.ONESIGNAL_REST_API_KEY;
 const DB_PATH = process.env.DATABASE_PATH || path.join(__dirname, '../server/database/auth.db');
 
-async function sendTestNotification(username) {
+async function sendSilentBadge(username, badgeCount) {
     // Validate OneSignal configuration
     if (!ONESIGNAL_APP_ID || !ONESIGNAL_REST_API_KEY) {
         console.error('❌ OneSignal not configured. Set ONESIGNAL_APP_ID and ONESIGNAL_REST_API_KEY in .env');
@@ -66,6 +67,7 @@ async function sendTestNotification(username) {
     // Convert to OneSignal external_id format (must match nativeBridge.js)
     const externalId = `user_${user.id}`;
     console.log(`📱 OneSignal external_id: ${externalId}`);
+    console.log(`🔢 Badge count to set: ${badgeCount}`);
 
     // Initialize OneSignal client
     const configuration = OneSignal.createConfiguration({
@@ -73,53 +75,65 @@ async function sendTestNotification(username) {
     });
     const client = new OneSignal.DefaultApi(configuration);
 
-    // Send banner notification
-    console.log('📤 Sending test banner notification...');
+    // Send silent badge notification
+    console.log('\n📤 Sending silent badge notification...');
     try {
         const notification = new OneSignal.Notification();
         notification.app_id = ONESIGNAL_APP_ID;
-        notification.headings = { en: 'Test Notification' };
-        notification.contents = { en: `Hello ${user.username}! This is a test notification from Claude Tasks.` };
         notification.include_aliases = {
             external_id: [externalId]
         };
         notification.target_channel = 'push';
-        notification.ios_sound = 'default';
-        notification.data = {
-            type: 'test',
-            timestamp: new Date().toISOString()
+
+        // Silent notification (content-available for iOS background processing)
+        notification.content_available = true;
+
+        // Badge settings
+        notification.ios_badge_type = 'SetTo';
+        notification.ios_badge_count = badgeCount;
+
+        // Empty content for silent push
+        notification.contents = { en: '' };
+
+        const payload = {
+            app_id: notification.app_id,
+            include_aliases: notification.include_aliases,
+            target_channel: notification.target_channel,
+            content_available: notification.content_available,
+            ios_badge_type: notification.ios_badge_type,
+            ios_badge_count: notification.ios_badge_count,
+            contents: notification.contents
         };
 
-        console.log('   Payload:', JSON.stringify({
-            app_id: notification.app_id,
-            headings: notification.headings,
-            contents: notification.contents,
-            include_aliases: notification.include_aliases,
-            target_channel: notification.target_channel
-        }, null, 2));
+        console.log('   Payload:', JSON.stringify(payload, null, 2));
 
         const response = await client.createNotification(notification);
-        console.log('✅ Banner notification sent!');
+        console.log('✅ Silent badge notification sent!');
         console.log('   Full response:', JSON.stringify(response, null, 2));
         console.log(`   Notification ID: ${response.id}`);
         console.log(`   Recipients: ${response.recipients || 'unknown'}`);
+
+        if (response.id) {
+            console.log('\n📱 Check your iOS device for the badge update!');
+            console.log('   The app icon should show a badge with the number:', badgeCount);
+            console.log('   Note: No visible notification banner should appear.');
+        }
     } catch (error) {
-        console.error('❌ Failed to send banner notification:', error.message);
+        console.error('❌ Failed to send silent badge notification:', error.message);
         if (error.body) {
             console.error('   Details:', JSON.stringify(error.body, null, 2));
         }
     }
-
-    console.log('\n📱 Check your iOS device for the notification!');
-    console.log('   Note: Push notifications only work on real devices, not simulators.');
 }
 
 // Main
 const username = process.argv[2];
+const badgeCount = parseInt(process.argv[3], 10) || 3;
+
 if (!username) {
-    console.log('Usage: node scripts/test-notification.js <username>');
-    console.log('Example: node scripts/test-notification.js dev-box');
+    console.log('Usage: node scripts/test-badge.js <username> [badge_count]');
+    console.log('Example: node scripts/test-badge.js dev-box 5');
     process.exit(1);
 }
 
-sendTestNotification(username);
+sendSilentBadge(username, badgeCount);

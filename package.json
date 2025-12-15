@@ -27,6 +27,7 @@
     "client": "vite --host",
     "create-user": "node scripts/create-user.js",
     "test-notification": "node scripts/test-notification.js",
+    "test-badge": "node scripts/test-badge.js",
     "test": "vitest",
     "test:run": "vitest run",
     "test:coverage": "vitest run --coverage",

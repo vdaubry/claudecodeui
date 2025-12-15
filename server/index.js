@@ -486,11 +486,24 @@ function handleChatConnection(ws, request) {
                                         console.log('[DEBUG] Broadcast streaming-ended for task:', sessionData.taskId);
 
                                         // Send push notification for claude-complete (not errors)
+                                        console.log('[DEBUG] Checking notification trigger:', {
+                                            msgType: msg.type,
+                                            hasUser: !!request?.user,
+                                            userId: request?.user?.id
+                                        });
+
                                         if (msg.type === 'claude-complete' && request?.user?.id) {
                                             const userId = request.user.id;
                                             // Get task title for notification context
                                             const taskInfo = tasksDb.getById(sessionData.taskId);
                                             const taskTitle = taskInfo?.title || null;
+
+                                            console.log('[DEBUG] Sending claude-complete notification:', {
+                                                userId,
+                                                taskTitle,
+                                                taskId: sessionData.taskId,
+                                                conversationId: sessionData.conversationId
+                                            });
 
                                             // Fire and forget notification
                                             notifyClaudeComplete(
@@ -501,6 +514,8 @@ function handleChatConnection(ws, request) {
                                             ).catch(err => {
                                                 console.error('[Notifications] Failed to send claude-complete notification:', err);
                                             });
+                                        } else {
+                                            console.log('[DEBUG] Skipping notification - conditions not met');
                                         }
 
                                         break;
