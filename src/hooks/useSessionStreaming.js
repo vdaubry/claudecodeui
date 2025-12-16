@@ -61,6 +61,7 @@ export function useSessionStreaming({
   unsubscribe,
   onMessagesRefresh,
   onTokenBudgetUpdate,
+  onDisconnect, // Callback to subscribe to WebSocket disconnection events
 }) {
   // Streaming state
   const [streamingMessages, setStreamingMessages] = useState([]);
@@ -87,12 +88,17 @@ export function useSessionStreaming({
     const currentSessionId = selectedSessionIdRef.current;
     const messageSessionId = data.session_id;
 
-    // For new conversations (session ID starts with "new-"), accept all messages
-    // since we don't know the real Claude session ID yet
-    const isNewConversation = currentSessionId && currentSessionId.startsWith('new-');
+    // Robust session filtering:
+    // Accept messages when:
+    // 1. We don't have a session ID yet (new conversation, waiting for first message)
+    // 2. The message's session ID matches our session ID
+    // 3. Message has no session ID (broadcast messages - SDK often omits session_id)
+    const shouldAccept =
+      !currentSessionId ||                              // We don't know our session yet
+      !messageSessionId ||                              // Message has no session (broadcasts)
+      messageSessionId === currentSessionId;            // Direct match
 
-    // Filter: ignore messages for different sessions (but not for new conversations)
-    if (!isNewConversation && currentSessionId && messageSessionId && messageSessionId !== currentSessionId) {
+    if (!shouldAccept) {
       console.log('[useSessionStreaming] Ignoring message for different session:', messageSessionId);
       return;
     }
@@ -200,6 +206,21 @@ export function useSessionStreaming({
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isSending, isStreaming, handleAbortSession]);
+
+  // Clear streaming state immediately on WebSocket disconnect
+  // This prevents "stuck thinking" state when connection is lost
+  useEffect(() => {
+    if (!onDisconnect) return;
+
+    const cleanup = onDisconnect(() => {
+      console.log('[useSessionStreaming] Connection lost, clearing streaming state');
+      setIsStreaming(false);
+      setIsSending(false);
+      setClaudeStatus(null);
+    });
+
+    return cleanup;
+  }, [onDisconnect]);
 
   return {
     // State

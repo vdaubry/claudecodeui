@@ -10,6 +10,7 @@ import React, { useState, useEffect, useRef, useCallback, memo } from 'react';
 import { api } from '../utils/api';
 import TokenUsagePie from './TokenUsagePie';
 import { MicButton } from './MicButton';
+import { useWebSocket } from '../contexts/WebSocketContext';
 
 // Detect if the device is mobile (touch-primary device)
 const isMobileDevice = () => {
@@ -72,6 +73,9 @@ const MessageInput = memo(function MessageInput({
   // Collapsible behavior props
   isScrolling = false, // Signal from parent when user is scrolling
 }) {
+  // Get connection state and manual reconnect from WebSocket context
+  const { connectionState, manualReconnect } = useWebSocket();
+
   // File dropdown state
   const [showFileDropdown, setShowFileDropdown] = useState(false);
 
@@ -558,9 +562,29 @@ const MessageInput = memo(function MessageInput({
       {/* Status messages - hidden when collapsed */}
       <div className={`transition-all duration-200 overflow-hidden ${isCollapsed ? 'max-h-0 opacity-0' : 'max-h-10 opacity-100'}`}>
         {showConnectionWarning && !isConnected && (
-          <p className="text-xs text-yellow-600 dark:text-yellow-500 mt-2">
-            Connecting to server...
-          </p>
+          <div className="text-xs mt-2">
+            {connectionState === 'failed' ? (
+              <p className="text-red-600 dark:text-red-500 flex items-center gap-2">
+                <span>Connection failed.</span>
+                <button
+                  type="button"
+                  onClick={manualReconnect}
+                  className="text-blue-600 dark:text-blue-400 hover:underline font-medium"
+                >
+                  Reconnect
+                </button>
+              </p>
+            ) : connectionState === 'reconnecting' ? (
+              <p className="text-yellow-600 dark:text-yellow-500 flex items-center">
+                <span className="inline-block w-2 h-2 bg-yellow-500 rounded-full animate-pulse mr-2"></span>
+                Reconnecting...
+              </p>
+            ) : (
+              <p className="text-yellow-600 dark:text-yellow-500">
+                Connecting to server...
+              </p>
+            )}
+          </div>
         )}
         {isStreaming && (
           <p className="text-xs text-blue-500 dark:text-blue-400 mt-2 flex items-center">
