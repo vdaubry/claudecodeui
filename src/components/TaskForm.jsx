@@ -5,11 +5,12 @@
  * Only requires a title - markdown file is created blank.
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { X, FileText } from 'lucide-react';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Textarea } from './ui/textarea';
+import { MicButton } from './MicButton';
 
 function TaskForm({
   isOpen,
@@ -21,6 +22,7 @@ function TaskForm({
   const [title, setTitle] = useState('');
   const [documentation, setDocumentation] = useState('');
   const [error, setError] = useState(null);
+  const documentationRef = useRef(null);
 
   // Reset form when modal opens/closes
   useEffect(() => {
@@ -131,14 +133,31 @@ function TaskForm({
             <label htmlFor="task-documentation" className="text-sm font-medium text-foreground">
               Task Documentation (optional)
             </label>
-            <Textarea
-              id="task-documentation"
-              value={documentation}
-              onChange={(e) => setDocumentation(e.target.value)}
-              placeholder="Add context and details about this task for the coding agent..."
-              rows={5}
-              className="resize-y min-h-[100px]"
-            />
+            <div className="flex gap-2 items-start">
+              <Textarea
+                ref={documentationRef}
+                id="task-documentation"
+                value={documentation}
+                onChange={(e) => setDocumentation(e.target.value)}
+                placeholder="Add context and details about this task for the coding agent..."
+                rows={5}
+                className="resize-y min-h-[100px] flex-1"
+              />
+              <MicButton
+                onTranscript={(transcript) => {
+                  setDocumentation(prev => {
+                    if (!prev.trim()) return transcript;
+                    return prev.trimEnd() + ' ' + transcript;
+                  });
+                  // Focus the textarea after transcription
+                  requestAnimationFrame(() => {
+                    if (documentationRef.current) {
+                      documentationRef.current.focus();
+                    }
+                  });
+                }}
+              />
+            </div>
             <p className="text-xs text-muted-foreground">
               This documentation is saved to <code className="bg-muted px-1 rounded">.claude-ui/tasks/task-{'{id}'}.md</code> and provides context when starting conversations for this task.
             </p>

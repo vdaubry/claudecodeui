@@ -133,6 +133,12 @@ function ChatInterface({
   const [isScrolling, setIsScrolling] = useState(false);
   const scrollTimeoutRef = useRef(null);
 
+  // User-intent tracking refs for robust scroll detection
+  const userScrollIntentRef = useRef(false);
+  const userScrollIntentTimeoutRef = useRef(null);
+  const isProgrammaticScrollRef = useRef(false);
+  const reconnectCooldownRef = useRef(false);
+
   // Get the claude session ID from the conversation
   const claudeSessionId = activeConversation?.claude_conversation_id;
 
@@ -234,7 +240,7 @@ function ChatInterface({
   // Handle message submission
   const handleSubmit = useCallback((e) => {
     e.preventDefault();
-    if (!input.trim() || isSending || !selectedProject || !isConnected) return;
+    if (!input.trim() || isSending || isStreaming || !selectedProject || !isConnected) return;
 
     const messageText = input.trim();
     setIsSending(true);
@@ -268,7 +274,7 @@ function ChatInterface({
       }
     });
     // Note: isSending is cleared when claude-complete is received
-  }, [input, isSending, selectedProject, claudeSessionId, isConnected, sendMessage, permissionMode, projectPath, activeConversation, selectedTask]);
+  }, [input, isSending, isStreaming, selectedProject, claudeSessionId, isConnected, sendMessage, permissionMode, projectPath, activeConversation, selectedTask]);
 
   // Convert raw messages to displayable format, including streaming messages
   const displayMessages = useMemo(() => {
@@ -350,6 +356,29 @@ function ChatInterface({
     }
   }, [claudeSessionId, isConnected, sendMessage]);
 
+  // Set cooldown after WebSocket reconnection to ignore scroll events
+  // This prevents false collapses from content refresh triggered by reconnection
+  useEffect(() => {
+    if (isConnected) {
+      reconnectCooldownRef.current = true;
+      const timeout = setTimeout(() => {
+        reconnectCooldownRef.current = false;
+      }, 500); // 500ms cooldown after reconnect
+      return () => clearTimeout(timeout);
+    }
+  }, [isConnected]);
+
+  // Mark a scroll as programmatic (not user-initiated) to prevent false collapse triggers
+  const markProgrammaticScroll = useCallback(() => {
+    isProgrammaticScrollRef.current = true;
+    // Clear after scroll event has had time to fire (2 frames)
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        isProgrammaticScrollRef.current = false;
+      });
+    });
+  }, []);
+
   // Handle scroll events to track if user is at bottom and trigger collapse
   const handleScroll = useCallback(() => {
     const container = messagesContainerRef.current;
@@ -368,6 +397,22 @@ function ChatInterface({
       return;
     }
 
+    // === GUARD CONDITIONS to prevent false positive collapses ===
+
+    // GUARD 1: Ignore programmatic scrolls (auto-scroll, scrollToBottom)
+    if (isProgrammaticScrollRef.current) return;
+
+    // GUARD 2: Ignore if no user scroll intent detected (touch/wheel/mouse)
+    if (!userScrollIntentRef.current) return;
+
+    // GUARD 3: Ignore during streaming (content changes cause layout scrolls)
+    if (isStreaming) return;
+
+    // GUARD 4: Ignore during reconnection cooldown
+    if (reconnectCooldownRef.current) return;
+
+    // === PASSED ALL GUARDS: This is a genuine user scroll ===
+
     // Only signal scrolling to collapse when user has scrolled 200+ px from bottom
     // This prevents accidental collapse from small movements
     const COLLAPSE_THRESHOLD = -200;
@@ -384,7 +429,7 @@ function ChatInterface({
         setIsScrolling(false);
       }, 150);
     }
-  }, []);
+  }, [isStreaming]);
 
   // Attach scroll listener to messages container
   useEffect(() => {
@@ -401,6 +446,42 @@ function ChatInterface({
     }
   }, [handleScroll]);
 
+  // Listen for user scroll-intent signals (touch, wheel, mouse)
+  // This distinguishes user scrolls from programmatic/layout scrolls
+  useEffect(() => {
+    const container = messagesContainerRef.current;
+    if (!container) return;
+
+    const handleUserScrollIntent = () => {
+      userScrollIntentRef.current = true;
+      // Clear the flag after a short window
+      if (userScrollIntentTimeoutRef.current) {
+        clearTimeout(userScrollIntentTimeoutRef.current);
+      }
+      userScrollIntentTimeoutRef.current = setTimeout(() => {
+        userScrollIntentRef.current = false;
+      }, 200); // User intent valid for 200ms after input
+    };
+
+    // Touch events (mobile)
+    container.addEventListener('touchstart', handleUserScrollIntent, { passive: true });
+    container.addEventListener('touchmove', handleUserScrollIntent, { passive: true });
+    // Mouse wheel (desktop)
+    container.addEventListener('wheel', handleUserScrollIntent, { passive: true });
+    // Mouse drag on scrollbar (desktop)
+    container.addEventListener('mousedown', handleUserScrollIntent, { passive: true });
+
+    return () => {
+      container.removeEventListener('touchstart', handleUserScrollIntent);
+      container.removeEventListener('touchmove', handleUserScrollIntent);
+      container.removeEventListener('wheel', handleUserScrollIntent);
+      container.removeEventListener('mousedown', handleUserScrollIntent);
+      if (userScrollIntentTimeoutRef.current) {
+        clearTimeout(userScrollIntentTimeoutRef.current);
+      }
+    };
+  }, []);
+
   // Track new messages when user is scrolled up
   useEffect(() => {
     if (streamingMessages.length > 0 && !isAtBottom) {
@@ -412,17 +493,19 @@ function ChatInterface({
   const scrollToBottom = useCallback(() => {
     const container = messagesContainerRef.current;
     if (container) {
+      markProgrammaticScroll(); // Mark as programmatic to prevent false collapse
       container.scrollTop = 0; // In column-reverse, 0 is the bottom
     }
     setHasNewMessages(false);
-  }, []);
+  }, [markProgrammaticScroll]);
 
   // Auto-scroll to bottom when new messages arrive AND user is at bottom
   useEffect(() => {
     if (isAtBottom && messagesContainerRef.current) {
+      markProgrammaticScroll(); // Mark as programmatic to prevent false collapse
       messagesContainerRef.current.scrollTop = 0;
     }
-  }, [displayMessages.length, isAtBottom]);
+  }, [displayMessages.length, isAtBottom, markProgrammaticScroll]);
 
   // Loading state
   if (isLoading) {

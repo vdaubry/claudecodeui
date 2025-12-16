@@ -92,6 +92,11 @@ const MessageInput = memo(function MessageInput({
 
   // Handle collapse on scroll
   useEffect(() => {
+    // Don't collapse during streaming - too many false positives from content changes
+    if (isStreaming) {
+      return;
+    }
+
     if (isScrolling && !isCollapsed) {
       // Don't collapse if we just focused (browser may scroll to show textarea)
       if (justFocusedRef.current) {
@@ -113,7 +118,7 @@ const MessageInput = memo(function MessageInput({
         justCollapsedByScrollRef.current = false;
       }, 300);
     }
-  }, [isScrolling, isCollapsed]);
+  }, [isScrolling, isCollapsed, isStreaming]);
 
   // Clean up timeout on unmount
   useEffect(() => {
@@ -520,7 +525,6 @@ const MessageInput = memo(function MessageInput({
             placeholder={isCollapsed ? "Tap to type a message..." : "Type / for commands, @ for files, or ask Claude anything..."}
             className="w-full sm:flex-1 resize-none rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-4 py-2 text-sm text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200 ease-in-out"
             rows={isCollapsed ? 1 : rows}
-            disabled={isSending || isStreaming}
           />
           <div className={`flex items-center gap-3 justify-end transition-all duration-200 ${isCollapsed ? 'gap-2' : 'gap-3'}`}>
             {/* Hide MicButton when collapsed */}

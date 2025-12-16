@@ -45,6 +45,7 @@ export async function transcribeAudio(audioBuffer) {
     const transcription = await openai.audio.transcriptions.create({
         file: createReadStream(outputPath),
         model: 'gpt-4o-transcribe',
+        language: 'en',  // Force English to prevent auto-detection errors
     });
 
     // Clean up temp files
