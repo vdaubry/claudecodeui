@@ -5,9 +5,10 @@
  * Used for project and task documentation in the task-driven workflow.
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Edit2, Save, X, Eye, FileText } from 'lucide-react';
 import { Button } from './ui/button';
+import { MicButton } from './MicButton';
 import { cn } from '../lib/utils';
 
 function MarkdownEditor({
@@ -22,6 +23,7 @@ function MarkdownEditor({
   const [editContent, setEditContent] = useState(content);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState(null);
+  const textareaRef = useRef(null);
 
   // Sync edit content when external content changes
   useEffect(() => {
@@ -303,14 +305,30 @@ function MarkdownEditor({
       {/* Content area */}
       <div className="flex-1 overflow-auto p-4">
         {isEditing ? (
-          <textarea
-            value={editContent}
-            onChange={(e) => setEditContent(e.target.value)}
-            onKeyDown={handleKeyDown}
-            placeholder="Enter markdown content..."
-            className="w-full h-full min-h-[200px] p-3 bg-background border border-border rounded-md resize-none focus:outline-none focus:ring-2 focus:ring-primary/20 font-mono text-sm"
-            autoFocus
-          />
+          <div className="flex gap-2 items-start h-full">
+            <textarea
+              ref={textareaRef}
+              value={editContent}
+              onChange={(e) => setEditContent(e.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder="Enter markdown content..."
+              className="flex-1 h-full min-h-[200px] p-3 bg-background border border-border rounded-md resize-none focus:outline-none focus:ring-2 focus:ring-primary/20 font-mono text-sm"
+              autoFocus
+            />
+            <MicButton
+              onTranscript={(transcript) => {
+                setEditContent(prev => {
+                  if (!prev.trim()) return transcript;
+                  return prev.trimEnd() + ' ' + transcript;
+                });
+                requestAnimationFrame(() => {
+                  if (textareaRef.current) {
+                    textareaRef.current.focus();
+                  }
+                });
+              }}
+            />
+          </div>
         ) : content ? (
           <div className="prose prose-sm dark:prose-invert max-w-none">
             {renderMarkdown(content)}

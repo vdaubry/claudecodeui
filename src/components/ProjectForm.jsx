@@ -7,12 +7,13 @@
  * - Enter a repository folder path
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { X, FileText } from 'lucide-react';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { api } from '../utils/api';
 import { Textarea } from './ui/textarea';
+import { MicButton } from './MicButton';
 
 function ProjectForm({
   isOpen,
@@ -26,6 +27,7 @@ function ProjectForm({
   const [documentation, setDocumentation] = useState('');
   const [isLoadingDoc, setIsLoadingDoc] = useState(false);
   const [error, setError] = useState(null);
+  const documentationRef = useRef(null);
 
   // Reset form when modal opens/closes
   useEffect(() => {
@@ -180,14 +182,30 @@ function ProjectForm({
                 </div>
               ) : (
                 <>
-                  <Textarea
-                    id="project-documentation"
-                    value={documentation}
-                    onChange={(e) => setDocumentation(e.target.value)}
-                    placeholder="Add context about this project for the coding agent. This will be injected as context when starting conversations."
-                    rows={6}
-                    className="resize-y min-h-[120px]"
-                  />
+                  <div className="flex gap-2 items-start">
+                    <Textarea
+                      ref={documentationRef}
+                      id="project-documentation"
+                      value={documentation}
+                      onChange={(e) => setDocumentation(e.target.value)}
+                      placeholder="Add context about this project for the coding agent. This will be injected as context when starting conversations."
+                      rows={6}
+                      className="resize-y min-h-[120px] flex-1"
+                    />
+                    <MicButton
+                      onTranscript={(transcript) => {
+                        setDocumentation(prev => {
+                          if (!prev.trim()) return transcript;
+                          return prev.trimEnd() + ' ' + transcript;
+                        });
+                        requestAnimationFrame(() => {
+                          if (documentationRef.current) {
+                            documentationRef.current.focus();
+                          }
+                        });
+                      }}
+                    />
+                  </div>
                   <p className="text-xs text-muted-foreground">
                     This documentation is saved to <code className="bg-muted px-1 rounded">.claude-ui/project.md</code> and provides context for all tasks in this project.
                   </p>
