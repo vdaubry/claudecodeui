@@ -294,9 +294,10 @@ test.describe('Hello World Workflow', () => {
     await expect(page.locator('h2:has-text("New Conversation")')).toBeVisible({ timeout: UI_TIMEOUT });
 
     // Find the textarea in the modal and type message
+    // Use sleep command to control exactly how long streaming takes (deterministic timing for LIVE badge test)
     const modalInput = page.locator('.fixed textarea').first();
     await expect(modalInput).toBeVisible({ timeout: UI_TIMEOUT });
-    await modalInput.fill('List 5 programming languages with one sentence about each.');
+    await modalInput.fill('Run the command: sleep 15 && echo "done"');
 
     // Submit the message
     await modalInput.press('Enter');
@@ -306,7 +307,7 @@ test.describe('Hello World Workflow', () => {
     await expect(page.locator('h2:has-text("New Conversation")')).not.toBeVisible({ timeout: BACKEND_TIMEOUT });
 
     // Verify user message appears in chat
-    await expect(page.locator('text=List 5 programming languages')).toBeVisible({ timeout: UI_TIMEOUT });
+    await expect(page.locator('text=sleep 15')).toBeVisible({ timeout: UI_TIMEOUT });
     console.log('User message visible in chat.');
 
     // Wait for streaming to start
@@ -374,11 +375,11 @@ test.describe('Hello World Workflow', () => {
     await navigateToDashboard(page);
     await expandProjectCard(page);
 
-    // Verify LIVE badge disappears
+    // Verify LIVE badge disappears (give extra time after the sleep command completes)
     await expect(async () => {
       const liveBadgeStillVisible = await page.locator('[data-testid="live-badge"]').first().isVisible().catch(() => false);
       expect(liveBadgeStillVisible).toBeFalsy();
-    }).toPass({ timeout: 15000, intervals: [1000] });
+    }).toPass({ timeout: 30000, intervals: [1000] });
 
     console.log('Test completed: Live indicator appeared and disappeared correctly.');
   });

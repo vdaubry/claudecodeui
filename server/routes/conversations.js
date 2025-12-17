@@ -119,13 +119,25 @@ router.post('/tasks/:taskId/conversations', async (req, res) => {
       const contextPrompt = buildContextPrompt(taskWithProject.repo_folder_path, taskId);
       const effectiveProjectPath = projectPath || taskWithProject.repo_folder_path;
 
-      // Function to broadcast messages to WebSocket clients
-      const broadcastToConversation = (convId, msg) => {
-        broadcastToAll(req, msg);
+      // Capture references that persist beyond the request lifecycle
+      // (callbacks fire after REST response is sent, so req might be stale)
+      const wss = req.app.locals.wss;
+      const activeStreamingSessions = req.app.locals.activeStreamingSessions || new Map();
+
+      // Function to broadcast messages to WebSocket clients (uses captured wss)
+      const broadcast = (msg) => {
+        if (!wss) return;
+        wss.clients.forEach(client => {
+          if (client.readyState === WebSocket.OPEN) {
+            client.send(JSON.stringify(msg));
+          }
+        });
       };
 
-      // Track active streaming session
-      const activeStreamingSessions = getActiveStreamingSessions(req);
+      // Wrapper for SDK callback
+      const broadcastToConversation = (convId, msg) => {
+        broadcast(msg);
+      };
 
       // Start SDK query and wait for session ID
       const sessionId = await createSessionWithFirstMessage({
@@ -148,7 +160,7 @@ router.post('/tasks/:taskId/conversations', async (req, res) => {
           });
 
           // Broadcast streaming-started
-          broadcastToAll(req, {
+          broadcast({
             type: 'streaming-started',
             taskId: taskId,
             conversationId: conversation.id,
@@ -161,7 +173,7 @@ router.post('/tasks/:taskId/conversations', async (req, res) => {
           activeStreamingSessions.delete(claudeSessionId);
 
           // Broadcast streaming-ended
-          broadcastToAll(req, {
+          broadcast({
             type: 'streaming-ended',
             taskId: taskId,
             conversationId: conversation.id

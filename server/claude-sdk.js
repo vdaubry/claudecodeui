@@ -702,5 +702,9 @@ export {
   getActiveClaudeSDKSessions,
   createSessionWithFirstMessage,
   // Export for testing
-  mapCliOptionsToSDK as _mapCliOptionsToSDK
+  mapCliOptionsToSDK as _mapCliOptionsToSDK,
+  extractTokenBudget as _extractTokenBudget,
+  handleImages as _handleImages,
+  cleanupTempFiles as _cleanupTempFiles,
+  transformMessage as _transformMessage
 };

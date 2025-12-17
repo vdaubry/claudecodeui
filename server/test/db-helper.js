@@ -28,6 +28,32 @@ export function createTestDatabase() {
     },
     getUserById: (userId) => {
       return db.prepare('SELECT id, username, created_at, last_login FROM users WHERE id = ? AND is_active = 1').get(userId);
+    },
+    hasUsers: () => {
+      const row = db.prepare('SELECT COUNT(*) as count FROM users').get();
+      return row.count > 0;
+    },
+    getFirstUser: () => {
+      return db.prepare('SELECT id, username, created_at, last_login FROM users WHERE is_active = 1 LIMIT 1').get();
+    },
+    getUserByUsername: (username) => {
+      return db.prepare('SELECT * FROM users WHERE username = ? AND is_active = 1').get(username);
+    },
+    updateLastLogin: (userId) => {
+      db.prepare('UPDATE users SET last_login = CURRENT_TIMESTAMP WHERE id = ?').run(userId);
+    },
+    updateGitConfig: (userId, gitName, gitEmail) => {
+      db.prepare('UPDATE users SET git_name = ?, git_email = ? WHERE id = ?').run(gitName, gitEmail, userId);
+    },
+    getGitConfig: (userId) => {
+      return db.prepare('SELECT git_name, git_email FROM users WHERE id = ?').get(userId);
+    },
+    completeOnboarding: (userId) => {
+      db.prepare('UPDATE users SET has_completed_onboarding = 1 WHERE id = ?').run(userId);
+    },
+    hasCompletedOnboarding: (userId) => {
+      const row = db.prepare('SELECT has_completed_onboarding FROM users WHERE id = ?').get(userId);
+      return row?.has_completed_onboarding === 1;
     }
   };
 
