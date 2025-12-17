@@ -75,7 +75,7 @@ async function navigateAndAuth(page) {
 async function navigateToDashboard(page) {
   // Click back button until we reach Dashboard
   let attempts = 0;
-  while (attempts < 3) {
+  while (attempts < 5) {
     const isDashboard = await page.locator('h1:has-text("Claude Code UI")').isVisible().catch(() => false);
     if (isDashboard) break;
 
@@ -93,44 +93,24 @@ async function navigateToDashboard(page) {
   await expect(page.locator('h1:has-text("Claude Code UI")')).toBeVisible({ timeout: UI_TIMEOUT_SLOW });
 }
 
-// Helper to expand project card and wait for tasks to load
-async function expandProjectCard(page) {
-  const projectCard = page.locator('[data-testid="project-card-hello-world"]');
+// Helper to navigate to board view for hello world project
+async function navigateToBoardView(page) {
+  // Find the project card in the grid
+  const projectCard = page.locator('[data-testid="project-card-grid-hello-world"]');
   await expect(projectCard).toBeVisible({ timeout: UI_TIMEOUT });
 
-  // The project card header is inside a container div
-  // When expanded, the task list appears as a sibling div after the header
-  // Structure: div.container > [div.header (data-testid), div.expanded-content]
-  const projectContainer = projectCard.locator('xpath=..');
+  // Click to navigate to board view
+  await projectCard.click();
 
-  // Check for indicators that the project is expanded and tasks are loaded:
-  // 1. "New Task" button (always visible when expanded)
-  // 2. Task rows (if tasks exist)
-  // 3. "No active tasks" text (if no tasks)
-  const newTaskBtn = projectContainer.locator('button:has-text("New Task")');
-  const isAlreadyExpanded = await newTaskBtn.isVisible().catch(() => false);
-
-  if (!isAlreadyExpanded) {
-    // Click to expand
-    await projectCard.click();
-  }
-
-  // Wait for the expanded content to load (New Task button is always present)
-  await expect(newTaskBtn).toBeVisible({ timeout: 5000 });
-
-  // Now wait for either task rows or "No active tasks" message
-  await expect(async () => {
-    const hasTaskRows = await projectContainer.locator('[data-testid^="task-row-"]').first().isVisible().catch(() => false);
-    const hasNoTasksMessage = await projectContainer.locator('text=No active tasks').isVisible().catch(() => false);
-    expect(hasTaskRows || hasNoTasksMessage).toBeTruthy();
-  }).toPass({ timeout: 5000 });
+  // Wait for board view to load - look for the project name in header and board columns
+  await expect(page.locator('h1:has-text("hello world")')).toBeVisible({ timeout: UI_TIMEOUT_SLOW });
+  await expect(page.locator('[data-testid="board-column-pending"]')).toBeVisible({ timeout: UI_TIMEOUT_SLOW });
 }
 
-// Helper to get task row within hello world project
-function getHelloWorldTaskRow(page) {
-  // The project container contains the header and expanded content
-  const projectContainer = page.locator('[data-testid="project-card-hello-world"]').locator('xpath=..');
-  return projectContainer.locator('[data-testid^="task-row-"]').filter({ hasText: 'Hello World' }).first();
+// Helper to get task card within board view
+function getHelloWorldTaskCard(page) {
+  // Look for task card with "Hello World" title in any column
+  return page.locator('[data-testid^="board-task-card-"]').filter({ hasText: 'Hello World' }).first();
 }
 
 test.describe('Hello World Workflow', () => {
@@ -163,16 +143,15 @@ test.describe('Hello World Workflow', () => {
     await page.fill('input#repo-path', HELLO_WORLD_PATH);
     await page.click('button[type="submit"]:has-text("Create Project")');
 
-    // Wait for modal to close and project to appear
+    // Wait for modal to close and project card to appear in the grid
     await expect(page.locator('text=Create New Project')).not.toBeVisible({ timeout: UI_TIMEOUT });
-    await expect(page.locator('h3:has-text("hello world")')).toBeVisible({ timeout: UI_TIMEOUT });
+    await expect(page.locator('[data-testid="project-card-grid-hello-world"]')).toBeVisible({ timeout: UI_TIMEOUT });
 
-    // Step 4: Click on project card to expand
-    await expandProjectCard(page);
+    // Step 4: Click on project card to navigate to board view
+    await navigateToBoardView(page);
 
-    // Step 5: Click "New Task" button within the hello world project section
-    const projectContainer = page.locator('[data-testid="project-card-hello-world"]').locator('xpath=..');
-    const newTaskBtn = projectContainer.locator('button:has-text("New Task")');
+    // Step 5: Click "New Task" button in board view header
+    const newTaskBtn = page.locator('button:has-text("New Task")');
     await expect(newTaskBtn).toBeVisible({ timeout: UI_TIMEOUT });
     await newTaskBtn.click();
 
@@ -187,10 +166,10 @@ test.describe('Hello World Workflow', () => {
     // Wait for modal to close
     await expect(page.locator('text=Create New Task')).not.toBeVisible({ timeout: UI_TIMEOUT });
 
-    // Step 7: Wait for task row to appear and click to navigate to Task Detail
-    const taskRow = getHelloWorldTaskRow(page);
-    await expect(taskRow).toBeVisible({ timeout: 5000 });
-    await taskRow.click();
+    // Step 7: Wait for task card to appear in the pending column and click to navigate to Task Detail
+    const taskCard = getHelloWorldTaskCard(page);
+    await expect(taskCard).toBeVisible({ timeout: 5000 });
+    await taskCard.click();
 
     // Wait for Task Detail view
     await expect(page.locator('h1:has-text("Hello World")')).toBeVisible({ timeout: UI_TIMEOUT_SLOW });
@@ -205,11 +184,11 @@ test.describe('Hello World Workflow', () => {
 
     // Navigate to the task detail
     await navigateAndAuth(page);
-    await expandProjectCard(page);
+    await navigateToBoardView(page);
 
-    const taskRow = getHelloWorldTaskRow(page);
-    await expect(taskRow).toBeVisible({ timeout: UI_TIMEOUT });
-    await taskRow.click();
+    const taskCard = getHelloWorldTaskCard(page);
+    await expect(taskCard).toBeVisible({ timeout: UI_TIMEOUT });
+    await taskCard.click();
     await expect(page.locator('h1:has-text("Hello World")')).toBeVisible({ timeout: UI_TIMEOUT_SLOW });
 
     // Click "New Chat" - should open modal
@@ -280,11 +259,11 @@ test.describe('Hello World Workflow', () => {
 
     // Navigate to the task detail
     await navigateAndAuth(page);
-    await expandProjectCard(page);
+    await navigateToBoardView(page);
 
-    const taskRow = getHelloWorldTaskRow(page);
-    await expect(taskRow).toBeVisible({ timeout: UI_TIMEOUT });
-    await taskRow.click();
+    const taskCard = getHelloWorldTaskCard(page);
+    await expect(taskCard).toBeVisible({ timeout: UI_TIMEOUT });
+    await taskCard.click();
     await expect(page.locator('h1:has-text("Hello World")')).toBeVisible({ timeout: UI_TIMEOUT_SLOW });
 
     // Click "New Chat" - should open modal
@@ -324,21 +303,36 @@ test.describe('Hello World Workflow', () => {
     // Navigate back to Dashboard
     await navigateToDashboard(page);
 
-    // Expand the project card
-    await expandProjectCard(page);
-
-    // Verify LIVE badge is displayed
+    // Verify live indicator is displayed on the project card in the grid
+    // The project card has a live indicator (pulsing red dot) when any task has live streaming
     await expect(async () => {
-      const liveBadgeVisible = await page.locator('[data-testid="live-badge"]').first().isVisible().catch(() => false);
-      expect(liveBadgeVisible).toBeTruthy();
+      const projectCard = page.locator('[data-testid="project-card-grid-hello-world"]');
+      // Check for pulsing red indicator on project card
+      const liveIndicator = projectCard.locator('.animate-ping, .bg-red-500, .bg-red-400').first();
+      const hasLiveIndicator = await liveIndicator.isVisible().catch(() => false);
+      expect(hasLiveIndicator).toBeTruthy();
     }).toPass({ timeout: 10000 });
 
-    console.log('Live indicator is displayed! Navigating back to chat.');
+    console.log('Live indicator is displayed on project card! Navigating to board view to check task-level indicator.');
 
-    // Navigate back to the chat by clicking on the task, then the conversation
-    const taskRowAgain = getHelloWorldTaskRow(page);
-    await expect(taskRowAgain).toBeVisible({ timeout: UI_TIMEOUT });
-    await taskRowAgain.click();
+    // Navigate to board view
+    await navigateToBoardView(page);
+
+    // Check for live indicator on the task card in board view
+    await expect(async () => {
+      const taskCardInBoard = getHelloWorldTaskCard(page);
+      // BoardTaskCard shows pulsing red indicator when live
+      const liveIndicator = taskCardInBoard.locator('.animate-ping, .bg-red-500, .bg-red-400').first();
+      const hasLiveIndicator = await liveIndicator.isVisible().catch(() => false);
+      expect(hasLiveIndicator).toBeTruthy();
+    }).toPass({ timeout: 5000 });
+
+    console.log('Live indicator is displayed on task card! Navigating to chat.');
+
+    // Navigate back to the chat by clicking on the task card, then the conversation
+    const taskCardAgain = getHelloWorldTaskCard(page);
+    await expect(taskCardAgain).toBeVisible({ timeout: UI_TIMEOUT });
+    await taskCardAgain.click();
     await expect(page.locator('h1:has-text("Hello World")')).toBeVisible({ timeout: UI_TIMEOUT_SLOW });
 
     // Wait for conversations list to load
@@ -373,12 +367,14 @@ test.describe('Hello World Workflow', () => {
 
     // Navigate back to Dashboard and verify live indicator is gone
     await navigateToDashboard(page);
-    await expandProjectCard(page);
 
-    // Verify LIVE badge disappears (give extra time after the sleep command completes)
+    // Verify live indicator disappears from project card
     await expect(async () => {
-      const liveBadgeStillVisible = await page.locator('[data-testid="live-badge"]').first().isVisible().catch(() => false);
-      expect(liveBadgeStillVisible).toBeFalsy();
+      const projectCard = page.locator('[data-testid="project-card-grid-hello-world"]');
+      // The animate-ping class is specific to live indicators
+      const liveIndicator = projectCard.locator('.animate-ping').first();
+      const hasLiveIndicator = await liveIndicator.isVisible().catch(() => false);
+      expect(hasLiveIndicator).toBeFalsy();
     }).toPass({ timeout: 30000, intervals: [1000] });
 
     console.log('Test completed: Live indicator appeared and disappeared correctly.');
@@ -390,11 +386,11 @@ test.describe('Hello World Workflow', () => {
 
     // Navigate to the task detail
     await navigateAndAuth(page);
-    await expandProjectCard(page);
+    await navigateToBoardView(page);
 
-    const taskRow = getHelloWorldTaskRow(page);
-    await expect(taskRow).toBeVisible({ timeout: UI_TIMEOUT });
-    await taskRow.click();
+    const taskCard = getHelloWorldTaskCard(page);
+    await expect(taskCard).toBeVisible({ timeout: UI_TIMEOUT });
+    await taskCard.click();
     await expect(page.locator('h1:has-text("Hello World")')).toBeVisible({ timeout: UI_TIMEOUT_SLOW });
 
     // Verify we have conversations from previous tests
@@ -443,12 +439,18 @@ test.describe('Hello World Workflow', () => {
     await expect(byProjectBtn).toBeVisible({ timeout: UI_TIMEOUT });
     await expect(inProgressBtn).toBeVisible({ timeout: UI_TIMEOUT });
 
+    // Verify project card grid is visible initially
+    await expect(page.locator('[data-testid="project-card-grid-hello-world"]')).toBeVisible({ timeout: UI_TIMEOUT });
+
     // Switch to In Progress view
     await inProgressBtn.click();
 
     // Switch back to By Project view
     await byProjectBtn.click();
     await expect(page.locator('h1:has-text("Claude Code UI")')).toBeVisible({ timeout: UI_TIMEOUT });
+
+    // Verify project card grid is visible again
+    await expect(page.locator('[data-testid="project-card-grid-hello-world"]')).toBeVisible({ timeout: UI_TIMEOUT });
 
     console.log('View toggle test completed!');
   });
