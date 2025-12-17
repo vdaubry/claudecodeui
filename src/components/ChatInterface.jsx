@@ -121,7 +121,7 @@ function ChatInterface({
   const inputTextareaRef = useRef(null);
 
   // Use shared WebSocket connection
-  const { ws, isConnected, sendMessage, subscribe, unsubscribe } = useWebSocket();
+  const { ws, isConnected, sendMessage, subscribe, unsubscribe, onDisconnect } = useWebSocket();
 
   // Session subscription ref
   const subscribedSessionRef = useRef(null);
@@ -138,6 +138,10 @@ function ChatInterface({
   const userScrollIntentTimeoutRef = useRef(null);
   const isProgrammaticScrollRef = useRef(false);
   const reconnectCooldownRef = useRef(false);
+
+  // Reconnection state sync refs
+  const wasConnectedRef = useRef(false);
+  const isRefreshingRef = useRef(false);
 
   // Get the claude session ID from the conversation
   const claudeSessionId = activeConversation?.claude_conversation_id;
@@ -172,11 +176,13 @@ function ChatInterface({
   }, [refreshSessionMessages]);
 
   // Create a session-like object for the streaming hook
-  // Use stable primitive values to avoid unnecessary re-renders
+  // IMPORTANT: Require real claudeSessionId for streaming
+  // With the new modal-first flow, we always have the real session ID
+  // before navigating to ChatInterface
   const sessionForStreaming = useMemo(() => {
-    if (!conversationId) return null;
+    if (!conversationId || !claudeSessionId) return null;
     return {
-      id: claudeSessionId || `new-${conversationId}`,
+      id: claudeSessionId,
       __provider: 'claude'
     };
   }, [conversationId, claudeSessionId]);
@@ -198,7 +204,19 @@ function ChatInterface({
     subscribe,
     unsubscribe,
     onMessagesRefresh: handleStreamingComplete,
+    onDisconnect,
   });
+
+  // Display initial message from NewConversationModal immediately
+  useEffect(() => {
+    if (activeConversation?.__initialMessage && sessionMessages.length === 0) {
+      setStreamingMessages([{
+        type: 'user',
+        content: activeConversation.__initialMessage,
+        timestamp: new Date().toISOString()
+      }]);
+    }
+  }, [activeConversation?.__initialMessage, activeConversation?.id, sessionMessages.length, setStreamingMessages]);
 
   // Handle token budget updates
   const handleTokenBudget = useCallback((message) => {
@@ -367,6 +385,58 @@ function ChatInterface({
       return () => clearTimeout(timeout);
     }
   }, [isConnected]);
+
+  // State sync on reconnect - re-subscribe and verify server state
+  useEffect(() => {
+    const wasConnected = wasConnectedRef.current;
+    wasConnectedRef.current = isConnected;
+
+    // Reconnection scenario: was disconnected, now connected
+    if (isConnected && !wasConnected && claudeSessionId) {
+      console.log('[ChatInterface] Reconnected, syncing state...');
+
+      // 1. Re-subscribe to session
+      sendMessage('subscribe-session', {
+        sessionId: claudeSessionId,
+        provider: 'claude'
+      });
+
+      // 2. Check if streaming is still active on server
+      sendMessage('check-session-status', { sessionId: claudeSessionId });
+
+      // 3. Refresh messages with debounce to prevent double-fetch
+      if (!isRefreshingRef.current) {
+        isRefreshingRef.current = true;
+        refreshSessionMessages().finally(() => {
+          isRefreshingRef.current = false;
+        });
+      }
+    }
+  }, [isConnected, claudeSessionId, sendMessage, refreshSessionMessages]);
+
+  // Handle session-status response to sync UI state with server
+  useEffect(() => {
+    const handleSessionStatus = (msg) => {
+      if (msg.sessionId === claudeSessionId) {
+        if (!msg.isProcessing && (isSending || isStreaming)) {
+          // Server says not processing but UI shows active - sync it
+          console.log('[ChatInterface] Syncing: Server finished, clearing UI state');
+          setIsSending(false);
+          setIsStreaming(false);
+          // Also refresh to get final messages
+          if (!isRefreshingRef.current) {
+            isRefreshingRef.current = true;
+            refreshSessionMessages().finally(() => {
+              isRefreshingRef.current = false;
+            });
+          }
+        }
+      }
+    };
+
+    subscribe('session-status', handleSessionStatus);
+    return () => unsubscribe('session-status', handleSessionStatus);
+  }, [claudeSessionId, isSending, isStreaming, subscribe, unsubscribe, refreshSessionMessages, setIsSending, setIsStreaming]);
 
   // Mark a scroll as programmatic (not user-initiated) to prevent false collapse triggers
   const markProgrammaticScroll = useCallback(() => {

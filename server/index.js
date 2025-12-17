@@ -77,6 +77,7 @@ import { notifyClaudeComplete } from './services/notifications.js';
 const clientSubscriptions = new Map(); // Map<WebSocket, { sessionId: string | null, provider: string }>
 
 // Track active streaming sessions with their task IDs
+// Shared with routes via app.locals.activeStreamingSessions
 const activeStreamingSessions = new Map(); // Map<sessionId, { taskId, conversationId }>
 
 // Broadcast message to all connected WebSocket clients
@@ -130,8 +131,28 @@ const wss = new WebSocketServer({
     }
 });
 
-// Make WebSocket server available to routes
+// WebSocket heartbeat to detect stale connections
+const HEARTBEAT_INTERVAL = 30000; // 30 seconds
+
+const heartbeatInterval = setInterval(() => {
+    wss.clients.forEach(ws => {
+        if (ws.isAlive === false) {
+            console.log('[WS] Terminating stale connection');
+            return ws.terminate();
+        }
+        ws.isAlive = false;
+        ws.ping();
+    });
+}, HEARTBEAT_INTERVAL);
+
+// Cleanup heartbeat interval when server closes
+wss.on('close', () => {
+    clearInterval(heartbeatInterval);
+});
+
+// Make WebSocket server and active streaming sessions available to routes
 app.locals.wss = wss;
+app.locals.activeStreamingSessions = activeStreamingSessions;
 
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
@@ -362,6 +383,12 @@ wss.on('connection', (ws, request) => {
 // Handle chat WebSocket connections
 function handleChatConnection(ws, request) {
     console.log('[INFO] Chat WebSocket connected');
+
+    // Initialize heartbeat tracking for this connection
+    ws.isAlive = true;
+    ws.on('pong', () => {
+        ws.isAlive = true;
+    });
 
     ws.on('message', async (message) => {
         try {

@@ -529,12 +529,182 @@ function getActiveClaudeSDKSessions() {
   return getAllSessions();
 }
 
+/**
+ * Creates a Claude session with the first message and waits for session ID
+ * Used by REST endpoints to synchronously create sessions
+ * Returns as soon as session ID is captured, streaming continues in background
+ *
+ * @param {Object} params - Parameters for session creation
+ * @param {number} params.conversationId - DB conversation ID
+ * @param {number} params.taskId - Task ID
+ * @param {string} params.message - First message to send
+ * @param {string} params.projectPath - Project working directory
+ * @param {string} params.permissionMode - Permission mode
+ * @param {string} params.customSystemPrompt - Optional custom system prompt
+ * @param {Function} params.broadcastToConversation - Function to broadcast messages
+ * @param {Function} params.onSessionCreated - Callback when session is created
+ * @param {Function} params.onStreamingComplete - Callback when streaming completes
+ * @returns {Promise<string>} Session ID
+ */
+async function createSessionWithFirstMessage({
+  conversationId,
+  taskId,
+  message,
+  projectPath,
+  permissionMode = 'bypassPermissions',
+  customSystemPrompt,
+  broadcastToConversation,
+  onSessionCreated,
+  onStreamingComplete
+}) {
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      reject(new Error('Session creation timeout'));
+    }, 30000);
+
+    let capturedSessionId = null;
+    let sessionCreatedSent = false;
+
+    // Create SDK options
+    const sdkOptions = mapCliOptionsToSDK({
+      cwd: projectPath,
+      permissionMode,
+      customSystemPrompt
+    });
+
+    // Load MCP configuration
+    loadMcpConfig(projectPath).then(mcpServers => {
+      if (mcpServers) {
+        sdkOptions.mcpServers = mcpServers;
+      }
+
+      // Create SDK query instance
+      const queryInstance = query({
+        prompt: message,
+        options: sdkOptions
+      });
+
+      // Process messages asynchronously (continues after resolve)
+      (async () => {
+        try {
+          for await (const sdkMessage of queryInstance) {
+            // Capture session ID from first message
+            if (sdkMessage.session_id && !capturedSessionId) {
+              capturedSessionId = sdkMessage.session_id;
+              clearTimeout(timeout);
+
+              // Track session
+              addSession(capturedSessionId, queryInstance);
+
+              // Call callback to update DB
+              if (onSessionCreated) {
+                onSessionCreated(capturedSessionId);
+              }
+
+              // Resolve the promise with session ID
+              resolve(capturedSessionId);
+            }
+
+            // Broadcast message to WebSocket clients
+            if (broadcastToConversation) {
+              broadcastToConversation(conversationId, {
+                type: 'claude-response',
+                data: transformMessage(sdkMessage)
+              });
+
+              // Also send session-created event once
+              if (capturedSessionId && !sessionCreatedSent) {
+                sessionCreatedSent = true;
+                broadcastToConversation(conversationId, {
+                  type: 'session-created',
+                  sessionId: capturedSessionId
+                });
+                broadcastToConversation(conversationId, {
+                  type: 'conversation-created',
+                  conversationId: conversationId,
+                  claudeSessionId: capturedSessionId
+                });
+              }
+
+              // Extract and send token budget
+              if (sdkMessage.type === 'result') {
+                const tokenBudget = extractTokenBudget(sdkMessage);
+                if (tokenBudget) {
+                  broadcastToConversation(conversationId, {
+                    type: 'token-budget',
+                    data: tokenBudget
+                  });
+                }
+              }
+            }
+          }
+
+          // Clean up session on completion
+          if (capturedSessionId) {
+            removeSession(capturedSessionId);
+          }
+
+          // Send completion event
+          if (broadcastToConversation) {
+            broadcastToConversation(conversationId, {
+              type: 'claude-complete',
+              sessionId: capturedSessionId,
+              exitCode: 0,
+              isNewSession: true
+            });
+          }
+
+          // Call completion callback for cleanup (streaming-ended, notifications)
+          if (onStreamingComplete && capturedSessionId) {
+            onStreamingComplete(capturedSessionId, false);
+          }
+
+        } catch (error) {
+          console.error('SDK query error in createSessionWithFirstMessage:', error);
+
+          // Clean up session on error
+          if (capturedSessionId) {
+            removeSession(capturedSessionId);
+          }
+
+          // If we haven't resolved yet, reject
+          if (!capturedSessionId) {
+            clearTimeout(timeout);
+            reject(error);
+          }
+
+          // Send error event
+          if (broadcastToConversation) {
+            broadcastToConversation(conversationId, {
+              type: 'claude-error',
+              error: error.message
+            });
+          }
+
+          // Call completion callback for cleanup (even on error)
+          if (onStreamingComplete && capturedSessionId) {
+            onStreamingComplete(capturedSessionId, true);
+          }
+        }
+      })();
+    }).catch(err => {
+      clearTimeout(timeout);
+      reject(err);
+    });
+  });
+}
+
 // Export public API
 export {
   queryClaudeSDK,
   abortClaudeSDKSession,
   isClaudeSDKSessionActive,
   getActiveClaudeSDKSessions,
+  createSessionWithFirstMessage,
   // Export for testing
-  mapCliOptionsToSDK as _mapCliOptionsToSDK
+  mapCliOptionsToSDK as _mapCliOptionsToSDK,
+  extractTokenBudget as _extractTokenBudget,
+  handleImages as _handleImages,
+  cleanupTempFiles as _cleanupTempFiles,
+  transformMessage as _transformMessage
 };

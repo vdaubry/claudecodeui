@@ -13,6 +13,7 @@ import ErrorBoundary from './ErrorBoundary';
 import TaskDetailView from './TaskDetailView';
 import Breadcrumb from './Breadcrumb';
 import { Dashboard } from './Dashboard';
+import NewConversationModal from './NewConversationModal';
 import { useTaskContext } from '../contexts/TaskContext';
 import { ArrowLeft } from 'lucide-react';
 import { Button } from './ui/button';
@@ -71,6 +72,9 @@ function MainContent({
   // Edit project modal state (handled in App.jsx via callback)
   const [editingProject, setEditingProject] = useState(null);
 
+  // New conversation modal state
+  const [showNewConversationModal, setShowNewConversationModal] = useState(false);
+
   // Handle project documentation save
   const handleSaveProjectDoc = useCallback(async (content) => {
     if (!selectedProject) return { success: false, error: 'No project selected' };
@@ -94,14 +98,17 @@ function MainContent({
     return await createTask(selectedProject.id, title, documentation);
   }, [selectedProject, createTask]);
 
-  // Handle new conversation
-  const handleNewConversation = useCallback(async () => {
+  // Handle new conversation - opens modal instead of creating immediately
+  const handleNewConversation = useCallback(() => {
     if (!selectedTask) return;
-    const result = await createConversation(selectedTask.id);
-    if (result.success && result.conversation) {
-      selectConversation(result.conversation);
-    }
-  }, [selectedTask, createConversation, selectConversation]);
+    setShowNewConversationModal(true);
+  }, [selectedTask]);
+
+  // Handle conversation created from modal
+  const handleConversationCreated = useCallback((conversation) => {
+    setShowNewConversationModal(false);
+    selectConversation(conversation);
+  }, [selectConversation]);
 
   // Handle resume conversation
   const handleResumeConversation = useCallback((conversation) => {
@@ -147,23 +154,32 @@ function MainContent({
   // Task detail view
   if (currentView === 'task-detail') {
     return (
-      <TaskDetailView
-        project={selectedProject}
-        task={selectedTask}
-        taskDoc={taskDoc}
-        conversations={conversations}
-        isLoadingDoc={isLoadingTaskDoc}
-        isLoadingConversations={isLoadingConversations}
-        onBack={navigateBack}
-        onProjectClick={handleProjectClick}
-        onHomeClick={handleHomeClick}
-        onSaveTaskDoc={handleSaveTaskDoc}
-        onStatusChange={handleStatusChange}
-        onNewConversation={handleNewConversation}
-        onResumeConversation={handleResumeConversation}
-        onDeleteConversation={deleteConversation}
-        className="h-full"
-      />
+      <>
+        <TaskDetailView
+          project={selectedProject}
+          task={selectedTask}
+          taskDoc={taskDoc}
+          conversations={conversations}
+          isLoadingDoc={isLoadingTaskDoc}
+          isLoadingConversations={isLoadingConversations}
+          onBack={navigateBack}
+          onProjectClick={handleProjectClick}
+          onHomeClick={handleHomeClick}
+          onSaveTaskDoc={handleSaveTaskDoc}
+          onStatusChange={handleStatusChange}
+          onNewConversation={handleNewConversation}
+          onResumeConversation={handleResumeConversation}
+          onDeleteConversation={deleteConversation}
+          className="h-full"
+        />
+        <NewConversationModal
+          isOpen={showNewConversationModal}
+          onClose={() => setShowNewConversationModal(false)}
+          project={selectedProject}
+          taskId={selectedTask?.id}
+          onConversationCreated={handleConversationCreated}
+        />
+      </>
     );
   }
 

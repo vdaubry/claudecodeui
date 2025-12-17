@@ -572,4 +572,61 @@ describe('Database Layer - Phase 1', () => {
       expect(conversationsDb.getById(conversation.id)).toBeUndefined();
     });
   });
+
+  describe('userDb', () => {
+    describe('hasUsers', () => {
+      it('should return true when users exist', () => {
+        // testUserId was created in beforeEach
+        expect(testDb.userDb.hasUsers()).toBe(true);
+      });
+    });
+
+    describe('getUserById', () => {
+      it('should return user by ID', () => {
+        const user = testDb.userDb.getUserById(testUserId);
+        expect(user).toBeDefined();
+        expect(user.id).toBe(testUserId);
+        expect(user.username).toBe('testuser');
+      });
+
+      it('should return undefined for non-existent user', () => {
+        const user = testDb.userDb.getUserById(99999);
+        expect(user).toBeUndefined();
+      });
+    });
+
+    describe('getFirstUser', () => {
+      it('should return the first active user', () => {
+        const user = testDb.userDb.getFirstUser();
+        expect(user).toBeDefined();
+        expect(user.username).toBe('testuser');
+      });
+    });
+
+    describe('updateGitConfig and getGitConfig', () => {
+      it('should update and retrieve git configuration', () => {
+        testDb.userDb.updateGitConfig(testUserId, 'John Doe', 'john@example.com');
+
+        const gitConfig = testDb.userDb.getGitConfig(testUserId);
+        expect(gitConfig.git_name).toBe('John Doe');
+        expect(gitConfig.git_email).toBe('john@example.com');
+      });
+
+      it('should return null values when git config is not set', () => {
+        const gitConfig = testDb.userDb.getGitConfig(testUserId);
+        expect(gitConfig.git_name).toBeNull();
+        expect(gitConfig.git_email).toBeNull();
+      });
+    });
+
+    describe('completeOnboarding and hasCompletedOnboarding', () => {
+      it('should mark onboarding as completed', () => {
+        expect(testDb.userDb.hasCompletedOnboarding(testUserId)).toBe(false);
+
+        testDb.userDb.completeOnboarding(testUserId);
+
+        expect(testDb.userDb.hasCompletedOnboarding(testUserId)).toBe(true);
+      });
+    });
+  });
 });
