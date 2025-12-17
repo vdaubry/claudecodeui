@@ -88,13 +88,11 @@ export function useSessionStreaming({
     const currentSessionId = selectedSessionIdRef.current;
     const messageSessionId = data.session_id;
 
-    // Robust session filtering:
+    // Tightened session filtering (modal-first flow guarantees we have real session ID):
     // Accept messages when:
-    // 1. We don't have a session ID yet (new conversation, waiting for first message)
+    // 1. Message has no session ID (broadcast messages - SDK often omits session_id)
     // 2. The message's session ID matches our session ID
-    // 3. Message has no session ID (broadcast messages - SDK often omits session_id)
     const shouldAccept =
-      !currentSessionId ||                              // We don't know our session yet
       !messageSessionId ||                              // Message has no session (broadcasts)
       messageSessionId === currentSessionId;            // Direct match
 
@@ -133,6 +131,7 @@ export function useSessionStreaming({
     setIsStreaming(false);
     setIsSending(false);
     setClaudeStatus(null);
+    setStreamingMessages([]);
   }, []);
 
   // Handle abort session (stop button)
@@ -217,6 +216,7 @@ export function useSessionStreaming({
       setIsStreaming(false);
       setIsSending(false);
       setClaudeStatus(null);
+      setStreamingMessages([]);
     });
 
     return cleanup;

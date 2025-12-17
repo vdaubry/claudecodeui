@@ -77,6 +77,7 @@ import { notifyClaudeComplete } from './services/notifications.js';
 const clientSubscriptions = new Map(); // Map<WebSocket, { sessionId: string | null, provider: string }>
 
 // Track active streaming sessions with their task IDs
+// Shared with routes via app.locals.activeStreamingSessions
 const activeStreamingSessions = new Map(); // Map<sessionId, { taskId, conversationId }>
 
 // Broadcast message to all connected WebSocket clients
@@ -149,8 +150,9 @@ wss.on('close', () => {
     clearInterval(heartbeatInterval);
 });
 
-// Make WebSocket server available to routes
+// Make WebSocket server and active streaming sessions available to routes
 app.locals.wss = wss;
+app.locals.activeStreamingSessions = activeStreamingSessions;
 
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));

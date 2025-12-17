@@ -176,11 +176,13 @@ function ChatInterface({
   }, [refreshSessionMessages]);
 
   // Create a session-like object for the streaming hook
-  // Use stable primitive values to avoid unnecessary re-renders
+  // IMPORTANT: Require real claudeSessionId for streaming
+  // With the new modal-first flow, we always have the real session ID
+  // before navigating to ChatInterface
   const sessionForStreaming = useMemo(() => {
-    if (!conversationId) return null;
+    if (!conversationId || !claudeSessionId) return null;
     return {
-      id: claudeSessionId || `new-${conversationId}`,
+      id: claudeSessionId,
       __provider: 'claude'
     };
   }, [conversationId, claudeSessionId]);
@@ -204,6 +206,17 @@ function ChatInterface({
     onMessagesRefresh: handleStreamingComplete,
     onDisconnect,
   });
+
+  // Display initial message from NewConversationModal immediately
+  useEffect(() => {
+    if (activeConversation?.__initialMessage && sessionMessages.length === 0) {
+      setStreamingMessages([{
+        type: 'user',
+        content: activeConversation.__initialMessage,
+        timestamp: new Date().toISOString()
+      }]);
+    }
+  }, [activeConversation?.__initialMessage, activeConversation?.id, sessionMessages.length, setStreamingMessages]);
 
   // Handle token budget updates
   const handleTokenBudget = useCallback((message) => {

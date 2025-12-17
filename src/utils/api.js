@@ -112,6 +112,12 @@ export const api = {
       authenticatedFetch(`/api/tasks/${taskId}/conversations`, {
         method: 'POST',
       }),
+    // Create conversation with first message - returns conversation with real claude_conversation_id
+    createWithMessage: (taskId, { message, projectPath, permissionMode }) =>
+      authenticatedFetch(`/api/tasks/${taskId}/conversations`, {
+        method: 'POST',
+        body: JSON.stringify({ message, projectPath, permissionMode }),
+      }),
     get: (id) => authenticatedFetch(`/api/conversations/${id}`),
     delete: (id) =>
       authenticatedFetch(`/api/conversations/${id}`, {

@@ -1,9 +1,29 @@
 import express from 'express';
+import { WebSocket } from 'ws';
 import { tasksDb, conversationsDb, projectsDb } from '../database/db.js';
 import { getSessionMessages } from '../services/sessions.js';
-import { updateUserBadge } from '../services/notifications.js';
+import { updateUserBadge, notifyClaudeComplete } from '../services/notifications.js';
+import { createSessionWithFirstMessage } from '../claude-sdk.js';
+import { buildContextPrompt } from '../services/documentation.js';
 
 const router = express.Router();
+
+// Track active streaming sessions (shared with main index.js via app.locals)
+function getActiveStreamingSessions(req) {
+  return req.app.locals.activeStreamingSessions || new Map();
+}
+
+// Broadcast message to all WebSocket clients
+function broadcastToAll(req, message) {
+  const wss = req.app.locals.wss;
+  if (!wss) return;
+
+  wss.clients.forEach(client => {
+    if (client.readyState === WebSocket.OPEN) {
+      client.send(JSON.stringify(message));
+    }
+  });
+}
 
 /**
  * GET /api/tasks/:taskId/conversations
@@ -41,11 +61,21 @@ router.get('/tasks/:taskId/conversations', (req, res) => {
 /**
  * POST /api/tasks/:taskId/conversations
  * Create a new conversation for a task
+ *
+ * If `message` is provided in the body, creates the conversation AND starts
+ * the Claude session synchronously, returning the real claude_conversation_id.
+ * This is the preferred method for new conversations (modal-first flow).
+ *
+ * Body (optional):
+ * - message: string - First message to send to Claude
+ * - projectPath: string - Project working directory (optional, uses task's project)
+ * - permissionMode: string - Permission mode (default: 'bypassPermissions')
  */
 router.post('/tasks/:taskId/conversations', async (req, res) => {
   try {
     const userId = req.user.id;
     const taskId = parseInt(req.params.taskId, 10);
+    const { message, projectPath, permissionMode } = req.body || {};
 
     if (isNaN(taskId)) {
       return res.status(400).json({ error: 'Invalid task ID' });
@@ -63,6 +93,7 @@ router.post('/tasks/:taskId/conversations', async (req, res) => {
       return res.status(404).json({ error: 'Task not found' });
     }
 
+    // Create conversation record
     const conversation = conversationsDb.create(taskId);
 
     // Set task status to 'in_progress' if it's currently 'pending'
@@ -75,7 +106,98 @@ router.post('/tasks/:taskId/conversations', async (req, res) => {
       });
     }
 
-    res.status(201).json(conversation);
+    // If no message provided, return immediately (backward compatible)
+    if (!message) {
+      return res.status(201).json(conversation);
+    }
+
+    // Message provided - create session synchronously
+    console.log('[REST] Creating conversation with first message for task:', taskId);
+
+    try {
+      // Build context prompt from project.md and task markdown
+      const contextPrompt = buildContextPrompt(taskWithProject.repo_folder_path, taskId);
+      const effectiveProjectPath = projectPath || taskWithProject.repo_folder_path;
+
+      // Function to broadcast messages to WebSocket clients
+      const broadcastToConversation = (convId, msg) => {
+        broadcastToAll(req, msg);
+      };
+
+      // Track active streaming session
+      const activeStreamingSessions = getActiveStreamingSessions(req);
+
+      // Start SDK query and wait for session ID
+      const sessionId = await createSessionWithFirstMessage({
+        conversationId: conversation.id,
+        taskId,
+        message: message.trim(),
+        projectPath: effectiveProjectPath,
+        permissionMode: permissionMode || 'bypassPermissions',
+        customSystemPrompt: contextPrompt,
+        broadcastToConversation,
+        onSessionCreated: (claudeSessionId) => {
+          // Update conversation with real session ID
+          conversationsDb.updateClaudeId(conversation.id, claudeSessionId);
+          console.log('[REST] Updated conversation', conversation.id, 'with Claude session:', claudeSessionId);
+
+          // Track active streaming session
+          activeStreamingSessions.set(claudeSessionId, {
+            taskId: taskId,
+            conversationId: conversation.id
+          });
+
+          // Broadcast streaming-started
+          broadcastToAll(req, {
+            type: 'streaming-started',
+            taskId: taskId,
+            conversationId: conversation.id,
+            claudeSessionId
+          });
+          console.log('[REST] Broadcast streaming-started for task:', taskId);
+        },
+        onStreamingComplete: (claudeSessionId, isError) => {
+          // Clean up active streaming session
+          activeStreamingSessions.delete(claudeSessionId);
+
+          // Broadcast streaming-ended
+          broadcastToAll(req, {
+            type: 'streaming-ended',
+            taskId: taskId,
+            conversationId: conversation.id
+          });
+          console.log('[REST] Broadcast streaming-ended for task:', taskId);
+
+          // Send push notification on successful completion
+          if (!isError) {
+            const taskInfo = tasksDb.getById(taskId);
+            const taskTitle = taskInfo?.title || null;
+
+            notifyClaudeComplete(
+              userId,
+              taskTitle,
+              taskId,
+              conversation.id
+            ).catch(err => {
+              console.error('[Notifications] Failed to send claude-complete notification:', err);
+            });
+          }
+        }
+      });
+
+      // Return complete conversation with real session ID
+      return res.status(201).json({
+        ...conversation,
+        claude_conversation_id: sessionId
+      });
+
+    } catch (sessionError) {
+      console.error('[REST] Failed to create session:', sessionError);
+      // Clean up the conversation record since session creation failed
+      conversationsDb.delete(conversation.id);
+      return res.status(500).json({ error: 'Session creation failed: ' + sessionError.message });
+    }
+
   } catch (error) {
     console.error('Error creating conversation:', error);
     res.status(500).json({ error: 'Failed to create conversation' });

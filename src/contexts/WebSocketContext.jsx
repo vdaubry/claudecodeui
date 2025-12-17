@@ -38,6 +38,18 @@ export function WebSocketProvider({ children }) {
   const wsRef = useRef(null);
   const reconnectAttemptRef = useRef(0);
   const onDisconnectCallbacksRef = useRef(new Set());
+  const shouldReconnectRef = useRef(true); // Prevents scheduling reconnects during intentional closes
+  const logPrefix = '[WebSocket]';
+
+  const logDebug = useCallback((msg, extra = {}) => {
+    // Keep logs concise and only emit when useful
+    const parts = [logPrefix, msg];
+    const keys = Object.keys(extra);
+    if (keys.length) {
+      parts.push(JSON.stringify(extra));
+    }
+    console.log(parts.join(' '));
+  }, []);
 
   // Subscribe to disconnect events
   const onDisconnect = useCallback((callback) => {
@@ -56,114 +68,29 @@ export function WebSocketProvider({ children }) {
     });
   }, []);
 
-  useEffect(() => {
-    const connect = () => {
-      setConnectionState(reconnectAttemptRef.current > 0 ? 'reconnecting' : 'connecting');
+  // Core connect function used for both auto- and manual reconnects
+  const connect = useCallback((options = {}) => {
+    const { resetAttempts = false } = options;
 
-      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-
-      // IMPORTANT: Preserve auth token logic from existing ChatInterface
-      const isPlatform = import.meta.env.VITE_IS_PLATFORM === 'true';
-      let wsUrl = `${protocol}//${window.location.host}/ws`;
-      if (!isPlatform) {
-        const token = localStorage.getItem('auth-token');
-        if (token) {
-          wsUrl += `?token=${encodeURIComponent(token)}`;
-        }
-      }
-
-      const socket = new WebSocket(wsUrl);
-
-      socket.onopen = () => {
-        console.log('[WebSocket] Connected');
-        reconnectAttemptRef.current = 0; // Reset on successful connection
-        setConnectionState('connected');
-        setIsConnected(true);
-        if (reconnectTimeoutRef.current) {
-          clearTimeout(reconnectTimeoutRef.current);
-          reconnectTimeoutRef.current = null;
-        }
-      };
-
-      socket.onmessage = (event) => {
-        try {
-          const message = JSON.parse(event.data);
-          // Route to all subscribers for this message type
-          const callbacks = subscribersRef.current.get(message.type);
-          callbacks?.forEach(cb => cb(message));
-        } catch (e) {
-          console.error('[WebSocket] Failed to parse message:', e);
-        }
-      };
-
-      socket.onclose = () => {
-        console.log('[WebSocket] Disconnected');
-        setIsConnected(false);
-
-        // Notify all disconnect subscribers immediately
-        notifyDisconnect();
-
-        // Check if we've exceeded max attempts
-        if (reconnectAttemptRef.current >= MAX_ATTEMPTS) {
-          console.log('[WebSocket] Max reconnection attempts reached');
-          setConnectionState('failed');
-          return; // Stop trying, user must manually reconnect
-        }
-
-        // Calculate backoff delay with jitter
-        const delay = calculateBackoff(reconnectAttemptRef.current);
-        reconnectAttemptRef.current++;
-
-        console.log(`[WebSocket] Reconnecting in ${delay}ms (attempt ${reconnectAttemptRef.current}/${MAX_ATTEMPTS})`);
-        setConnectionState('reconnecting');
-
-        reconnectTimeoutRef.current = setTimeout(connect, delay);
-      };
-
-      socket.onerror = (error) => {
-        console.error('[WebSocket] Error:', error);
-        // Also notify disconnect on error as connection may be dead
-        notifyDisconnect();
-      };
-
-      setWs(socket);
-      wsRef.current = socket;
-    };
-
-    connect();
-
-    return () => {
-      if (reconnectTimeoutRef.current) {
-        clearTimeout(reconnectTimeoutRef.current);
-      }
-      // Only close if the socket is open (not connecting or already closed)
-      if (wsRef.current?.readyState === WebSocket.OPEN) {
-        wsRef.current.close();
-      }
-    };
-  }, [notifyDisconnect]);
-
-  // Manual reconnect function - resets attempt counter and starts fresh
-  const manualReconnect = useCallback(() => {
-    // Clear any pending reconnect
+    // Clear any pending reconnects before starting a new connection
     if (reconnectTimeoutRef.current) {
       clearTimeout(reconnectTimeoutRef.current);
       reconnectTimeoutRef.current = null;
     }
 
-    // Close existing socket if any
-    if (wsRef.current?.readyState === WebSocket.OPEN ||
-        wsRef.current?.readyState === WebSocket.CONNECTING) {
-      wsRef.current.close();
+    if (resetAttempts) {
+      reconnectAttemptRef.current = 0;
     }
 
-    // Reset attempt counter
-    reconnectAttemptRef.current = 0;
-    setConnectionState('connecting');
+    // Allow future reconnect scheduling for this connection
+    shouldReconnectRef.current = true;
 
-    // Trigger reconnect via effect by updating a dependency
-    // We need to create the connection directly here
+    setConnectionState(reconnectAttemptRef.current > 0 ? 'reconnecting' : 'connecting');
+    logDebug('connect start', { attempt: reconnectAttemptRef.current + 1 });
+
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+
+    // IMPORTANT: Preserve auth token logic from existing ChatInterface
     const isPlatform = import.meta.env.VITE_IS_PLATFORM === 'true';
     let wsUrl = `${protocol}//${window.location.host}/ws`;
     if (!isPlatform) {
@@ -176,15 +103,20 @@ export function WebSocketProvider({ children }) {
     const socket = new WebSocket(wsUrl);
 
     socket.onopen = () => {
-      console.log('[WebSocket] Connected (manual reconnect)');
-      reconnectAttemptRef.current = 0;
+      logDebug('connected');
+      reconnectAttemptRef.current = 0; // Reset on successful connection
       setConnectionState('connected');
       setIsConnected(true);
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current);
+        reconnectTimeoutRef.current = null;
+      }
     };
 
     socket.onmessage = (event) => {
       try {
         const message = JSON.parse(event.data);
+        // Route to all subscribers for this message type
         const callbacks = subscribersRef.current.get(message.type);
         callbacks?.forEach(cb => cb(message));
       } catch (e) {
@@ -193,42 +125,101 @@ export function WebSocketProvider({ children }) {
     };
 
     socket.onclose = () => {
-      console.log('[WebSocket] Disconnected');
-      setIsConnected(false);
-      notifyDisconnect();
-
-      if (reconnectAttemptRef.current >= MAX_ATTEMPTS) {
-        setConnectionState('failed');
+      // Ignore stale sockets that have already been replaced
+      if (wsRef.current !== socket) {
+        logDebug('stale socket close ignored');
         return;
       }
 
-      const delay = calculateBackoff(reconnectAttemptRef.current);
-      reconnectAttemptRef.current++;
-      console.log(`[WebSocket] Reconnecting in ${delay}ms (attempt ${reconnectAttemptRef.current}/${MAX_ATTEMPTS})`);
-      setConnectionState('reconnecting');
+      logDebug('disconnected');
+      setIsConnected(false);
 
-      // Use a simple inline function for reconnect
-      const reconnect = () => {
-        const newSocket = new WebSocket(wsUrl);
-        newSocket.onopen = socket.onopen;
-        newSocket.onmessage = socket.onmessage;
-        newSocket.onclose = socket.onclose;
-        newSocket.onerror = socket.onerror;
-        setWs(newSocket);
-        wsRef.current = newSocket;
+      // Notify all disconnect subscribers immediately
+      notifyDisconnect();
+
+      // If we intentionally closed, do not schedule reconnect
+      if (!shouldReconnectRef.current) {
+        setConnectionState('disconnected');
+        return;
+      }
+
+      // Check if we've exceeded max attempts
+      if (reconnectAttemptRef.current >= MAX_ATTEMPTS) {
+        console.log('[WebSocket] Max reconnection attempts reached');
+        setConnectionState('failed');
+        return; // Stop trying, user must manually reconnect
+      }
+
+      // Calculate backoff delay with jitter
+        const delay = calculateBackoff(reconnectAttemptRef.current);
+        reconnectAttemptRef.current++;
+
+        logDebug('scheduling reconnect', {
+          delay,
+          attempt: reconnectAttemptRef.current,
+          max: MAX_ATTEMPTS
+        });
+        setConnectionState('reconnecting');
+
+        reconnectTimeoutRef.current = setTimeout(() => connect(), delay);
       };
 
-      reconnectTimeoutRef.current = setTimeout(reconnect, delay);
-    };
-
     socket.onerror = (error) => {
-      console.error('[WebSocket] Error:', error);
+      // Ignore stale sockets that have already been replaced
+      if (wsRef.current !== socket) {
+        logDebug('stale socket error ignored');
+        return;
+      }
+
+      console.error(`${logPrefix} Error:`, error);
+      // Also notify disconnect on error as connection may be dead
       notifyDisconnect();
     };
 
     setWs(socket);
     wsRef.current = socket;
   }, [notifyDisconnect]);
+
+  useEffect(() => {
+    connect();
+
+    return () => {
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current);
+      }
+      // Prevent scheduling reconnects after unmount
+      shouldReconnectRef.current = false;
+      // Close any existing socket to avoid stray reconnects
+      if (wsRef.current && wsRef.current.readyState !== WebSocket.CLOSED) {
+        wsRef.current.close();
+      }
+    };
+  }, [connect]);
+
+  // Manual reconnect function - resets attempt counter and starts fresh
+  const manualReconnect = useCallback(() => {
+    logDebug('manual reconnect requested');
+
+    // Clear any pending reconnect
+    if (reconnectTimeoutRef.current) {
+      clearTimeout(reconnectTimeoutRef.current);
+      reconnectTimeoutRef.current = null;
+    }
+
+    // Prevent the close handler from scheduling a reconnect for this socket
+    shouldReconnectRef.current = false;
+    // Reflect the fact that we're no longer connected while we attempt a fresh connection
+    setIsConnected(false);
+
+    // Close existing socket if any
+    if (wsRef.current?.readyState !== WebSocket.CLOSED &&
+        wsRef.current?.readyState !== WebSocket.CLOSING) {
+      wsRef.current.close();
+    }
+
+    // Start a fresh connection with reset attempts
+    connect({ resetAttempts: true });
+  }, [connect]);
 
   const sendMessage = useCallback((type, data) => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {

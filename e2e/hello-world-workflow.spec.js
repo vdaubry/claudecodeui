@@ -199,7 +199,7 @@ test.describe('Hello World Workflow', () => {
     console.log('Setup complete: Project and task created.');
   });
 
-  // Test 2: New conversation WebSocket streaming
+  // Test 2: New conversation WebSocket streaming (Modal flow)
   test('websocket: new conversation streaming', async ({ page }) => {
     test.setTimeout(60000);
 
@@ -212,20 +212,33 @@ test.describe('Hello World Workflow', () => {
     await taskRow.click();
     await expect(page.locator('h1:has-text("Hello World")')).toBeVisible({ timeout: UI_TIMEOUT_SLOW });
 
-    // Start new conversation
+    // Click "New Chat" - should open modal
     await page.click('button:has-text("New Chat")');
+
+    // Wait for modal to appear
+    await expect(page.locator('h2:has-text("New Conversation")')).toBeVisible({ timeout: UI_TIMEOUT });
+    console.log('New conversation modal opened.');
+
+    // Find the textarea in the modal and type message
+    const modalInput = page.locator('.fixed textarea').first();
+    await expect(modalInput).toBeVisible({ timeout: UI_TIMEOUT });
+    await modalInput.fill('What is 1+1?');
+
+    // Submit the message (press Enter or click Start Conversation)
+    await modalInput.press('Enter');
+    console.log('Message submitted.');
+
+    // Wait for modal to close and chat to appear with streaming
+    await expect(page.locator('h2:has-text("New Conversation")')).not.toBeVisible({ timeout: BACKEND_TIMEOUT });
+
+    // Verify we're in the chat interface (textarea should be visible)
     await expect(page.locator('textarea').first()).toBeVisible({ timeout: UI_TIMEOUT });
 
-    // Send message
-    const messageInput = page.locator('textarea').first();
-    await messageInput.fill('What is 1+1?');
-    await messageInput.press('Enter');
-
-    // Verify user message appears
+    // Verify user message appears in chat
     await expect(page.locator('text=What is 1+1?')).toBeVisible({ timeout: UI_TIMEOUT });
-    console.log('User message sent.');
+    console.log('User message visible in chat.');
 
-    // Wait for streaming to start
+    // Wait for streaming to start or complete
     await expect(async () => {
       const respondingVisible = await page.locator('text=Claude is responding').isVisible().catch(() => false);
       const respondingBtnVisible = await page.locator('text=Responding').isVisible().catch(() => false);
@@ -258,7 +271,7 @@ test.describe('Hello World Workflow', () => {
       expect(combinedText).toContain('2');
     }).toPass({ timeout: UI_TIMEOUT });
 
-    console.log('Test completed: New conversation WebSocket streaming verified.');
+    console.log('Test completed: New conversation modal flow verified.');
   });
 
   // Test 3: Live indicator + WebSocket reconnection
@@ -274,18 +287,27 @@ test.describe('Hello World Workflow', () => {
     await taskRow.click();
     await expect(page.locator('h1:has-text("Hello World")')).toBeVisible({ timeout: UI_TIMEOUT_SLOW });
 
-    // Start new conversation
+    // Click "New Chat" - should open modal
     await page.click('button:has-text("New Chat")');
-    await expect(page.locator('textarea').first()).toBeVisible({ timeout: UI_TIMEOUT });
 
-    // Send a message that will take some time to complete
-    const messageInput = page.locator('textarea').first();
-    await messageInput.fill('List 5 programming languages with one sentence about each.');
-    await messageInput.press('Enter');
+    // Wait for modal to appear
+    await expect(page.locator('h2:has-text("New Conversation")')).toBeVisible({ timeout: UI_TIMEOUT });
 
-    // Verify user message appears
+    // Find the textarea in the modal and type message
+    const modalInput = page.locator('.fixed textarea').first();
+    await expect(modalInput).toBeVisible({ timeout: UI_TIMEOUT });
+    await modalInput.fill('List 5 programming languages with one sentence about each.');
+
+    // Submit the message
+    await modalInput.press('Enter');
+    console.log('Message submitted via modal.');
+
+    // Wait for modal to close and chat to appear
+    await expect(page.locator('h2:has-text("New Conversation")')).not.toBeVisible({ timeout: BACKEND_TIMEOUT });
+
+    // Verify user message appears in chat
     await expect(page.locator('text=List 5 programming languages')).toBeVisible({ timeout: UI_TIMEOUT });
-    console.log('User message sent.');
+    console.log('User message visible in chat.');
 
     // Wait for streaming to start
     await expect(async () => {
