@@ -13,18 +13,24 @@ Users create projects, define tasks as units of work, and start conversations sc
 
 ## Architecture
 
-The frontend uses a **Dual-View Dashboard** design with a 3-screen navigation flow:
+The frontend uses a **Trello-style Board UX** with a 4-screen navigation flow:
 
 ```
 +-------------------------------------------------------------+
 |                        Frontend                              |
 |  React (Vite) - Port 5173                                   |
-|  +---------------+  +-----------------+  +----------------+ |
-|  | Dashboard     |  | TaskDetailView  |  | ChatInterface  | |
-|  |               |  |                 |  |                | |
-|  | By Project    |  | Task docs       |  | Messages       | |
-|  | By Status     |  | Conversations   |  | Input          | |
-|  +---------------+  +-----------------+  +----------------+ |
+|  +---------------+  +---------------+  +-----------------+  |
+|  | Dashboard     |  | BoardView     |  | TaskDetailView  |  |
+|  | Project Grid  |  | Kanban Cols   |  | Task docs       |  |
+|  | + In Progress |  | Task Cards    |  | Conversations   |  |
+|  +---------------+  +---------------+  +-----------------+  |
+|         |                  |                  |              |
+|         +------------------+------------------+              |
+|                            |                                |
+|                   +----------------+                        |
+|                   | ChatInterface  |                        |
+|                   | Messages/Input |                        |
+|                   +----------------+                        |
 +-------------------------------------------------------------+
                           |
               WebSocket /ws  |  REST API /api/*
@@ -52,23 +58,51 @@ The frontend uses a **Dual-View Dashboard** design with a 3-screen navigation fl
 
 ### Frontend
 
+#### Core Navigation & State
+
 | File | Purpose |
 |------|---------|
 | `src/App.jsx` | Root component, providers, project form modal |
 | `src/contexts/TaskContext.jsx` | State management for projects, tasks, conversations, navigation |
-| `src/components/MainContent.jsx` | View routing: Dashboard -> TaskDetail -> Chat |
-| `src/components/Dashboard/Dashboard.jsx` | Full-screen dashboard with project/status toggle |
-| `src/components/Dashboard/ViewToggle.jsx` | "By Project" / "By Status" toggle buttons |
-| `src/components/Dashboard/ProjectCard.jsx` | Collapsible project card with task list |
-| `src/components/Dashboard/TaskRow.jsx` | Task row with status badge and LIVE indicator |
-| `src/components/Dashboard/CompletedCollapse.jsx` | Collapsed section for completed tasks |
-| `src/components/Dashboard/InProgressSection.jsx` | Section for in-progress tasks (status view) |
+| `src/components/MainContent.jsx` | View routing: Dashboard → Board → TaskDetail → Chat |
+| `src/components/Breadcrumb.jsx` | Navigation breadcrumb (Home > Project > Task) |
+| `src/utils/api.js` | REST API client for projects/tasks/conversations |
+
+#### Dashboard (Project Grid)
+
+| File | Purpose |
+|------|---------|
+| `src/components/Dashboard/Dashboard.jsx` | Full-screen dashboard with CSS Grid of project cards |
+| `src/components/Dashboard/ProjectCardGrid.jsx` | Grid-style project card with status badges, doc preview |
+| `src/components/Dashboard/StatusBadge.jsx` | Clickable status count badge (pending/in_progress/completed) |
+| `src/components/Dashboard/ViewToggle.jsx` | "By Project" / "In Progress" toggle buttons |
+| `src/components/Dashboard/InProgressSection.jsx` | Cross-project view of all in-progress tasks |
+| `src/components/Dashboard/TaskRow.jsx` | Task row with status badge (used in InProgressSection) |
+
+#### Board View (Kanban)
+
+| File | Purpose |
+|------|---------|
+| `src/components/Dashboard/BoardView.jsx` | Kanban board container with 3 columns (mobile scroll-snap) |
+| `src/components/Dashboard/BoardColumn.jsx` | Single column: Pending, In Progress, or Completed |
+| `src/components/Dashboard/BoardTaskCard.jsx` | Task card in column with LIVE indicator, doc preview |
+| `src/components/Dashboard/EmptyColumnIllustration.jsx` | Decorative SVG for empty columns |
+
+#### Task Detail & Chat
+
+| File | Purpose |
+|------|---------|
 | `src/components/TaskDetailView.jsx` | Task docs (editable), conversation list |
 | `src/components/ChatInterface.jsx` | Message display, WebSocket, message input |
 | `src/components/ConversationList.jsx` | Conversation cards with Open/Resume buttons |
 | `src/components/MarkdownEditor.jsx` | View/edit toggle for documentation |
-| `src/components/Breadcrumb.jsx` | Navigation breadcrumb (Home > Project > Task) |
-| `src/utils/api.js` | REST API client for projects/tasks/conversations |
+
+#### Edit Pages
+
+| File | Purpose |
+|------|---------|
+| `src/components/ProjectEditPage.jsx` | Full-page project edit form |
+| `src/components/TaskEditPage.jsx` | Full-page task edit form with status dropdown |
 
 ### Backend
 
@@ -142,7 +176,9 @@ The `TaskContext` manages all navigation and data state:
 | `selectedProject` | Currently selected project object |
 | `selectedTask` | Currently selected task object |
 | `activeConversation` | Currently active conversation object |
-| `currentView` | View state: `'empty'`, `'project-detail'`, `'task-detail'`, or `'chat'` |
+| `editingProject` | Project being edited (for edit page) |
+| `editingTask` | Task being edited (for edit page) |
+| `currentView` | View state: `'empty'`, `'board'`, `'task-detail'`, `'chat'`, `'project-edit'`, `'task-edit'` |
 | `dashboardViewMode` | Dashboard toggle: `'project'` or `'status'` |
 | `projects` | Array of all user projects |
 | `tasks` | Array of tasks for selected project |
@@ -155,9 +191,13 @@ The `TaskContext` manages all navigation and data state:
 
 | Action | Purpose |
 |--------|---------|
-| `selectProject(project)` | Navigate to project (loads tasks) |
+| `selectProject(project)` | Navigate to board view (loads tasks) |
 | `selectTask(task)` | Navigate to task detail view |
 | `selectConversation(conversation)` | Navigate to chat view |
+| `navigateToBoard(project)` | Open board view for project |
+| `navigateToProjectEdit(project)` | Open project edit page |
+| `navigateToTaskEdit(task)` | Open task edit page |
+| `exitEditMode()` | Return from edit pages |
 | `navigateBack()` | Go back one level in navigation |
 | `clearSelection()` | Return to dashboard |
 | `setDashboardViewMode(mode)` | Toggle between 'project' and 'status' views |
@@ -228,36 +268,47 @@ The `TaskContext` manages all navigation and data state:
 
 ## UI Navigation Flow
 
-The app uses a **3-screen navigation** model (no sidebar):
+The app uses a **4-screen navigation** model with a Trello-style board view:
 
 ```
-Dashboard ────────────────► Task Detail ────────────────► Chat
-    ◄── Back to Dashboard ────     ◄──── Back to Task ────
+Dashboard ─────► Board View ─────► Task Detail ─────► Chat
+(project grid)   (kanban cols)    (docs + convos)   (messages)
+    ◄────────────────◄────────────────◄────────────────◄
 ```
 
-### Screen 1: Dashboard (Full Screen)
-
-Two view modes toggle between:
+### Screen 1: Dashboard (Project Grid)
 
 **By Project View (Default)**
-- First project unfolded by default, others folded
-- Click ▼/▶ arrow to toggle fold/unfold each project
-- Task rows show: title, status badge, LIVE indicator, View button
-- Collapsed "Completed (N)" section at bottom of each project
+- Projects displayed as **cards in a CSS Grid** (1 col mobile, 2-3 cols desktop)
+- Each card shows: name, path, status badges with counts, doc preview
+- Click card → opens Board View
+- Edit/Delete buttons on each card
+- LIVE indicator on cards with active streaming tasks
 
-**By Status View**
-- Groups all tasks by status across all projects
-- Sections: ACTIVE NOW, IN PROGRESS, PENDING, COMPLETED
+**In Progress View**
+- Cross-project view of all in-progress tasks
 - Shows "Project > Task" for each row
 
-### Screen 2: Task Detail
+### Screen 2: Board View (Kanban)
 
-- Back button returns to Dashboard
+- Breadcrumb: Home > Project Name
+- Header with "New Task" button
+- **3 columns**: Pending, In Progress, Completed
+- Tasks displayed as cards within columns
+- **Desktop**: All 3 columns visible, page scrolls vertically
+- **Mobile**: CSS scroll-snap, one column at a time (partial edge visible as hint)
+- Empty columns show decorative SVG illustrations
+- Click task card → Task Detail View
+- Edit button on task card → Task Edit Page
+
+### Screen 3: Task Detail
+
+- Back button returns to Board View
 - Task documentation preview with Edit button
-- List of conversations with status (LIVE/Paused) and time since last activity
+- List of conversations with status (LIVE/Paused)
 - "+ New Conversation" button
 
-### Screen 3: Chat Interface
+### Screen 4: Chat Interface
 
 - Back button returns to Task Detail
 - Breadcrumb navigation: Home > Project > Task
@@ -268,17 +319,20 @@ Two view modes toggle between:
 | Status | Indicator |
 |--------|-----------|
 | LIVE | Pulsing red dot - Claude session is streaming |
-| In Progress | Yellow - Has conversation history, not active |
-| Pending | Gray circle - No conversation started |
-| Completed | Checkmark - Task marked done |
+| In Progress | Amber badge - Has conversation history, not active |
+| Pending | Slate badge - No conversation started |
+| Completed | Emerald badge - Task marked done |
 
 ## Quick Reference: Key Methods
 
 ### Navigation
 
-- `TaskContext.jsx:selectProject()` - Select project and load its tasks
+- `TaskContext.jsx:selectProject()` - Open board view and load tasks
 - `TaskContext.jsx:selectTask()` - Navigate to task detail view
 - `TaskContext.jsx:selectConversation()` - Navigate to chat view
+- `TaskContext.jsx:navigateToProjectEdit()` - Open project edit page
+- `TaskContext.jsx:navigateToTaskEdit()` - Open task edit page
+- `TaskContext.jsx:exitEditMode()` - Return from edit pages
 - `TaskContext.jsx:navigateBack()` - Go back one level
 - `TaskContext.jsx:clearSelection()` - Return to dashboard
 
@@ -301,9 +355,11 @@ Two view modes toggle between:
 - `server/claude-sdk.js:queryClaudeSDK()` - SDK integration with context injection
 - `server/services/sessions.js:getSessionMessages()` - Reads JSONL files
 
-### Dashboard Components
+### Dashboard & Board Components
 
-- `Dashboard.jsx` - Main container with view toggle and project/status views
-- `ProjectCard.jsx` - Collapsible project with fold/unfold and task list
-- `TaskRow.jsx` - Task display with status badge and live indicator
-- `ViewToggle.jsx` - "By Project" / "By Status" toggle
+- `Dashboard.jsx` - Main container with CSS Grid of project cards
+- `ProjectCardGrid.jsx` - Grid-style project card with status badges
+- `BoardView.jsx` - Kanban board with 3 columns (mobile scroll-snap)
+- `BoardColumn.jsx` - Single column (Pending/In Progress/Completed)
+- `BoardTaskCard.jsx` - Task card within board column
+- `ViewToggle.jsx` - "By Project" / "In Progress" toggle

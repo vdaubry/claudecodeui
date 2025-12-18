@@ -152,14 +152,6 @@ export const api = {
       body: JSON.stringify({ projectPath: projectPath || '' }),
     }),
 
-  // Browse filesystem for project suggestions
-  browseFilesystem: (dirPath = null) => {
-    const params = new URLSearchParams();
-    if (dirPath) params.append('path', dirPath);
-
-    return authenticatedFetch(`/api/browse-filesystem?${params}`);
-  },
-
   // Get files for a project (for @ file referencing)
   getFiles: (projectId) =>
     authenticatedFetch(`/api/projects/${projectId}/files`),

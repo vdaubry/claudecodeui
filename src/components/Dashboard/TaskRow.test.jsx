@@ -1,260 +1,259 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { render, screen, fireEvent } from '@testing-library/react';
+import TaskRow from './TaskRow';
 
-describe('TaskRow Logic', () => {
-  describe('Status Badge Display', () => {
-    it('should show LIVE badge for active conversation', () => {
-      const task = {
-        conversations: [{ is_active: true }]
-      };
+// Mock useTaskContext
+vi.mock('../../contexts/TaskContext', () => ({
+  useTaskContext: vi.fn(() => ({
+    isTaskLive: vi.fn(() => false),
+  })),
+}));
 
-      const hasActiveConversation = task.conversations?.some(c => c.is_active) || false;
-      expect(hasActiveConversation).toBe(true);
+// Mock lucide-react icons
+vi.mock('lucide-react', () => ({
+  FileText: () => <span data-testid="icon-file-text" />,
+  Trash2: () => <span data-testid="icon-trash" />,
+  ChevronRight: () => <span data-testid="icon-chevron-right" />,
+  Circle: () => <span data-testid="icon-circle" />,
+  CheckCircle: () => <span data-testid="icon-check-circle" />,
+}));
 
-      const badgeText = hasActiveConversation ? 'LIVE' : (task.status === 'in_progress' ? 'In Progress' : 'Pending');
-      expect(badgeText).toBe('LIVE');
+import { useTaskContext } from '../../contexts/TaskContext';
+
+describe('TaskRow Component', () => {
+  const mockTask = {
+    id: 't1',
+    title: 'Test Task',
+    status: 'pending',
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+    conversation_count: 0,
+  };
+
+  const defaultProps = {
+    task: mockTask,
+    onClick: vi.fn(),
+    onDelete: vi.fn(),
+    onComplete: vi.fn(),
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    useTaskContext.mockReturnValue({
+      isTaskLive: vi.fn(() => false),
+    });
+  });
+
+  describe('Rendering', () => {
+    it('should render task title', () => {
+      render(<TaskRow {...defaultProps} />);
+
+      expect(screen.getByText('Test Task')).toBeInTheDocument();
+    });
+
+    it('should render fallback title when no title provided', () => {
+      render(<TaskRow {...defaultProps} task={{ ...mockTask, title: null }} />);
+
+      expect(screen.getByText('Task t1')).toBeInTheDocument();
+    });
+
+    it('should render with data-testid', () => {
+      render(<TaskRow {...defaultProps} />);
+
+      expect(screen.getByTestId('task-row-t1')).toBeInTheDocument();
+    });
+  });
+
+  describe('Status Badge', () => {
+    it('should show Pending badge for pending status', () => {
+      render(<TaskRow {...defaultProps} task={{ ...mockTask, status: 'pending' }} />);
+
+      expect(screen.getByText('Pending')).toBeInTheDocument();
     });
 
     it('should show In Progress badge for in_progress status', () => {
-      const task = {
-        status: 'in_progress',
-        conversations: [{ is_active: false }]
-      };
+      render(<TaskRow {...defaultProps} task={{ ...mockTask, status: 'in_progress' }} />);
 
-      const hasActiveConversation = task.conversations?.some(c => c.is_active) || false;
-      const badgeText = hasActiveConversation ? 'LIVE' : (task.status === 'in_progress' ? 'In Progress' : 'Pending');
-      expect(badgeText).toBe('In Progress');
-    });
-
-    it('should show Pending badge for pending status', () => {
-      const task = {
-        status: 'pending',
-        conversations: []
-      };
-
-      const hasActiveConversation = task.conversations?.some(c => c.is_active) || false;
-      const badgeText = hasActiveConversation ? 'LIVE' : (task.status === 'in_progress' ? 'In Progress' : 'Pending');
-      expect(badgeText).toBe('Pending');
+      expect(screen.getByText('In Progress')).toBeInTheDocument();
     });
 
     it('should show Completed badge for completed status', () => {
-      const task = {
-        status: 'completed',
-        conversations: []
-      };
+      render(<TaskRow {...defaultProps} task={{ ...mockTask, status: 'completed' }} />);
 
-      const isCompleted = task.status === 'completed';
-      expect(isCompleted).toBe(true);
+      expect(screen.getByText('Completed')).toBeInTheDocument();
     });
 
-    it('should show LIVE badge when isLive is true regardless of status', () => {
-      const tasks = [
-        { status: 'pending', conversations: [{ is_active: true }] },
-        { status: 'in_progress', conversations: [{ is_active: true }] },
-        { status: 'completed', conversations: [{ is_active: true }] }
-      ];
+    it('should show LIVE badge when task is live', () => {
+      render(<TaskRow {...defaultProps} task={{ ...mockTask, is_live: true }} />);
 
-      tasks.forEach(task => {
-        const hasActiveConversation = task.conversations?.some(c => c.is_active) || false;
-        expect(hasActiveConversation).toBe(true);
-        // LIVE takes priority over status
-        const badgeText = hasActiveConversation ? 'LIVE' : task.status;
-        expect(badgeText).toBe('LIVE');
+      expect(screen.getByTestId('live-badge')).toBeInTheDocument();
+      expect(screen.getByText('LIVE')).toBeInTheDocument();
+    });
+
+    it('should show LIVE badge when isTaskLive returns true', () => {
+      useTaskContext.mockReturnValue({
+        isTaskLive: vi.fn((id) => id === 't1'),
       });
+
+      render(<TaskRow {...defaultProps} />);
+
+      expect(screen.getByText('LIVE')).toBeInTheDocument();
     });
 
-    it('should use task.status not derived hasConversations', () => {
-      // A task with status='in_progress' but no conversations should still show 'In Progress'
-      const task = {
-        status: 'in_progress',
-        conversations: []
-      };
+    it('should prioritize LIVE over status badges', () => {
+      render(<TaskRow {...defaultProps} task={{ ...mockTask, status: 'completed', is_live: true }} />);
 
-      const hasActiveConversation = task.conversations?.some(c => c.is_active) || false;
-      expect(hasActiveConversation).toBe(false);
-
-      // Should use the actual status field, not derive from conversation count
-      const badgeText = hasActiveConversation ? 'LIVE' :
-        (task.status === 'in_progress' ? 'In Progress' :
-         task.status === 'completed' ? 'Completed' : 'Pending');
-      expect(badgeText).toBe('In Progress');
-    });
-
-    it('should show Pending badge with gray styling', () => {
-      const task = { status: 'pending' };
-      // Verify the status field is used directly
-      expect(task.status).toBe('pending');
-    });
-
-    it('should show In Progress badge with yellow styling', () => {
-      const task = { status: 'in_progress' };
-      // Verify the status field is used directly
-      expect(task.status).toBe('in_progress');
-    });
-
-    it('should show Completed badge with green styling', () => {
-      const task = { status: 'completed' };
-      // Verify the status field is used directly
-      expect(task.status).toBe('completed');
+      expect(screen.getByText('LIVE')).toBeInTheDocument();
+      expect(screen.queryByText('Completed')).not.toBeInTheDocument();
     });
   });
 
-  describe('Status Indicator Icon', () => {
-    it('should show filled dot for in_progress or active', () => {
-      const getIconType = (task) => {
-        const hasActiveConversation = task.conversations?.some(c => c.is_active) || false;
-        if (hasActiveConversation || task.status === 'in_progress') {
-          return 'filled';
-        }
-        return 'empty';
-      };
+  describe('Status Indicator', () => {
+    it('should show empty circle icon when no conversations', () => {
+      render(<TaskRow {...defaultProps} task={{ ...mockTask, conversation_count: 0, has_conversations: false }} />);
 
-      expect(getIconType({ status: 'in_progress', conversations: [] })).toBe('filled');
-      expect(getIconType({ status: 'pending', conversations: [{ is_active: true }] })).toBe('filled');
+      expect(screen.getByTestId('icon-circle')).toBeInTheDocument();
     });
 
-    it('should show empty dot for pending', () => {
-      const getIconType = (task) => {
-        const hasActiveConversation = task.conversations?.some(c => c.is_active) || false;
-        if (hasActiveConversation || task.status === 'in_progress') {
-          return 'filled';
-        }
-        return 'empty';
-      };
+    it('should show filled dot when has conversations', () => {
+      render(<TaskRow {...defaultProps} task={{ ...mockTask, conversation_count: 2 }} />);
 
-      expect(getIconType({ status: 'pending', conversations: [] })).toBe('empty');
-    });
-
-    it('should show checkmark for completed', () => {
-      const task = { status: 'completed' };
-      const isCompleted = task.status === 'completed';
-      expect(isCompleted).toBe(true);
+      // Filled dot is a div with rounded-full class, not an icon
+      const row = screen.getByTestId('task-row-t1');
+      const filledDot = row.querySelector('.rounded-full.bg-primary');
+      expect(filledDot).toBeInTheDocument();
     });
   });
 
-  describe('Time Ago Formatting', () => {
-    it('should format recent times as "just now"', () => {
-      const formatTimeAgo = (date) => {
-        const now = new Date();
-        const diff = now - new Date(date);
-        const minutes = Math.floor(diff / 60000);
+  describe('Click Handlers', () => {
+    it('should call onClick when task row is clicked', () => {
+      render(<TaskRow {...defaultProps} />);
 
-        if (minutes < 1) return 'just now';
-        if (minutes < 60) return `${minutes}m ago`;
-        const hours = Math.floor(minutes / 60);
-        if (hours < 24) return `${hours}h ago`;
-        const days = Math.floor(hours / 24);
-        return `${days}d ago`;
-      };
+      fireEvent.click(screen.getByTestId('task-row-t1'));
 
-      const justNow = new Date();
-      expect(formatTimeAgo(justNow)).toBe('just now');
+      expect(defaultProps.onClick).toHaveBeenCalledTimes(1);
     });
 
-    it('should format minutes correctly', () => {
-      const formatTimeAgo = (date) => {
-        const now = new Date();
-        const diff = now - new Date(date);
-        const minutes = Math.floor(diff / 60000);
+    it('should call onDelete when delete button is clicked and confirmed', () => {
+      window.confirm = vi.fn(() => true);
+      render(<TaskRow {...defaultProps} />);
 
-        if (minutes < 1) return 'just now';
-        if (minutes < 60) return `${minutes}m ago`;
-        const hours = Math.floor(minutes / 60);
-        if (hours < 24) return `${hours}h ago`;
-        const days = Math.floor(hours / 24);
-        return `${days}d ago`;
-      };
+      const deleteButton = screen.getByTestId('icon-trash').closest('button');
+      fireEvent.click(deleteButton);
 
-      const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
-      expect(formatTimeAgo(fiveMinutesAgo)).toBe('5m ago');
+      expect(defaultProps.onDelete).toHaveBeenCalled();
     });
 
-    it('should format hours correctly', () => {
-      const formatTimeAgo = (date) => {
-        const now = new Date();
-        const diff = now - new Date(date);
-        const minutes = Math.floor(diff / 60000);
+    it('should not call onDelete when delete is cancelled', () => {
+      window.confirm = vi.fn(() => false);
+      render(<TaskRow {...defaultProps} />);
 
-        if (minutes < 1) return 'just now';
-        if (minutes < 60) return `${minutes}m ago`;
-        const hours = Math.floor(minutes / 60);
-        if (hours < 24) return `${hours}h ago`;
-        const days = Math.floor(hours / 24);
-        return `${days}d ago`;
-      };
+      const deleteButton = screen.getByTestId('icon-trash').closest('button');
+      fireEvent.click(deleteButton);
 
-      const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000);
-      expect(formatTimeAgo(twoHoursAgo)).toBe('2h ago');
+      expect(defaultProps.onDelete).not.toHaveBeenCalled();
     });
 
-    it('should format days correctly', () => {
-      const formatTimeAgo = (date) => {
-        const now = new Date();
-        const diff = now - new Date(date);
-        const minutes = Math.floor(diff / 60000);
+    it('should stop propagation when delete button is clicked', () => {
+      window.confirm = vi.fn(() => true);
+      render(<TaskRow {...defaultProps} />);
 
-        if (minutes < 1) return 'just now';
-        if (minutes < 60) return `${minutes}m ago`;
-        const hours = Math.floor(minutes / 60);
-        if (hours < 24) return `${hours}h ago`;
-        const days = Math.floor(hours / 24);
-        return `${days}d ago`;
-      };
+      const deleteButton = screen.getByTestId('icon-trash').closest('button');
+      fireEvent.click(deleteButton);
 
-      const threeDaysAgo = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000);
-      expect(formatTimeAgo(threeDaysAgo)).toBe('3d ago');
+      // onClick should not be called because stopPropagation is called
+      expect(defaultProps.onClick).not.toHaveBeenCalled();
+    });
+
+    it('should call onComplete when complete button is clicked and confirmed', () => {
+      window.confirm = vi.fn(() => true);
+      render(<TaskRow {...defaultProps} />);
+
+      const completeButton = screen.getByTestId('icon-check-circle').closest('button');
+      fireEvent.click(completeButton);
+
+      expect(defaultProps.onComplete).toHaveBeenCalled();
+    });
+
+    it('should not render complete button when onComplete is not provided', () => {
+      render(<TaskRow {...defaultProps} onComplete={undefined} />);
+
+      expect(screen.queryByTestId('icon-check-circle')).not.toBeInTheDocument();
     });
   });
 
-  describe('Task Click Handler', () => {
-    it('should call onClick with task when clicked', () => {
-      const onClick = vi.fn();
-      const task = { id: 't1', title: 'Test Task' };
+  describe('Project Display (showProject=true)', () => {
+    it('should show project name when showProject is true and project provided', () => {
+      render(
+        <TaskRow
+          {...defaultProps}
+          showProject={true}
+          project={{ name: 'My Project' }}
+        />
+      );
 
-      onClick(task);
-      expect(onClick).toHaveBeenCalledWith(task);
-      expect(onClick).toHaveBeenCalledTimes(1);
+      expect(screen.getByText('My Project')).toBeInTheDocument();
+    });
+
+    it('should show task.project_name when showProject is true', () => {
+      render(
+        <TaskRow
+          {...defaultProps}
+          showProject={true}
+          task={{ ...mockTask, project_name: 'Task Project' }}
+        />
+      );
+
+      expect(screen.getByText('Task Project')).toBeInTheDocument();
     });
   });
 
-  describe('Delete Handler', () => {
-    it('should call onDelete with task id when delete clicked', () => {
-      const onDelete = vi.fn();
-      const task = { id: 't1', title: 'Test Task' };
-
-      onDelete(task.id);
-      expect(onDelete).toHaveBeenCalledWith('t1');
-    });
-
-    it('should stop propagation to prevent task click', () => {
-      const stopPropagation = vi.fn();
-      const event = { stopPropagation };
-
-      // Simulate delete button click handler
-      const handleDelete = (e) => {
-        e.stopPropagation();
+  describe('Time Display', () => {
+    it('should show relative time for recent tasks', () => {
+      const recentTask = {
+        ...mockTask,
+        updated_at: new Date().toISOString(),
       };
 
-      handleDelete(event);
-      expect(stopPropagation).toHaveBeenCalled();
+      render(<TaskRow {...defaultProps} task={recentTask} />);
+
+      expect(screen.getByText('Just now')).toBeInTheDocument();
+    });
+
+    it('should show minutes ago for tasks updated minutes ago', () => {
+      const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+      const task = { ...mockTask, updated_at: fiveMinutesAgo };
+
+      render(<TaskRow {...defaultProps} task={task} />);
+
+      expect(screen.getByText('5m ago')).toBeInTheDocument();
+    });
+
+    it('should show hours ago for tasks updated hours ago', () => {
+      const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
+      const task = { ...mockTask, updated_at: twoHoursAgo };
+
+      render(<TaskRow {...defaultProps} task={task} />);
+
+      expect(screen.getByText('2h ago')).toBeInTheDocument();
+    });
+
+    it('should show days ago for tasks updated days ago', () => {
+      const threeDaysAgo = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString();
+      const task = { ...mockTask, updated_at: threeDaysAgo };
+
+      render(<TaskRow {...defaultProps} task={task} />);
+
+      expect(screen.getByText('3d ago')).toBeInTheDocument();
     });
   });
 
-  describe('Task Title Display', () => {
-    it('should display task title', () => {
-      const task = { title: 'Implement feature X' };
-      expect(task.title).toBe('Implement feature X');
-    });
+  describe('Live Task Styling', () => {
+    it('should have live background styling when task is live', () => {
+      render(<TaskRow {...defaultProps} task={{ ...mockTask, is_live: true }} />);
 
-    it('should show project name prefix in status view', () => {
-      const task = { title: 'Feature X' };
-      const project = { name: 'My Project' };
-      const showProjectPrefix = true;
-
-      const displayTitle = showProjectPrefix
-        ? `${project.name} › ${task.title}`
-        : task.title;
-
-      expect(displayTitle).toBe('My Project › Feature X');
+      const row = screen.getByTestId('task-row-t1');
+      expect(row.className).toContain('bg-red-500/5');
     });
   });
 });

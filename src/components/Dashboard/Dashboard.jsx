@@ -8,7 +8,7 @@
  */
 
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { FolderPlus, Settings, Sparkles, MessageSquare } from 'lucide-react';
+import { FolderPlus, Settings, MessageSquare } from 'lucide-react';
 import { Button } from '../ui/button';
 import { ScrollArea } from '../ui/scroll-area';
 import { useTaskContext } from '../../contexts/TaskContext';
@@ -24,10 +24,6 @@ function Dashboard({
   onShowProjectForm,
   onEditProject,
   onTaskClick,
-  updateAvailable,
-  latestVersion,
-  releaseInfo,
-  onShowVersionModal,
   isMobile
 }) {
   const {
@@ -306,17 +302,6 @@ function Dashboard({
 
           {/* Actions */}
           <div className="flex items-center gap-2">
-            {updateAvailable && (
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={onShowVersionModal}
-                className="relative"
-              >
-                <Sparkles className="w-4 h-4 text-blue-500" />
-                <span className="absolute -top-1 -right-1 w-2 h-2 bg-blue-500 rounded-full animate-pulse" />
-              </Button>
-            )}
             <Button
               variant="ghost"
               size="sm"

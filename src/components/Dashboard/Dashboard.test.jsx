@@ -1,323 +1,343 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import Dashboard from './Dashboard';
+import { useTaskContext } from '../../contexts/TaskContext';
+import { api } from '../../utils/api';
 
-describe('Dashboard Logic', () => {
-  describe('View Mode Toggle', () => {
-    it('should toggle between project and status views', () => {
-      let viewMode = 'project';
+// Mock the TaskContext
+vi.mock('../../contexts/TaskContext', () => ({
+  useTaskContext: vi.fn(),
+}));
 
-      const setViewMode = (mode) => {
-        viewMode = mode;
-      };
+// Mock the API
+vi.mock('../../utils/api', () => ({
+  api: {
+    tasks: {
+      list: vi.fn(),
+      listAll: vi.fn(),
+    },
+    projects: {
+      getDoc: vi.fn(),
+    },
+    conversations: {
+      list: vi.fn(),
+    },
+  },
+}));
 
-      expect(viewMode).toBe('project');
-      setViewMode('status');
-      expect(viewMode).toBe('status');
-      setViewMode('project');
-      expect(viewMode).toBe('project');
+// Mock lucide-react icons - return simple span elements
+vi.mock('lucide-react', () => {
+  const createIcon = (name) => {
+    const Icon = (props) => <span data-testid={`icon-${name.toLowerCase()}`} {...props} />;
+    Icon.displayName = name;
+    return Icon;
+  };
+
+  return {
+    FolderPlus: createIcon('FolderPlus'),
+    Settings: createIcon('Settings'),
+    MessageSquare: createIcon('MessageSquare'),
+    LayoutGrid: createIcon('LayoutGrid'),
+    Clock: createIcon('Clock'),
+    Folder: createIcon('Folder'),
+    Pencil: createIcon('Pencil'),
+    Trash2: createIcon('Trash2'),
+    FileText: createIcon('FileText'),
+    RefreshCw: createIcon('RefreshCw'),
+    CheckCircle: createIcon('CheckCircle'),
+    CheckCircle2: createIcon('CheckCircle2'),
+    ExternalLink: createIcon('ExternalLink'),
+    ChevronRight: createIcon('ChevronRight'),
+    ChevronDown: createIcon('ChevronDown'),
+    Circle: createIcon('Circle'),
+    AlertCircle: createIcon('AlertCircle'),
+    Play: createIcon('Play'),
+    X: createIcon('X'),
+  };
+});
+
+describe('Dashboard Component', () => {
+  const mockProjects = [
+    { id: 'p1', name: 'Project Alpha', repo_folder_path: '/path/to/alpha' },
+    { id: 'p2', name: 'Project Beta', repo_folder_path: '/path/to/beta' },
+  ];
+
+  const mockInProgressTasks = [
+    { id: 't1', title: 'Task 1', status: 'in_progress', project_id: 'p1' },
+    { id: 't2', title: 'Task 2', status: 'in_progress', project_id: 'p2' },
+  ];
+
+  const defaultContextValue = {
+    projects: mockProjects,
+    tasks: [],
+    isLoadingProjects: false,
+    isLoadingTasks: false,
+    selectedProject: null,
+    selectProject: vi.fn(),
+    selectTask: vi.fn(),
+    selectConversation: vi.fn(),
+    deleteProject: vi.fn(),
+    deleteTask: vi.fn(),
+    updateTask: vi.fn(),
+    createTask: vi.fn(),
+    loadProjects: vi.fn(),
+    navigateToBoard: vi.fn(),
+    navigateToProjectEdit: vi.fn(),
+    isTaskLive: vi.fn(() => false),
+    liveTaskIds: new Set(),
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    useTaskContext.mockReturnValue(defaultContextValue);
+
+    // Default API mock responses
+    api.tasks.list.mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ tasks: [] }),
     });
-
-    it('should default to project view', () => {
-      const defaultViewMode = 'project';
-      expect(defaultViewMode).toBe('project');
+    api.tasks.listAll.mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ tasks: mockInProgressTasks }),
     });
-  });
-
-  describe('Project Expansion Logic', () => {
-    it('should auto-expand first project on load', () => {
-      const projects = [
-        { id: 'p1', name: 'Project 1' },
-        { id: 'p2', name: 'Project 2' },
-        { id: 'p3', name: 'Project 3' }
-      ];
-
-      const expandedProjects = new Set();
-
-      // Auto-expand first project logic
-      if (projects.length > 0 && expandedProjects.size === 0) {
-        expandedProjects.add(projects[0].id);
-      }
-
-      expect(expandedProjects.has('p1')).toBe(true);
-      expect(expandedProjects.has('p2')).toBe(false);
-      expect(expandedProjects.has('p3')).toBe(false);
-    });
-
-    it('should toggle project expansion', () => {
-      const expandedProjects = new Set(['p1']);
-
-      const toggleProject = (projectId) => {
-        if (expandedProjects.has(projectId)) {
-          expandedProjects.delete(projectId);
-        } else {
-          expandedProjects.add(projectId);
-        }
-      };
-
-      expect(expandedProjects.has('p1')).toBe(true);
-      toggleProject('p1');
-      expect(expandedProjects.has('p1')).toBe(false);
-      toggleProject('p1');
-      expect(expandedProjects.has('p1')).toBe(true);
-    });
-
-    it('should allow multiple projects to be expanded', () => {
-      const expandedProjects = new Set();
-
-      expandedProjects.add('p1');
-      expandedProjects.add('p2');
-
-      expect(expandedProjects.size).toBe(2);
-      expect(expandedProjects.has('p1')).toBe(true);
-      expect(expandedProjects.has('p2')).toBe(true);
-    });
-
-    it('should not auto-expand if already expanded', () => {
-      const projects = [
-        { id: 'p1', name: 'Project 1' },
-        { id: 'p2', name: 'Project 2' }
-      ];
-
-      const expandedProjects = new Set(['p2']);
-
-      // Auto-expand first project logic - should NOT run if already expanded
-      if (projects.length > 0 && expandedProjects.size === 0) {
-        expandedProjects.add(projects[0].id);
-      }
-
-      expect(expandedProjects.has('p2')).toBe(true);
-      expect(expandedProjects.has('p1')).toBe(false);
-      expect(expandedProjects.size).toBe(1);
-    });
-  });
-
-  describe('Task Filtering by Project', () => {
-    it('should filter tasks by project id', () => {
-      const tasks = [
-        { id: 't1', project_id: 'p1', title: 'Task 1' },
-        { id: 't2', project_id: 'p1', title: 'Task 2' },
-        { id: 't3', project_id: 'p2', title: 'Task 3' }
-      ];
-
-      const projectId = 'p1';
-      const projectTasks = tasks.filter(t => t.project_id === projectId);
-
-      expect(projectTasks).toHaveLength(2);
-      expect(projectTasks[0].id).toBe('t1');
-      expect(projectTasks[1].id).toBe('t2');
-    });
-
-    it('should return empty array for project with no tasks', () => {
-      const tasks = [
-        { id: 't1', project_id: 'p1', title: 'Task 1' }
-      ];
-
-      const projectId = 'p2';
-      const projectTasks = tasks.filter(t => t.project_id === projectId);
-
-      expect(projectTasks).toHaveLength(0);
+    api.projects.getDoc.mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ content: '' }),
     });
   });
 
-  describe('Task Status Classification', () => {
-    it('should identify tasks with active conversations', () => {
-      const task = {
-        id: 't1',
-        title: 'Task 1',
-        conversations: [
-          { id: 'c1', is_active: true },
-          { id: 'c2', is_active: false }
-        ]
-      };
+  describe('Rendering', () => {
+    it('should render the dashboard header with title', () => {
+      render(<Dashboard />);
 
-      const hasActiveConversation = task.conversations?.some(c => c.is_active) || false;
-      expect(hasActiveConversation).toBe(true);
+      expect(screen.getByText('Claude Code UI')).toBeInTheDocument();
+      expect(screen.getByText('Task-driven workflow')).toBeInTheDocument();
     });
 
-    it('should identify tasks without active conversations', () => {
-      const task = {
-        id: 't1',
-        title: 'Task 1',
-        conversations: [
-          { id: 'c1', is_active: false }
-        ]
-      };
+    it('should render the New Project button', () => {
+      render(<Dashboard />);
 
-      const hasActiveConversation = task.conversations?.some(c => c.is_active) || false;
-      expect(hasActiveConversation).toBe(false);
+      expect(screen.getByRole('button', { name: /new project/i })).toBeInTheDocument();
     });
 
-    it('should handle tasks with no conversations', () => {
-      const task = {
-        id: 't1',
-        title: 'Task 1',
-        conversations: []
-      };
+    it('should render the Settings button', () => {
+      render(<Dashboard />);
 
-      const hasActiveConversation = task.conversations?.some(c => c.is_active) || false;
-      expect(hasActiveConversation).toBe(false);
+      expect(screen.getByTestId('icon-settings')).toBeInTheDocument();
     });
 
-    it('should handle tasks with undefined conversations', () => {
-      const task = {
-        id: 't1',
-        title: 'Task 1'
-      };
+    it('should render project cards when projects exist', async () => {
+      render(<Dashboard />);
 
-      const hasActiveConversation = task.conversations?.some(c => c.is_active) || false;
-      expect(hasActiveConversation).toBe(false);
+      await waitFor(() => {
+        expect(screen.getByText('Project Alpha')).toBeInTheDocument();
+        expect(screen.getByText('Project Beta')).toBeInTheDocument();
+      });
     });
-  });
 
-  describe('Status Grouping', () => {
-    it('should group tasks by status', () => {
-      const tasks = [
-        { id: 't1', status: 'pending' },
-        { id: 't2', status: 'in_progress' },
-        { id: 't3', status: 'completed' },
-        { id: 't4', status: 'pending' },
-        { id: 't5', status: 'in_progress', conversations: [{ is_active: true }] }
-      ];
+    it('should render empty state when no projects exist', () => {
+      useTaskContext.mockReturnValue({
+        ...defaultContextValue,
+        projects: [],
+      });
 
-      const groupByStatus = (taskList) => {
-        const groups = {
-          active: [],
-          in_progress: [],
-          pending: [],
-          completed: []
-        };
+      render(<Dashboard />);
 
-        taskList.forEach(task => {
-          const isActive = task.conversations?.some(c => c.is_active);
-          if (isActive) {
-            groups.active.push(task);
-          } else if (task.status === 'in_progress') {
-            groups.in_progress.push(task);
-          } else if (task.status === 'pending') {
-            groups.pending.push(task);
-          } else if (task.status === 'completed') {
-            groups.completed.push(task);
-          }
-        });
+      expect(screen.getByText('No Projects Yet')).toBeInTheDocument();
+      expect(screen.getByText(/create your first project/i)).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /create project/i })).toBeInTheDocument();
+    });
 
-        return groups;
-      };
+    it('should render loading state when loading projects', () => {
+      useTaskContext.mockReturnValue({
+        ...defaultContextValue,
+        projects: [],
+        isLoadingProjects: true,
+      });
 
-      const groups = groupByStatus(tasks);
+      render(<Dashboard />);
 
-      expect(groups.active).toHaveLength(1);
-      expect(groups.active[0].id).toBe('t5');
-      expect(groups.in_progress).toHaveLength(1);
-      expect(groups.in_progress[0].id).toBe('t2');
-      expect(groups.pending).toHaveLength(2);
-      expect(groups.completed).toHaveLength(1);
+      expect(screen.getByText('Loading Dashboard')).toBeInTheDocument();
+      expect(screen.getByText('Fetching your projects...')).toBeInTheDocument();
     });
   });
 
-  describe('Empty State Detection', () => {
-    it('should detect when there are no projects', () => {
-      const projects = [];
-      const hasNoProjects = projects.length === 0;
-      expect(hasNoProjects).toBe(true);
+  describe('View Toggle', () => {
+    it('should render view toggle when projects exist', () => {
+      render(<Dashboard />);
+
+      expect(screen.getByRole('button', { name: /by project/i })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /in progress/i })).toBeInTheDocument();
     });
 
-    it('should detect when there are no tasks across all projects', () => {
-      const tasks = [];
-      const hasNoTasks = tasks.length === 0;
-      expect(hasNoTasks).toBe(true);
+    it('should not render view toggle when no projects exist', () => {
+      useTaskContext.mockReturnValue({
+        ...defaultContextValue,
+        projects: [],
+      });
+
+      render(<Dashboard />);
+
+      expect(screen.queryByRole('button', { name: /by project/i })).not.toBeInTheDocument();
     });
 
-    it('should detect when a project has no tasks', () => {
-      const projectTasks = [];
-      const projectHasNoTasks = projectTasks.length === 0;
-      expect(projectHasNoTasks).toBe(true);
+    it('should switch to In Progress view when clicking the toggle', async () => {
+      render(<Dashboard />);
+
+      const inProgressButton = screen.getByRole('button', { name: /in progress/i });
+      fireEvent.click(inProgressButton);
+
+      // Verify API was called to fetch in-progress tasks
+      await waitFor(() => {
+        expect(api.tasks.listAll).toHaveBeenCalledWith('in_progress');
+      });
+    });
+
+    it('should show in-progress count badge when tasks exist', async () => {
+      render(<Dashboard />);
+
+      await waitFor(() => {
+        // The in-progress badge should show count of 2
+        expect(screen.getByText('2')).toBeInTheDocument();
+      });
     });
   });
 
-  describe('In Progress View Tab Switching', () => {
-    it('should call loadInProgressTasks when switching to in_progress view', () => {
-      // Simulate the useEffect behavior
-      let viewMode = 'project';
-      let loadInProgressTasksCalled = false;
+  describe('User Interactions', () => {
+    it('should call onShowSettings when Settings button is clicked', () => {
+      const mockShowSettings = vi.fn();
+      render(<Dashboard onShowSettings={mockShowSettings} />);
 
-      const loadInProgressTasks = () => {
-        loadInProgressTasksCalled = true;
-      };
+      const settingsIcon = screen.getByTestId('icon-settings');
+      const settingsButton = settingsIcon.closest('button');
+      fireEvent.click(settingsButton);
 
-      // Simulate switching to in_progress view
-      viewMode = 'in_progress';
-
-      // The effect would fire when viewMode changes to in_progress
-      if (viewMode === 'in_progress') {
-        loadInProgressTasks();
-      }
-
-      expect(loadInProgressTasksCalled).toBe(true);
+      expect(mockShowSettings).toHaveBeenCalledTimes(1);
     });
 
-    it('should pass inProgressCount to ViewToggle', () => {
-      const inProgressTasks = [
-        { id: 1, status: 'in_progress' },
-        { id: 2, status: 'in_progress' },
-        { id: 3, status: 'in_progress' }
-      ];
+    it('should call onShowProjectForm when New Project button is clicked', () => {
+      const mockShowProjectForm = vi.fn();
+      render(<Dashboard onShowProjectForm={mockShowProjectForm} />);
 
-      const inProgressCount = inProgressTasks.length;
-      expect(inProgressCount).toBe(3);
+      fireEvent.click(screen.getByRole('button', { name: /new project/i }));
 
-      // This verifies the count would be passed to ViewToggle
-      const viewToggleProps = {
-        viewMode: 'project',
-        onViewModeChange: vi.fn(),
-        inProgressCount: inProgressCount
-      };
-
-      expect(viewToggleProps.inProgressCount).toBe(3);
+      expect(mockShowProjectForm).toHaveBeenCalledTimes(1);
     });
 
-    it('should render InProgressSection when viewMode is in_progress', () => {
-      const viewMode = 'in_progress';
-      const inProgressTasks = [
-        { id: 1, title: 'Task 1', status: 'in_progress' }
-      ];
+    it('should call onShowProjectForm from empty state Create Project button', () => {
+      useTaskContext.mockReturnValue({
+        ...defaultContextValue,
+        projects: [],
+      });
 
-      // Simulate the conditional rendering logic
-      const shouldRenderInProgressSection = viewMode === 'in_progress';
-      expect(shouldRenderInProgressSection).toBe(true);
+      const mockShowProjectForm = vi.fn();
+      render(<Dashboard onShowProjectForm={mockShowProjectForm} />);
 
-      // Verify that InProgressSection would receive the correct props
-      const inProgressSectionProps = {
-        tasks: inProgressTasks,
-        isLoading: false,
-        onTaskClick: vi.fn(),
-        onDeleteTask: vi.fn(),
-        onRefresh: vi.fn()
-      };
+      fireEvent.click(screen.getByRole('button', { name: /create project/i }));
 
-      expect(inProgressSectionProps.tasks).toEqual(inProgressTasks);
+      expect(mockShowProjectForm).toHaveBeenCalledTimes(1);
     });
 
-    it('should render ProjectCard list when viewMode is project', () => {
-      const viewMode = 'project';
+    it('should call navigateToBoard when a project card is clicked', async () => {
+      const mockNavigateToBoard = vi.fn();
+      useTaskContext.mockReturnValue({
+        ...defaultContextValue,
+        navigateToBoard: mockNavigateToBoard,
+      });
 
-      // Simulate the conditional rendering logic
-      const shouldRenderProjectView = viewMode === 'project';
-      expect(shouldRenderProjectView).toBe(true);
+      render(<Dashboard />);
+
+      await waitFor(() => {
+        expect(screen.getByText('Project Alpha')).toBeInTheDocument();
+      });
+
+      // Click on the project card
+      const projectCard = screen.getByTestId('project-card-grid-project-alpha');
+      fireEvent.click(projectCard);
+
+      expect(mockNavigateToBoard).toHaveBeenCalledWith(mockProjects[0]);
+    });
+  });
+
+  describe('API Integration', () => {
+    it('should load in-progress tasks on mount', async () => {
+      render(<Dashboard />);
+
+      await waitFor(() => {
+        expect(api.tasks.listAll).toHaveBeenCalledWith('in_progress');
+      });
     });
 
-    it('should not load in_progress tasks when viewMode is project', () => {
-      let viewMode = 'project';
-      let loadInProgressTasksCalled = false;
+    it('should reload in-progress tasks when switching to that view', async () => {
+      render(<Dashboard />);
 
-      const loadInProgressTasks = () => {
-        loadInProgressTasksCalled = true;
-      };
+      // Wait for initial load
+      await waitFor(() => {
+        expect(api.tasks.listAll).toHaveBeenCalled();
+      });
 
-      // The effect should not fire when viewMode is 'project'
-      if (viewMode === 'in_progress') {
-        loadInProgressTasks();
-      }
+      // Clear the mock and switch views
+      api.tasks.listAll.mockClear();
 
-      expect(loadInProgressTasksCalled).toBe(false);
+      const inProgressButton = screen.getByRole('button', { name: /in progress/i });
+      fireEvent.click(inProgressButton);
+
+      await waitFor(() => {
+        expect(api.tasks.listAll).toHaveBeenCalledWith('in_progress');
+      });
+    });
+
+    it('should load project data (tasks and docs) for all projects', async () => {
+      render(<Dashboard />);
+
+      await waitFor(() => {
+        // Should fetch tasks for each project
+        expect(api.tasks.list).toHaveBeenCalledWith('p1');
+        expect(api.tasks.list).toHaveBeenCalledWith('p2');
+        // Should fetch docs for each project
+        expect(api.projects.getDoc).toHaveBeenCalledWith('p1');
+        expect(api.projects.getDoc).toHaveBeenCalledWith('p2');
+      });
+    });
+
+    it('should handle API errors gracefully', async () => {
+      api.tasks.listAll.mockResolvedValue({
+        ok: false,
+        json: () => Promise.resolve({ error: 'Failed to load' }),
+      });
+
+      // Should not throw
+      render(<Dashboard />);
+
+      await waitFor(() => {
+        expect(api.tasks.listAll).toHaveBeenCalled();
+      });
+
+      // Dashboard should still render
+      expect(screen.getByText('Claude Code UI')).toBeInTheDocument();
+    });
+  });
+
+  describe('Live Task Indicator', () => {
+    it('should check if tasks are live when loading project data', async () => {
+      const mockIsTaskLive = vi.fn((taskId) => taskId === 't1');
+      useTaskContext.mockReturnValue({
+        ...defaultContextValue,
+        isTaskLive: mockIsTaskLive,
+      });
+
+      api.tasks.list.mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({
+          tasks: [{ id: 't1', title: 'Task 1', status: 'pending' }],
+        }),
+      });
+
+      render(<Dashboard />);
+
+      await waitFor(() => {
+        expect(mockIsTaskLive).toHaveBeenCalled();
+      });
     });
   });
 });

@@ -1,217 +1,214 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { render, screen } from '@testing-library/react';
+import BoardColumn from './BoardColumn';
 
-describe('BoardColumn Logic', () => {
-  // Status configuration (matching component)
-  const statusConfig = {
-    pending: {
-      title: 'Pending',
-      headerBg: 'bg-slate-500/10 dark:bg-slate-400/10',
-      headerText: 'text-slate-600 dark:text-slate-400',
-      dotColor: 'bg-slate-500 dark:bg-slate-400',
-      borderColor: 'border-slate-200 dark:border-slate-700'
-    },
-    in_progress: {
-      title: 'In Progress',
-      headerBg: 'bg-amber-500/10 dark:bg-amber-400/10',
-      headerText: 'text-amber-600 dark:text-amber-400',
-      dotColor: 'bg-amber-500 dark:bg-amber-400',
-      borderColor: 'border-amber-200 dark:border-amber-700'
-    },
-    completed: {
-      title: 'Completed',
-      headerBg: 'bg-emerald-500/10 dark:bg-emerald-400/10',
-      headerText: 'text-emerald-600 dark:text-emerald-400',
-      dotColor: 'bg-emerald-500 dark:bg-emerald-400',
-      borderColor: 'border-emerald-200 dark:border-emerald-700'
-    }
+// Mock BoardTaskCard component
+vi.mock('./BoardTaskCard', () => ({
+  default: ({ task, isLive, conversationCount, onClick, onEditClick }) => (
+    <div data-testid={`task-card-${task.id}`}>
+      <span data-testid="task-title">{task.title}</span>
+      {isLive && <span data-testid="live-indicator">LIVE</span>}
+      <span data-testid="conv-count">{conversationCount}</span>
+      <button data-testid={`click-${task.id}`} onClick={() => onClick(task)}>Click</button>
+      <button data-testid={`edit-${task.id}`} onClick={() => onEditClick(task)}>Edit</button>
+    </div>
+  ),
+}));
+
+// Mock EmptyColumnIllustration component
+vi.mock('./EmptyColumnIllustration', () => ({
+  default: ({ status }) => (
+    <div data-testid={`empty-illustration-${status}`}>Empty {status}</div>
+  ),
+}));
+
+// Mock lucide-react icons
+vi.mock('lucide-react', () => ({
+  Circle: () => <span data-testid="icon-circle" />,
+  Loader2: () => <span data-testid="icon-loader" />,
+  CheckCircle2: () => <span data-testid="icon-check-circle" />,
+}));
+
+describe('BoardColumn Component', () => {
+  const mockTasks = [
+    { id: 't1', title: 'Task 1' },
+    { id: 't2', title: 'Task 2' },
+    { id: 't3', title: 'Task 3' },
+  ];
+
+  const defaultProps = {
+    status: 'pending',
+    tasks: mockTasks,
+    taskDocs: {},
+    taskConversationCounts: {},
+    isTaskLive: vi.fn(() => false),
+    onTaskClick: vi.fn(),
+    onTaskEdit: vi.fn(),
   };
 
-  describe('Status Configuration Selection', () => {
-    it('should get pending config for pending status', () => {
-      const status = 'pending';
-      const config = statusConfig[status] || statusConfig.pending;
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
 
-      expect(config.title).toBe('Pending');
-      expect(config.dotColor).toContain('slate');
+  describe('Rendering', () => {
+    it('should render with correct data-testid for pending status', () => {
+      render(<BoardColumn {...defaultProps} status="pending" />);
+
+      expect(screen.getByTestId('board-column-pending')).toBeInTheDocument();
     });
 
-    it('should get in_progress config for in_progress status', () => {
-      const status = 'in_progress';
-      const config = statusConfig[status] || statusConfig.pending;
+    it('should render with correct data-testid for in_progress status', () => {
+      render(<BoardColumn {...defaultProps} status="in_progress" />);
 
-      expect(config.title).toBe('In Progress');
-      expect(config.dotColor).toContain('amber');
+      expect(screen.getByTestId('board-column-in_progress')).toBeInTheDocument();
     });
 
-    it('should get completed config for completed status', () => {
-      const status = 'completed';
-      const config = statusConfig[status] || statusConfig.pending;
+    it('should render with correct data-testid for completed status', () => {
+      render(<BoardColumn {...defaultProps} status="completed" />);
 
-      expect(config.title).toBe('Completed');
-      expect(config.dotColor).toContain('emerald');
-    });
-
-    it('should fallback to pending config for unknown status', () => {
-      const status = 'unknown';
-      const config = statusConfig[status] || statusConfig.pending;
-
-      expect(config.title).toBe('Pending');
+      expect(screen.getByTestId('board-column-completed')).toBeInTheDocument();
     });
   });
 
-  describe('Task Count Display', () => {
-    it('should count tasks correctly', () => {
-      const tasks = [
-        { id: 't1', title: 'Task 1' },
-        { id: 't2', title: 'Task 2' },
-        { id: 't3', title: 'Task 3' }
-      ];
+  describe('Status Header', () => {
+    it('should display Pending title for pending status', () => {
+      render(<BoardColumn {...defaultProps} status="pending" />);
 
-      expect(tasks.length).toBe(3);
+      expect(screen.getByText('Pending')).toBeInTheDocument();
     });
 
-    it('should show 0 for empty task list', () => {
-      const tasks = [];
-      expect(tasks.length).toBe(0);
+    it('should display In Progress title for in_progress status', () => {
+      render(<BoardColumn {...defaultProps} status="in_progress" />);
+
+      expect(screen.getByText('In Progress')).toBeInTheDocument();
+    });
+
+    it('should display Completed title for completed status', () => {
+      render(<BoardColumn {...defaultProps} status="completed" />);
+
+      expect(screen.getByText('Completed')).toBeInTheDocument();
+    });
+
+    it('should fallback to Pending for unknown status', () => {
+      render(<BoardColumn {...defaultProps} status="unknown" />);
+
+      expect(screen.getByText('Pending')).toBeInTheDocument();
     });
   });
 
-  describe('Empty State Display', () => {
+  describe('Task Count', () => {
+    it('should display task count in header', () => {
+      render(<BoardColumn {...defaultProps} tasks={mockTasks} />);
+
+      expect(screen.getByText('3')).toBeInTheDocument();
+    });
+
+    it('should display 0 for empty task list', () => {
+      render(<BoardColumn {...defaultProps} tasks={[]} />);
+
+      expect(screen.getByText('0')).toBeInTheDocument();
+    });
+  });
+
+  describe('Task Cards', () => {
+    it('should render all task cards', () => {
+      render(<BoardColumn {...defaultProps} />);
+
+      expect(screen.getByTestId('task-card-t1')).toBeInTheDocument();
+      expect(screen.getByTestId('task-card-t2')).toBeInTheDocument();
+      expect(screen.getByTestId('task-card-t3')).toBeInTheDocument();
+    });
+
+    it('should pass isLive status to task cards', () => {
+      const isTaskLive = vi.fn((id) => id === 't2');
+      render(<BoardColumn {...defaultProps} isTaskLive={isTaskLive} />);
+
+      expect(screen.getByTestId('task-card-t2').querySelector('[data-testid="live-indicator"]')).toBeInTheDocument();
+      expect(screen.getByTestId('task-card-t1').querySelector('[data-testid="live-indicator"]')).not.toBeInTheDocument();
+    });
+
+    it('should pass conversation count from taskConversationCounts', () => {
+      const taskConversationCounts = { t1: 5, t2: 3 };
+      render(<BoardColumn {...defaultProps} taskConversationCounts={taskConversationCounts} />);
+
+      expect(screen.getByTestId('task-card-t1').querySelector('[data-testid="conv-count"]').textContent).toBe('5');
+      expect(screen.getByTestId('task-card-t2').querySelector('[data-testid="conv-count"]').textContent).toBe('3');
+    });
+
+    it('should fallback to task.conversation_count if not in taskConversationCounts', () => {
+      const tasks = [{ id: 't1', title: 'Task 1', conversation_count: 7 }];
+      render(<BoardColumn {...defaultProps} tasks={tasks} taskConversationCounts={{}} />);
+
+      expect(screen.getByTestId('task-card-t1').querySelector('[data-testid="conv-count"]').textContent).toBe('7');
+    });
+  });
+
+  describe('Empty State', () => {
     it('should show empty illustration when no tasks', () => {
-      const tasks = [];
-      const showEmptyState = tasks.length === 0;
+      render(<BoardColumn {...defaultProps} tasks={[]} status="pending" />);
 
-      expect(showEmptyState).toBe(true);
+      expect(screen.getByTestId('empty-illustration-pending')).toBeInTheDocument();
     });
 
     it('should not show empty illustration when tasks exist', () => {
-      const tasks = [{ id: 't1' }];
-      const showEmptyState = tasks.length === 0;
+      render(<BoardColumn {...defaultProps} />);
 
-      expect(showEmptyState).toBe(false);
+      expect(screen.queryByTestId('empty-illustration-pending')).not.toBeInTheDocument();
+    });
+
+    it('should show correct status in empty illustration', () => {
+      render(<BoardColumn {...defaultProps} tasks={[]} status="in_progress" />);
+
+      expect(screen.getByTestId('empty-illustration-in_progress')).toBeInTheDocument();
     });
   });
 
-  describe('Task Click Handlers', () => {
-    it('should call onTaskClick with task when task is clicked', () => {
-      const onTaskClick = vi.fn();
-      const task = { id: 't1', title: 'Test Task' };
+  describe('Status Icons', () => {
+    it('should show Circle icon for pending status', () => {
+      render(<BoardColumn {...defaultProps} status="pending" />);
 
-      onTaskClick(task);
-      expect(onTaskClick).toHaveBeenCalledWith(task);
+      expect(screen.getByTestId('icon-circle')).toBeInTheDocument();
     });
 
-    it('should call onTaskEdit with task when edit is clicked', () => {
-      const onTaskEdit = vi.fn();
-      const task = { id: 't1', title: 'Test Task' };
+    it('should show Loader2 icon for in_progress status', () => {
+      render(<BoardColumn {...defaultProps} status="in_progress" />);
 
-      onTaskEdit(task);
-      expect(onTaskEdit).toHaveBeenCalledWith(task);
-    });
-  });
-
-  describe('Live Task Detection', () => {
-    it('should identify live tasks using isTaskLive function', () => {
-      const liveTaskIds = new Set(['t1', 't3']);
-      const isTaskLive = (taskId) => liveTaskIds.has(taskId);
-
-      expect(isTaskLive('t1')).toBe(true);
-      expect(isTaskLive('t2')).toBe(false);
-      expect(isTaskLive('t3')).toBe(true);
+      expect(screen.getByTestId('icon-loader')).toBeInTheDocument();
     });
 
-    it('should handle undefined isTaskLive gracefully', () => {
-      const isTaskLive = undefined;
-      const result = isTaskLive?.(123) ?? false;
+    it('should show CheckCircle2 icon for completed status', () => {
+      render(<BoardColumn {...defaultProps} status="completed" />);
 
-      expect(result).toBe(false);
+      expect(screen.getByTestId('icon-check-circle')).toBeInTheDocument();
     });
   });
 
-  describe('Task Data Lookup', () => {
-    it('should lookup task documentation from taskDocs', () => {
-      const taskDocs = {
-        t1: 'Documentation for task 1',
-        t2: 'Documentation for task 2'
-      };
-      const task = { id: 't1' };
+  describe('Click Handlers', () => {
+    it('should pass onTaskClick to task cards', () => {
+      render(<BoardColumn {...defaultProps} />);
 
-      const doc = taskDocs[task.id] || '';
-      expect(doc).toBe('Documentation for task 1');
+      const clickButton = screen.getByTestId('click-t1');
+      clickButton.click();
+
+      expect(defaultProps.onTaskClick).toHaveBeenCalledWith(mockTasks[0]);
     });
 
-    it('should return empty string for missing documentation', () => {
-      const taskDocs = {};
-      const task = { id: 't1' };
+    it('should pass onTaskEdit to task cards', () => {
+      render(<BoardColumn {...defaultProps} />);
 
-      const doc = taskDocs[task.id] || '';
-      expect(doc).toBe('');
-    });
+      const editButton = screen.getByTestId('edit-t2');
+      editButton.click();
 
-    it('should lookup conversation count from taskConversationCounts', () => {
-      const taskConversationCounts = {
-        t1: 5,
-        t2: 0
-      };
-      const task = { id: 't1' };
-
-      const count = taskConversationCounts[task.id] || task.conversation_count || 0;
-      expect(count).toBe(5);
-    });
-
-    it('should fallback to task.conversation_count', () => {
-      const taskConversationCounts = {};
-      const task = { id: 't1', conversation_count: 3 };
-
-      const count = taskConversationCounts[task.id] || task.conversation_count || 0;
-      expect(count).toBe(3);
-    });
-
-    it('should default to 0 if no conversation count found', () => {
-      const taskConversationCounts = {};
-      const task = { id: 't1' };
-
-      const count = taskConversationCounts[task.id] || task.conversation_count || 0;
-      expect(count).toBe(0);
+      expect(defaultProps.onTaskEdit).toHaveBeenCalledWith(mockTasks[1]);
     });
   });
 
-  describe('Responsive Layout Classes', () => {
-    it('should have mobile scroll-snap classes', () => {
-      const mobileClasses = [
-        'flex-shrink-0',
-        'w-[calc(100vw-3rem)]',
-        '[scroll-snap-align:start]'
-      ];
+  describe('Custom ClassName', () => {
+    it('should apply custom className', () => {
+      render(<BoardColumn {...defaultProps} className="custom-class" />);
 
-      mobileClasses.forEach((cls) => {
-        expect(typeof cls).toBe('string');
-        expect(cls.length).toBeGreaterThan(0);
-      });
-    });
-
-    it('should have desktop override classes', () => {
-      const desktopClasses = [
-        'md:w-auto',
-        'md:flex-shrink',
-        'md:flex-1'
-      ];
-
-      desktopClasses.forEach((cls) => {
-        expect(cls.startsWith('md:')).toBe(true);
-      });
-    });
-  });
-
-  describe('Column Height Constraints', () => {
-    it('should have minimum height', () => {
-      const minHeight = 'min-h-[300px]';
-      expect(minHeight).toContain('min-h');
-    });
-
-    it('should have maximum height relative to viewport', () => {
-      const maxHeight = 'max-h-[calc(100vh-200px)]';
-      expect(maxHeight).toContain('100vh');
+      const column = screen.getByTestId('board-column-pending');
+      expect(column.className).toContain('custom-class');
     });
   });
 });

@@ -32,11 +32,7 @@ function MainContent({
   onEditProject,
   autoExpandTools,
   showRawParameters,
-  showThinking,
-  updateAvailable,
-  latestVersion,
-  releaseInfo,
-  onShowVersionModal
+  showThinking
 }) {
   const {
     // Selection state
@@ -122,10 +118,6 @@ function MainContent({
         onShowProjectForm={onShowProjectForm}
         onEditProject={onEditProject}
         onTaskClick={(task) => selectTask(task)}
-        updateAvailable={updateAvailable}
-        latestVersion={latestVersion}
-        releaseInfo={releaseInfo}
-        onShowVersionModal={onShowVersionModal}
         isMobile={isMobile}
       />
     );

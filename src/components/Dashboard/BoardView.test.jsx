@@ -1,308 +1,316 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import BoardView from './BoardView';
+import { useTaskContext } from '../../contexts/TaskContext';
+import { api } from '../../utils/api';
 
-describe('BoardView Logic', () => {
-  describe('Task Grouping by Status', () => {
-    const groupTasksByStatus = (tasks) => {
-      const grouped = {
-        pending: [],
-        in_progress: [],
-        completed: []
-      };
+// Mock TaskContext
+vi.mock('../../contexts/TaskContext', () => ({
+  useTaskContext: vi.fn(),
+}));
 
-      tasks.forEach((task) => {
-        const status = task.status || 'pending';
-        if (grouped[status]) {
-          grouped[status].push(task);
-        } else {
-          grouped.pending.push(task);
-        }
-      });
+// Mock API
+vi.mock('../../utils/api', () => ({
+  api: {
+    tasks: {
+      getDoc: vi.fn(),
+    },
+    conversations: {
+      list: vi.fn(),
+    },
+  },
+}));
 
-      return grouped;
-    };
+// Mock BoardColumn component
+vi.mock('./BoardColumn', () => ({
+  default: ({ status, tasks, onTaskClick, onTaskEdit }) => (
+    <div data-testid={`board-column-${status}`}>
+      <span data-testid={`${status}-count`}>{tasks.length}</span>
+      {tasks.map((task) => (
+        <div key={task.id} data-testid={`task-${task.id}`}>
+          <button data-testid={`click-${task.id}`} onClick={() => onTaskClick(task)}>Click</button>
+          <button data-testid={`edit-${task.id}`} onClick={() => onTaskEdit(task)}>Edit</button>
+        </div>
+      ))}
+    </div>
+  ),
+}));
 
-    it('should group tasks by their status', () => {
-      const tasks = [
-        { id: 't1', title: 'Task 1', status: 'pending' },
-        { id: 't2', title: 'Task 2', status: 'in_progress' },
-        { id: 't3', title: 'Task 3', status: 'completed' },
-        { id: 't4', title: 'Task 4', status: 'pending' }
-      ];
+// Mock TaskForm component
+vi.mock('../TaskForm', () => ({
+  default: ({ isOpen, onClose, onSubmit, projectName, isSubmitting }) => (
+    isOpen ? (
+      <div data-testid="task-form-modal">
+        <span data-testid="project-name">{projectName}</span>
+        <button data-testid="close-modal" onClick={onClose}>Close</button>
+        <button
+          data-testid="submit-task"
+          onClick={() => onSubmit({ title: 'New Task', documentation: 'Docs' })}
+        >
+          Submit
+        </button>
+      </div>
+    ) : null
+  ),
+}));
 
-      const grouped = groupTasksByStatus(tasks);
+// Mock lucide-react icons
+vi.mock('lucide-react', () => ({
+  ArrowLeft: () => <span data-testid="icon-arrow-left" />,
+  Plus: () => <span data-testid="icon-plus" />,
+  Columns: () => <span data-testid="icon-columns" />,
+}));
 
-      expect(grouped.pending.length).toBe(2);
-      expect(grouped.in_progress.length).toBe(1);
-      expect(grouped.completed.length).toBe(1);
+describe('BoardView Component', () => {
+  const mockProject = {
+    id: 'p1',
+    name: 'Test Project',
+    repo_folder_path: '/path/to/project',
+  };
+
+  const mockTasks = [
+    { id: 't1', title: 'Task 1', status: 'pending' },
+    { id: 't2', title: 'Task 2', status: 'in_progress' },
+    { id: 't3', title: 'Task 3', status: 'completed' },
+    { id: 't4', title: 'Task 4', status: 'pending' },
+  ];
+
+  const defaultContextValue = {
+    selectedProject: mockProject,
+    tasks: mockTasks,
+    isLoadingTasks: false,
+    createTask: vi.fn(),
+    selectTask: vi.fn(),
+    clearSelection: vi.fn(),
+    navigateToTaskEdit: vi.fn(),
+    isTaskLive: vi.fn(() => false),
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    useTaskContext.mockReturnValue(defaultContextValue);
+
+    // Default API mock responses
+    api.tasks.getDoc.mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ content: 'Doc content' }),
     });
-
-    it('should default to pending for tasks without status', () => {
-      const tasks = [
-        { id: 't1', title: 'Task without status' },
-        { id: 't2', title: 'Task 2', status: 'completed' }
-      ];
-
-      const grouped = groupTasksByStatus(tasks);
-
-      expect(grouped.pending.length).toBe(1);
-      expect(grouped.pending[0].id).toBe('t1');
-    });
-
-    it('should handle unknown status by falling back to pending', () => {
-      const tasks = [
-        { id: 't1', title: 'Task', status: 'unknown_status' }
-      ];
-
-      const grouped = groupTasksByStatus(tasks);
-
-      expect(grouped.pending.length).toBe(1);
-    });
-
-    it('should handle empty task list', () => {
-      const tasks = [];
-      const grouped = groupTasksByStatus(tasks);
-
-      expect(grouped.pending.length).toBe(0);
-      expect(grouped.in_progress.length).toBe(0);
-      expect(grouped.completed.length).toBe(0);
-    });
-
-    it('should preserve task order within each status group', () => {
-      const tasks = [
-        { id: 't1', title: 'First', status: 'pending' },
-        { id: 't2', title: 'Second', status: 'pending' },
-        { id: 't3', title: 'Third', status: 'pending' }
-      ];
-
-      const grouped = groupTasksByStatus(tasks);
-
-      expect(grouped.pending[0].id).toBe('t1');
-      expect(grouped.pending[1].id).toBe('t2');
-      expect(grouped.pending[2].id).toBe('t3');
+    api.conversations.list.mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ conversations: [] }),
     });
   });
 
-  describe('Task Form Modal', () => {
-    it('should start with modal closed', () => {
-      const showTaskForm = false;
-      expect(showTaskForm).toBe(false);
+  describe('Rendering', () => {
+    it('should return null when no project is selected', () => {
+      useTaskContext.mockReturnValue({
+        ...defaultContextValue,
+        selectedProject: null,
+      });
+
+      const { container } = render(<BoardView />);
+
+      expect(container.firstChild).toBeNull();
     });
 
-    it('should toggle modal visibility', () => {
-      let showTaskForm = false;
-      const setShowTaskForm = (value) => {
-        showTaskForm = value;
-      };
+    it('should render when project is selected', () => {
+      render(<BoardView />);
 
-      setShowTaskForm(true);
-      expect(showTaskForm).toBe(true);
+      expect(screen.getByText('Test Project')).toBeInTheDocument();
+    });
 
-      setShowTaskForm(false);
-      expect(showTaskForm).toBe(false);
+    it('should display project path', () => {
+      render(<BoardView />);
+
+      expect(screen.getByText('/path/to/project')).toBeInTheDocument();
+    });
+  });
+
+  describe('Board Columns', () => {
+    it('should render all three columns', () => {
+      render(<BoardView />);
+
+      expect(screen.getByTestId('board-column-pending')).toBeInTheDocument();
+      expect(screen.getByTestId('board-column-in_progress')).toBeInTheDocument();
+      expect(screen.getByTestId('board-column-completed')).toBeInTheDocument();
+    });
+
+    it('should group tasks by status correctly', () => {
+      render(<BoardView />);
+
+      expect(screen.getByTestId('pending-count').textContent).toBe('2');
+      expect(screen.getByTestId('in_progress-count').textContent).toBe('1');
+      expect(screen.getByTestId('completed-count').textContent).toBe('1');
+    });
+
+    it('should default tasks without status to pending', () => {
+      useTaskContext.mockReturnValue({
+        ...defaultContextValue,
+        tasks: [{ id: 't1', title: 'No status task' }],
+      });
+
+      render(<BoardView />);
+
+      expect(screen.getByTestId('pending-count').textContent).toBe('1');
+    });
+  });
+
+  describe('Navigation', () => {
+    it('should call clearSelection when back button is clicked', () => {
+      render(<BoardView />);
+
+      const backButton = screen.getByTestId('icon-arrow-left').closest('button');
+      fireEvent.click(backButton);
+
+      expect(defaultContextValue.clearSelection).toHaveBeenCalled();
+    });
+
+    it('should call selectTask when task is clicked', () => {
+      render(<BoardView />);
+
+      fireEvent.click(screen.getByTestId('click-t1'));
+
+      expect(defaultContextValue.selectTask).toHaveBeenCalledWith(mockTasks[0]);
+    });
+
+    it('should call navigateToTaskEdit when edit is clicked', () => {
+      render(<BoardView />);
+
+      fireEvent.click(screen.getByTestId('edit-t2'));
+
+      expect(defaultContextValue.navigateToTaskEdit).toHaveBeenCalledWith(mockTasks[1]);
+    });
+  });
+
+  describe('New Task Button', () => {
+    it('should render New Task button', () => {
+      render(<BoardView />);
+
+      expect(screen.getByText('New Task')).toBeInTheDocument();
+    });
+
+    it('should open task form modal when clicked', () => {
+      render(<BoardView />);
+
+      expect(screen.queryByTestId('task-form-modal')).not.toBeInTheDocument();
+
+      fireEvent.click(screen.getByText('New Task'));
+
+      expect(screen.getByTestId('task-form-modal')).toBeInTheDocument();
+    });
+
+    it('should pass project name to task form', () => {
+      render(<BoardView />);
+
+      fireEvent.click(screen.getByText('New Task'));
+
+      expect(screen.getByTestId('project-name').textContent).toBe('Test Project');
+    });
+
+    it('should close task form modal when close is clicked', () => {
+      render(<BoardView />);
+
+      fireEvent.click(screen.getByText('New Task'));
+      expect(screen.getByTestId('task-form-modal')).toBeInTheDocument();
+
+      fireEvent.click(screen.getByTestId('close-modal'));
+      expect(screen.queryByTestId('task-form-modal')).not.toBeInTheDocument();
     });
   });
 
   describe('Task Creation', () => {
-    it('should require selected project to create task', () => {
-      const selectedProject = null;
-
-      const canCreateTask = selectedProject !== null;
-      expect(canCreateTask).toBe(false);
-    });
-
-    it('should allow task creation when project is selected', () => {
-      const selectedProject = { id: 'p1', name: 'Test Project' };
-
-      const canCreateTask = selectedProject !== null;
-      expect(canCreateTask).toBe(true);
-    });
-
-    it('should call createTask with correct parameters', () => {
+    it('should call createTask with correct parameters', async () => {
       const createTask = vi.fn().mockResolvedValue({ success: true, task: {} });
-      const selectedProject = { id: 'p1' };
-      const title = 'New Task';
-      const documentation = 'Task description';
-
-      createTask(selectedProject.id, title, documentation);
-
-      expect(createTask).toHaveBeenCalledWith('p1', 'New Task', 'Task description');
-    });
-
-    it('should close form on successful creation', async () => {
-      let showTaskForm = true;
-      const setShowTaskForm = (value) => {
-        showTaskForm = value;
-      };
-
-      const createTask = vi.fn().mockResolvedValue({ success: true });
-
-      const result = await createTask('p1', 'New Task');
-      if (result.success) {
-        setShowTaskForm(false);
-      }
-
-      expect(showTaskForm).toBe(false);
-    });
-  });
-
-  describe('Navigation Handlers', () => {
-    it('should call selectTask when task is clicked', () => {
-      const selectTask = vi.fn();
-      const task = { id: 't1', title: 'Test Task' };
-
-      selectTask(task);
-      expect(selectTask).toHaveBeenCalledWith(task);
-    });
-
-    it('should call navigateToTaskEdit when edit is clicked', () => {
-      const navigateToTaskEdit = vi.fn();
-      const task = { id: 't1', title: 'Test Task' };
-
-      navigateToTaskEdit(task);
-      expect(navigateToTaskEdit).toHaveBeenCalledWith(task);
-    });
-
-    it('should call clearSelection on back button click', () => {
-      const clearSelection = vi.fn();
-
-      clearSelection();
-      expect(clearSelection).toHaveBeenCalled();
-    });
-  });
-
-  describe('Task Data Loading', () => {
-    it('should fetch task documentation and conversation counts', async () => {
-      const mockGetDoc = vi.fn().mockResolvedValue({
-        ok: true,
-        json: () => Promise.resolve({ content: 'Task docs' })
+      useTaskContext.mockReturnValue({
+        ...defaultContextValue,
+        createTask,
       });
 
-      const mockListConversations = vi.fn().mockResolvedValue({
-        ok: true,
-        json: () => Promise.resolve({ conversations: [{}, {}, {}] })
+      render(<BoardView />);
+
+      fireEvent.click(screen.getByText('New Task'));
+      fireEvent.click(screen.getByTestId('submit-task'));
+
+      await waitFor(() => {
+        expect(createTask).toHaveBeenCalledWith('p1', 'New Task', 'Docs');
+      });
+    });
+
+    it('should close modal on successful task creation', async () => {
+      const createTask = vi.fn().mockResolvedValue({ success: true, task: {} });
+      useTaskContext.mockReturnValue({
+        ...defaultContextValue,
+        createTask,
       });
 
-      const docResponse = await mockGetDoc();
-      const convResponse = await mockListConversations();
+      render(<BoardView />);
 
-      expect(docResponse.ok).toBe(true);
-      expect(convResponse.ok).toBe(true);
-    });
+      fireEvent.click(screen.getByText('New Task'));
+      fireEvent.click(screen.getByTestId('submit-task'));
 
-    it('should handle failed documentation fetch', async () => {
-      const mockGetDoc = vi.fn().mockResolvedValue({
-        ok: false
-      });
-
-      const response = await mockGetDoc();
-      expect(response.ok).toBe(false);
-    });
-
-    it('should track loading state', () => {
-      let isLoadingTaskData = false;
-
-      const setIsLoadingTaskData = (value) => {
-        isLoadingTaskData = value;
-      };
-
-      expect(isLoadingTaskData).toBe(false);
-      setIsLoadingTaskData(true);
-      expect(isLoadingTaskData).toBe(true);
-      setIsLoadingTaskData(false);
-      expect(isLoadingTaskData).toBe(false);
-    });
-
-    it('should clear task data when tasks array is empty', () => {
-      const tasks = [];
-      const shouldClearData = tasks.length === 0;
-
-      expect(shouldClearData).toBe(true);
-    });
-  });
-
-  describe('Header Display', () => {
-    it('should display project name', () => {
-      const selectedProject = { id: 'p1', name: 'My Project', repo_folder_path: '/path/to/project' };
-
-      expect(selectedProject.name).toBe('My Project');
-    });
-
-    it('should display project path', () => {
-      const selectedProject = { id: 'p1', name: 'My Project', repo_folder_path: '/path/to/project' };
-
-      expect(selectedProject.repo_folder_path).toBe('/path/to/project');
-    });
-  });
-
-  describe('Null Project Handling', () => {
-    it('should return null when no project is selected', () => {
-      const selectedProject = null;
-
-      const shouldRender = selectedProject !== null;
-      expect(shouldRender).toBe(false);
-    });
-
-    it('should render when project is selected', () => {
-      const selectedProject = { id: 'p1', name: 'My Project' };
-
-      const shouldRender = selectedProject !== null;
-      expect(shouldRender).toBe(true);
-    });
-  });
-
-  describe('Responsive Layout Classes', () => {
-    it('should have mobile horizontal scroll classes', () => {
-      const mobileClasses = [
-        'flex',
-        'gap-4',
-        'p-4',
-        'overflow-x-auto',
-        '[scroll-snap-type:x_mandatory]',
-        '[-webkit-overflow-scrolling:touch]',
-        'scrollbar-hide'
-      ];
-
-      expect(mobileClasses).toContain('overflow-x-auto');
-      expect(mobileClasses).toContain('[scroll-snap-type:x_mandatory]');
-    });
-
-    it('should have desktop grid classes', () => {
-      const desktopClasses = [
-        'md:grid',
-        'md:grid-cols-3',
-        'md:overflow-visible',
-        'md:[scroll-snap-type:none]'
-      ];
-
-      desktopClasses.forEach((cls) => {
-        expect(cls.startsWith('md:')).toBe(true);
+      await waitFor(() => {
+        expect(screen.queryByTestId('task-form-modal')).not.toBeInTheDocument();
       });
     });
   });
 
-  describe('Loading State Display', () => {
+  describe('Loading States', () => {
     it('should show loading overlay when tasks are loading', () => {
-      const isLoadingTasks = true;
-      const isLoadingTaskData = false;
+      useTaskContext.mockReturnValue({
+        ...defaultContextValue,
+        isLoadingTasks: true,
+      });
 
-      const showLoading = isLoadingTasks || isLoadingTaskData;
-      expect(showLoading).toBe(true);
+      render(<BoardView />);
+
+      expect(screen.getByText('Loading tasks...')).toBeInTheDocument();
+    });
+  });
+
+  describe('API Integration', () => {
+    it('should fetch task documentation on mount', async () => {
+      render(<BoardView />);
+
+      await waitFor(() => {
+        expect(api.tasks.getDoc).toHaveBeenCalledWith('t1');
+        expect(api.tasks.getDoc).toHaveBeenCalledWith('t2');
+        expect(api.tasks.getDoc).toHaveBeenCalledWith('t3');
+        expect(api.tasks.getDoc).toHaveBeenCalledWith('t4');
+      });
     });
 
-    it('should show loading overlay when task data is loading', () => {
-      const isLoadingTasks = false;
-      const isLoadingTaskData = true;
+    it('should fetch conversation counts on mount', async () => {
+      render(<BoardView />);
 
-      const showLoading = isLoadingTasks || isLoadingTaskData;
-      expect(showLoading).toBe(true);
+      await waitFor(() => {
+        expect(api.conversations.list).toHaveBeenCalledWith('t1');
+        expect(api.conversations.list).toHaveBeenCalledWith('t2');
+        expect(api.conversations.list).toHaveBeenCalledWith('t3');
+        expect(api.conversations.list).toHaveBeenCalledWith('t4');
+      });
     });
 
-    it('should hide loading overlay when nothing is loading', () => {
-      const isLoadingTasks = false;
-      const isLoadingTaskData = false;
+    it('should handle API errors gracefully', async () => {
+      api.tasks.getDoc.mockResolvedValue({ ok: false });
+      api.conversations.list.mockResolvedValue({ ok: false });
 
-      const showLoading = isLoadingTasks || isLoadingTaskData;
-      expect(showLoading).toBe(false);
+      // Should not throw
+      render(<BoardView />);
+
+      await waitFor(() => {
+        expect(api.tasks.getDoc).toHaveBeenCalled();
+      });
+
+      // Should still render
+      expect(screen.getByText('Test Project')).toBeInTheDocument();
+    });
+  });
+
+  describe('Custom ClassName', () => {
+    it('should apply custom className', () => {
+      const { container } = render(<BoardView className="custom-class" />);
+
+      expect(container.firstChild.className).toContain('custom-class');
     });
   });
 });

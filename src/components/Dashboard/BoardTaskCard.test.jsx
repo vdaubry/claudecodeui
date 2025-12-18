@@ -1,215 +1,224 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { render, screen, fireEvent } from '@testing-library/react';
+import BoardTaskCard from './BoardTaskCard';
 
-describe('BoardTaskCard Logic', () => {
-  // Helper function to extract preview (same as in component)
-  function extractPreview(markdown, maxLength = 60) {
-    if (!markdown) return '';
+// Mock lucide-react icons
+vi.mock('lucide-react', () => ({
+  MessageSquare: () => <span data-testid="icon-message-square" />,
+  FileText: () => <span data-testid="icon-file-text" />,
+  Pencil: () => <span data-testid="icon-pencil" />,
+}));
 
-    let text = markdown
-      .replace(/```[\s\S]*?```/g, '')
-      .replace(/`[^`]+`/g, '')
-      .replace(/^#{1,6}\s+/gm, '')
-      .replace(/!\[.*?\]\(.*?\)/g, '')
-      .replace(/\[([^\]]+)\]\(.*?\)/g, '$1')
-      .replace(/\*\*([^*]+)\*\*/g, '$1')
-      .replace(/\*([^*]+)\*/g, '$1')
-      .replace(/__([^_]+)__/g, '$1')
-      .replace(/_([^_]+)_/g, '$1')
-      .replace(/^>\s+/gm, '')
-      .replace(/^---+$/gm, '')
-      .replace(/^[\s]*[-*+]\s+/gm, '')
-      .replace(/^[\s]*\d+\.\s+/gm, '')
-      .replace(/\n+/g, ' ')
-      .replace(/\s+/g, ' ')
-      .trim();
+describe('BoardTaskCard Component', () => {
+  const mockTask = {
+    id: 't1',
+    title: 'Test Task',
+  };
 
-    if (text.length > maxLength) {
-      text = text.substring(0, maxLength).trim() + '...';
-    }
+  const defaultProps = {
+    task: mockTask,
+    isLive: false,
+    conversationCount: 0,
+    docPreview: '',
+    onClick: vi.fn(),
+    onEditClick: vi.fn(),
+  };
 
-    return text;
-  }
-
-  describe('Preview Text Extraction', () => {
-    it('should return empty string for empty markdown', () => {
-      expect(extractPreview('')).toBe('');
-      expect(extractPreview(null)).toBe('');
-      expect(extractPreview(undefined)).toBe('');
-    });
-
-    it('should extract plain text from simple markdown', () => {
-      const markdown = 'This is a simple task description.';
-      expect(extractPreview(markdown)).toBe('This is a simple task description.');
-    });
-
-    it('should remove markdown headers', () => {
-      const markdown = '# Header\nSome content';
-      expect(extractPreview(markdown)).toBe('Header Some content');
-    });
-
-    it('should remove code blocks', () => {
-      const markdown = 'Before ```code``` after';
-      expect(extractPreview(markdown)).toBe('Before after');
-    });
-
-    it('should remove inline code', () => {
-      const markdown = 'Use `npm install` to install';
-      expect(extractPreview(markdown)).toBe('Use to install');
-    });
-
-    it('should preserve link text but remove URL', () => {
-      const markdown = 'Click [here](https://example.com) for more';
-      expect(extractPreview(markdown)).toBe('Click here for more');
-    });
-
-    it('should remove images', () => {
-      const markdown = 'See this ![alt](image.png) picture';
-      expect(extractPreview(markdown)).toBe('See this picture');
-    });
-
-    it('should remove bold formatting', () => {
-      const markdown = 'This is **bold** text';
-      expect(extractPreview(markdown)).toBe('This is bold text');
-    });
-
-    it('should remove italic formatting', () => {
-      const markdown = 'This is *italic* text';
-      expect(extractPreview(markdown)).toBe('This is italic text');
-    });
-
-    it('should truncate long text with ellipsis', () => {
-      const markdown = 'A'.repeat(100);
-      const preview = extractPreview(markdown, 60);
-      expect(preview.length).toBeLessThanOrEqual(63); // 60 + "..."
-      expect(preview.endsWith('...')).toBe(true);
-    });
-
-    it('should not truncate short text', () => {
-      const markdown = 'Short text';
-      const preview = extractPreview(markdown, 60);
-      expect(preview).toBe('Short text');
-      expect(preview.endsWith('...')).toBe(false);
-    });
+  beforeEach(() => {
+    vi.clearAllMocks();
   });
 
-  describe('Task Title Display', () => {
-    it('should use task title when provided', () => {
-      const task = { id: 't1', title: 'Implement feature X' };
-      expect(task.title).toBe('Implement feature X');
+  describe('Rendering', () => {
+    it('should render task title', () => {
+      render(<BoardTaskCard {...defaultProps} />);
+
+      expect(screen.getByText('Test Task')).toBeInTheDocument();
     });
 
-    it('should fallback to Task ID when title is missing', () => {
-      const task = { id: 't1' };
-      const displayTitle = task.title || `Task ${task.id}`;
-      expect(displayTitle).toBe('Task t1');
+    it('should render fallback title when title is missing', () => {
+      render(<BoardTaskCard {...defaultProps} task={{ id: 't1' }} />);
+
+      expect(screen.getByText('Task t1')).toBeInTheDocument();
+    });
+
+    it('should render with correct data-testid', () => {
+      render(<BoardTaskCard {...defaultProps} />);
+
+      expect(screen.getByTestId('board-task-card-t1')).toBeInTheDocument();
     });
   });
 
   describe('Live Indicator', () => {
     it('should show live indicator when isLive is true', () => {
-      const isLive = true;
-      expect(isLive).toBe(true);
-      // Component would show pulsing red dot
+      render(<BoardTaskCard {...defaultProps} isLive={true} />);
+
+      // Live indicator has a pulsing animation
+      const card = screen.getByTestId('board-task-card-t1');
+      const pulsingElement = card.querySelector('.animate-ping');
+      expect(pulsingElement).toBeInTheDocument();
     });
 
     it('should not show live indicator when isLive is false', () => {
-      const isLive = false;
-      expect(isLive).toBe(false);
+      render(<BoardTaskCard {...defaultProps} isLive={false} />);
+
+      const card = screen.getByTestId('board-task-card-t1');
+      const pulsingElement = card.querySelector('.animate-ping');
+      expect(pulsingElement).not.toBeInTheDocument();
+    });
+
+    it('should apply live border styling when isLive is true', () => {
+      render(<BoardTaskCard {...defaultProps} isLive={true} />);
+
+      const card = screen.getByTestId('board-task-card-t1');
+      expect(card.className).toContain('border-red-500');
     });
   });
 
-  describe('Conversation Count Display', () => {
-    it('should show conversation count when greater than 0', () => {
-      const conversationCount = 5;
-      const showCount = conversationCount > 0;
-      expect(showCount).toBe(true);
+  describe('Conversation Count', () => {
+    it('should not show conversation count when count is 0', () => {
+      render(<BoardTaskCard {...defaultProps} conversationCount={0} />);
+
+      expect(screen.queryByText(/conversation/)).not.toBeInTheDocument();
     });
 
-    it('should not show conversation count when 0', () => {
-      const conversationCount = 0;
-      const showCount = conversationCount > 0;
-      expect(showCount).toBe(false);
+    it('should show singular conversation text for count of 1', () => {
+      render(<BoardTaskCard {...defaultProps} conversationCount={1} />);
+
+      expect(screen.getByText('1 conversation')).toBeInTheDocument();
     });
 
-    it('should format singular conversation correctly', () => {
-      const count = 1;
-      const label = `${count} conversation${count !== 1 ? 's' : ''}`;
-      expect(label).toBe('1 conversation');
+    it('should show plural conversations text for count greater than 1', () => {
+      render(<BoardTaskCard {...defaultProps} conversationCount={3} />);
+
+      expect(screen.getByText('3 conversations')).toBeInTheDocument();
     });
 
-    it('should format plural conversations correctly', () => {
-      const count = 3;
-      const label = `${count} conversation${count !== 1 ? 's' : ''}`;
-      expect(label).toBe('3 conversations');
+    it('should show message icon when conversation count is shown', () => {
+      render(<BoardTaskCard {...defaultProps} conversationCount={2} />);
+
+      expect(screen.getByTestId('icon-message-square')).toBeInTheDocument();
+    });
+  });
+
+  describe('Documentation Preview', () => {
+    it('should not show preview when docPreview is empty', () => {
+      render(<BoardTaskCard {...defaultProps} docPreview="" />);
+
+      expect(screen.queryByTestId('icon-file-text')).not.toBeInTheDocument();
+    });
+
+    it('should show preview text when docPreview is provided', () => {
+      render(<BoardTaskCard {...defaultProps} docPreview="This is documentation" />);
+
+      expect(screen.getByText('This is documentation')).toBeInTheDocument();
+      expect(screen.getByTestId('icon-file-text')).toBeInTheDocument();
+    });
+
+    it('should strip markdown formatting from preview', () => {
+      render(<BoardTaskCard {...defaultProps} docPreview="This is **bold** text" />);
+
+      expect(screen.getByText('This is bold text')).toBeInTheDocument();
+    });
+
+    it('should truncate long preview text with ellipsis', () => {
+      const longText = 'A'.repeat(100);
+      render(<BoardTaskCard {...defaultProps} docPreview={longText} />);
+
+      const previewText = screen.getByText(/A+\.\.\./);
+      expect(previewText).toBeInTheDocument();
+    });
+
+    it('should remove markdown headers', () => {
+      render(<BoardTaskCard {...defaultProps} docPreview="# Task Documentation" />);
+
+      expect(screen.getByText('Task Documentation')).toBeInTheDocument();
+    });
+
+    it('should remove code blocks', () => {
+      render(<BoardTaskCard {...defaultProps} docPreview="Before ```code``` after" />);
+
+      expect(screen.getByText('Before after')).toBeInTheDocument();
+    });
+
+    it('should preserve link text but remove URL', () => {
+      render(<BoardTaskCard {...defaultProps} docPreview="Click [here](https://example.com)" />);
+
+      expect(screen.getByText('Click here')).toBeInTheDocument();
     });
   });
 
   describe('Click Handlers', () => {
     it('should call onClick with task when card is clicked', () => {
-      const onClick = vi.fn();
-      const task = { id: 't1', title: 'Test Task' };
+      render(<BoardTaskCard {...defaultProps} />);
 
-      onClick(task);
-      expect(onClick).toHaveBeenCalledWith(task);
-      expect(onClick).toHaveBeenCalledTimes(1);
+      fireEvent.click(screen.getByTestId('board-task-card-t1'));
+
+      expect(defaultProps.onClick).toHaveBeenCalledWith(mockTask);
+      expect(defaultProps.onClick).toHaveBeenCalledTimes(1);
     });
 
     it('should call onEditClick with task when edit button is clicked', () => {
-      const onEditClick = vi.fn();
-      const task = { id: 't1', title: 'Test Task' };
+      render(<BoardTaskCard {...defaultProps} />);
 
-      onEditClick(task);
-      expect(onEditClick).toHaveBeenCalledWith(task);
+      const editButton = screen.getByTestId('icon-pencil').closest('button');
+      fireEvent.click(editButton);
+
+      expect(defaultProps.onEditClick).toHaveBeenCalledWith(mockTask);
     });
 
-    it('should stop propagation on edit click to prevent card click', () => {
-      const stopPropagation = vi.fn();
-      const event = { stopPropagation };
+    it('should stop propagation on edit click', () => {
+      render(<BoardTaskCard {...defaultProps} />);
 
-      const handleEditClick = (e) => {
-        e.stopPropagation();
-      };
+      const editButton = screen.getByTestId('icon-pencil').closest('button');
+      fireEvent.click(editButton);
 
-      handleEditClick(event);
-      expect(stopPropagation).toHaveBeenCalled();
+      // onClick should not be called because stopPropagation is called
+      expect(defaultProps.onClick).not.toHaveBeenCalled();
     });
   });
 
   describe('Keyboard Navigation', () => {
-    it('should trigger click on Enter key', () => {
-      const key = 'Enter';
-      const shouldTrigger = key === 'Enter' || key === ' ';
-      expect(shouldTrigger).toBe(true);
+    it('should call onClick when Enter key is pressed', () => {
+      render(<BoardTaskCard {...defaultProps} />);
+
+      const card = screen.getByTestId('board-task-card-t1');
+      fireEvent.keyDown(card, { key: 'Enter' });
+
+      expect(defaultProps.onClick).toHaveBeenCalledWith(mockTask);
     });
 
-    it('should trigger click on Space key', () => {
-      const key = ' ';
-      const shouldTrigger = key === 'Enter' || key === ' ';
-      expect(shouldTrigger).toBe(true);
+    it('should call onClick when Space key is pressed', () => {
+      render(<BoardTaskCard {...defaultProps} />);
+
+      const card = screen.getByTestId('board-task-card-t1');
+      fireEvent.keyDown(card, { key: ' ' });
+
+      expect(defaultProps.onClick).toHaveBeenCalledWith(mockTask);
     });
 
-    it('should not trigger click on other keys', () => {
-      const key = 'Tab';
-      const shouldTrigger = key === 'Enter' || key === ' ';
-      expect(shouldTrigger).toBe(false);
+    it('should not call onClick for other keys', () => {
+      render(<BoardTaskCard {...defaultProps} />);
+
+      const card = screen.getByTestId('board-task-card-t1');
+      fireEvent.keyDown(card, { key: 'Tab' });
+
+      expect(defaultProps.onClick).not.toHaveBeenCalled();
     });
   });
 
-  describe('Border Styling', () => {
-    it('should apply live border styling when live', () => {
-      const isLive = true;
-      const borderClass = isLive
-        ? 'border-red-500/50 shadow-[0_0_10px_rgba(239,68,68,0.1)]'
-        : 'border-border hover:border-primary/30';
-      expect(borderClass).toContain('border-red-500');
+  describe('Accessibility', () => {
+    it('should have role="button"', () => {
+      render(<BoardTaskCard {...defaultProps} />);
+
+      const card = screen.getByTestId('board-task-card-t1');
+      expect(card).toHaveAttribute('role', 'button');
     });
 
-    it('should apply default border styling when not live', () => {
-      const isLive = false;
-      const borderClass = isLive
-        ? 'border-red-500/50 shadow-[0_0_10px_rgba(239,68,68,0.1)]'
-        : 'border-border hover:border-primary/30';
-      expect(borderClass).toContain('border-border');
+    it('should have tabIndex=0 for keyboard focus', () => {
+      render(<BoardTaskCard {...defaultProps} />);
+
+      const card = screen.getByTestId('board-task-card-t1');
+      expect(card).toHaveAttribute('tabIndex', '0');
     });
   });
 });
