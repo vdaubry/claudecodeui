@@ -63,6 +63,7 @@ import userRoutes from './routes/user.js';
 import projectsRoutes from './routes/projects.js';
 import tasksRoutes from './routes/tasks.js';
 import conversationsRoutes from './routes/conversations.js';
+import agentRunsRoutes from './routes/agent-runs.js';
 import { initializeDatabase, projectsDb, tasksDb, conversationsDb } from './database/db.js';
 import { buildContextPrompt } from './services/documentation.js';
 import { transcribeAudio } from './services/transcription.js';
@@ -178,6 +179,7 @@ app.use('/api/user', authenticateToken, userRoutes);
 app.use('/api/projects', authenticateToken, projectsRoutes);
 app.use('/api', authenticateToken, tasksRoutes);
 app.use('/api', authenticateToken, conversationsRoutes);
+app.use('/api', authenticateToken, agentRunsRoutes);
 
 // Get active streaming sessions (for Dashboard live indicator)
 app.get('/api/streaming-sessions', authenticateToken, (req, res) => {

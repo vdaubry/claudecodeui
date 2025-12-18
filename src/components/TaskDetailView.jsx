@@ -8,12 +8,13 @@
  * - Conversation history with +/Resume buttons
  */
 
-import React, { useState } from 'react';
+import React, { useState, useCallback } from 'react';
 import { FileText, ArrowLeft, ChevronDown, Check } from 'lucide-react';
 import { Button } from './ui/button';
 import Breadcrumb from './Breadcrumb';
 import MarkdownEditor from './MarkdownEditor';
 import ConversationList from './ConversationList';
+import AgentSection from './AgentSection';
 import { cn } from '../lib/utils';
 
 // Status configuration
@@ -31,6 +32,11 @@ function TaskDetailView({
   activeConversationId,
   isLoadingDoc = false,
   isLoadingConversations = false,
+  // Agent runs props
+  agentRuns = [],
+  isLoadingAgentRuns = false,
+  onRunAgent,
+  // Callbacks
   onBack,
   onProjectClick,
   onHomeClick,
@@ -59,6 +65,15 @@ function TaskDetailView({
       setIsUpdatingStatus(false);
     }
   };
+
+  // Handle resuming an agent's linked conversation
+  const handleResumeAgent = useCallback((conversationId) => {
+    if (!conversationId || !onResumeConversation) return;
+    const conversation = conversations.find(c => c.id === conversationId);
+    if (conversation) {
+      onResumeConversation(conversation);
+    }
+  }, [conversations, onResumeConversation]);
 
   return (
     <div className={cn('h-full flex flex-col', className)}>
@@ -163,14 +178,21 @@ function TaskDetailView({
           />
         </div>
 
-        {/* Right panel - Documentation */}
+        {/* Right panel - Documentation and Agents */}
         <div className="flex-1 flex flex-col min-h-0">
           <MarkdownEditor
             content={taskDoc}
             onSave={onSaveTaskDoc}
             isLoading={isLoadingDoc}
             placeholder="No task documentation yet. Click Edit to describe what needs to be done."
-            className="h-full"
+            className="flex-1 min-h-0"
+          />
+          <AgentSection
+            agentRuns={agentRuns}
+            isLoading={isLoadingAgentRuns}
+            onRunAgent={onRunAgent}
+            onResumeAgent={handleResumeAgent}
+            taskId={task.id}
           />
         </div>
       </div>

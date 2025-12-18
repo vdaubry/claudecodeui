@@ -72,6 +72,9 @@ const MessageInput = memo(function MessageInput({
   variant = 'chat', // 'chat' | 'modal'
   // Collapsible behavior props
   isScrolling = false, // Signal from parent when user is scrolling
+  // Plan completion props (for agent runs)
+  agentRunId = null,
+  onCompletePlan,
 }) {
   // Get connection state and manual reconnect from WebSocket context
   const { connectionState, manualReconnect } = useWebSocket();
@@ -431,6 +434,23 @@ const MessageInput = memo(function MessageInput({
             </span>
           </div>
         </button>
+
+        {/* Complete Plan Button - shown for agent run conversations */}
+        {agentRunId && onCompletePlan && (
+          <button
+            type="button"
+            onClick={() => onCompletePlan(agentRunId)}
+            className="px-3 py-1.5 rounded-lg text-sm font-medium bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-300 border border-green-300 dark:border-green-600 hover:bg-green-100 dark:hover:bg-green-900/30 transition-all duration-200"
+            title="Mark plan as complete and return to task"
+          >
+            <div className="flex items-center gap-2">
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+              </svg>
+              <span>Complete Plan</span>
+            </div>
+          </button>
+        )}
 
         {/* Token Usage Pie - conditional based on showTokenUsage prop */}
         {showTokenUsage && (

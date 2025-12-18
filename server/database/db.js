@@ -88,6 +88,29 @@ const runMigrations = () => {
       db.exec('CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status)');
     }
 
+    // Task Agent Runs table migration (for existing databases)
+    try {
+      db.prepare("SELECT 1 FROM task_agent_runs LIMIT 1").get();
+    } catch (e) {
+      if (e.message.includes('no such table')) {
+        console.log('Running migration: Creating task_agent_runs table');
+        db.exec(`
+          CREATE TABLE IF NOT EXISTS task_agent_runs (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              task_id INTEGER NOT NULL,
+              agent_type TEXT NOT NULL CHECK(agent_type IN ('planification', 'implementation', 'review')),
+              status TEXT DEFAULT 'pending' CHECK(status IN ('pending', 'running', 'completed', 'failed')),
+              conversation_id INTEGER,
+              created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+              completed_at DATETIME,
+              FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE,
+              FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE SET NULL
+          );
+          CREATE INDEX IF NOT EXISTS idx_task_agent_runs_task_id ON task_agent_runs(task_id);
+        `);
+      }
+    }
+
     console.log('Database migrations completed successfully');
   } catch (error) {
     console.error('Error running migrations:', error.message);
@@ -474,11 +497,131 @@ const conversationsDb = {
   }
 };
 
+// Agent Runs database operations
+const agentRunsDb = {
+  // Create a new agent run
+  create: (taskId, agentType, conversationId = null) => {
+    try {
+      const stmt = db.prepare(`
+        INSERT INTO task_agent_runs (task_id, agent_type, status, conversation_id)
+        VALUES (?, ?, 'running', ?)
+      `);
+      const result = stmt.run(taskId, agentType, conversationId);
+      return {
+        id: result.lastInsertRowid,
+        task_id: taskId,
+        agent_type: agentType,
+        status: 'running',
+        conversation_id: conversationId,
+        created_at: new Date().toISOString(),
+        completed_at: null
+      };
+    } catch (err) {
+      throw err;
+    }
+  },
+
+  // Get all agent runs for a task
+  getByTask: (taskId) => {
+    try {
+      const rows = db.prepare(`
+        SELECT * FROM task_agent_runs
+        WHERE task_id = ?
+        ORDER BY created_at DESC
+      `).all(taskId);
+      return rows;
+    } catch (err) {
+      throw err;
+    }
+  },
+
+  // Get agent run by ID
+  getById: (id) => {
+    try {
+      const row = db.prepare('SELECT * FROM task_agent_runs WHERE id = ?').get(id);
+      return row;
+    } catch (err) {
+      throw err;
+    }
+  },
+
+  // Get specific agent run for a task by type (most recent)
+  getByTaskAndType: (taskId, agentType) => {
+    try {
+      const row = db.prepare(`
+        SELECT * FROM task_agent_runs
+        WHERE task_id = ? AND agent_type = ?
+        ORDER BY created_at DESC
+        LIMIT 1
+      `).get(taskId, agentType);
+      return row;
+    } catch (err) {
+      throw err;
+    }
+  },
+
+  // Update agent run status
+  updateStatus: (id, status) => {
+    try {
+      const validStatuses = ['pending', 'running', 'completed', 'failed'];
+      if (!validStatuses.includes(status)) {
+        throw new Error(`Invalid status: ${status}. Must be one of: ${validStatuses.join(', ')}`);
+      }
+
+      let stmt;
+      if (status === 'completed') {
+        stmt = db.prepare(`
+          UPDATE task_agent_runs
+          SET status = ?, completed_at = CURRENT_TIMESTAMP
+          WHERE id = ?
+        `);
+      } else {
+        stmt = db.prepare(`
+          UPDATE task_agent_runs
+          SET status = ?, completed_at = NULL
+          WHERE id = ?
+        `);
+      }
+      stmt.run(status, id);
+      return agentRunsDb.getById(id);
+    } catch (err) {
+      throw err;
+    }
+  },
+
+  // Link conversation to agent run
+  linkConversation: (id, conversationId) => {
+    try {
+      const stmt = db.prepare(`
+        UPDATE task_agent_runs
+        SET conversation_id = ?
+        WHERE id = ?
+      `);
+      stmt.run(conversationId, id);
+      return agentRunsDb.getById(id);
+    } catch (err) {
+      throw err;
+    }
+  },
+
+  // Delete agent run
+  delete: (id) => {
+    try {
+      const stmt = db.prepare('DELETE FROM task_agent_runs WHERE id = ?');
+      const result = stmt.run(id);
+      return result.changes > 0;
+    } catch (err) {
+      throw err;
+    }
+  }
+};
+
 export {
   db,
   initializeDatabase,
   userDb,
   projectsDb,
   tasksDb,
-  conversationsDb
+  conversationsDb,
+  agentRunsDb
 };

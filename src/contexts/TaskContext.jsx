@@ -64,6 +64,10 @@ export function TaskContextProvider({ children }) {
   const [isLoadingProjectDoc, setIsLoadingProjectDoc] = useState(false);
   const [isLoadingTaskDoc, setIsLoadingTaskDoc] = useState(false);
 
+  // Agent runs state (for automated agent workflows)
+  const [agentRuns, setAgentRuns] = useState([]);
+  const [isLoadingAgentRuns, setIsLoadingAgentRuns] = useState(false);
+
   // Current view state - derived from selection and edit mode
   // Possible values: 'empty', 'board', 'task-detail', 'chat', 'project-edit', 'task-edit'
   const getCurrentView = useCallback(() => {
@@ -341,6 +345,80 @@ export function TaskContextProvider({ children }) {
     }
   }, []);
 
+  // ========== Agent Runs API ==========
+
+  const loadAgentRuns = useCallback(async (taskId) => {
+    if (!taskId) {
+      setAgentRuns([]);
+      return;
+    }
+    setIsLoadingAgentRuns(true);
+    try {
+      const response = await api.agentRuns.list(taskId);
+      if (response.ok) {
+        const data = await response.json();
+        setAgentRuns(data);
+      } else {
+        setAgentRuns([]);
+      }
+    } catch (error) {
+      console.error('Error loading agent runs:', error);
+      setAgentRuns([]);
+    } finally {
+      setIsLoadingAgentRuns(false);
+    }
+  }, []);
+
+  const createAgentRun = useCallback(async (taskId, agentType) => {
+    try {
+      const response = await api.agentRuns.create(taskId, agentType);
+      if (response.ok) {
+        const agentRun = await response.json();
+        setAgentRuns(prev => [agentRun, ...prev.filter(r => r.agent_type !== agentType)]);
+        return { success: true, agentRun };
+      } else {
+        const error = await response.json();
+        return { success: false, error: error.error || 'Failed to create agent run' };
+      }
+    } catch (error) {
+      console.error('Error creating agent run:', error);
+      return { success: false, error: error.message };
+    }
+  }, []);
+
+  const completeAgentRun = useCallback(async (agentRunId) => {
+    try {
+      const response = await api.agentRuns.complete(agentRunId);
+      if (response.ok) {
+        const updated = await response.json();
+        setAgentRuns(prev => prev.map(r => r.id === agentRunId ? updated : r));
+        return { success: true, agentRun: updated };
+      } else {
+        const error = await response.json();
+        return { success: false, error: error.error || 'Failed to complete agent run' };
+      }
+    } catch (error) {
+      console.error('Error completing agent run:', error);
+      return { success: false, error: error.message };
+    }
+  }, []);
+
+  const linkAgentRunConversation = useCallback(async (agentRunId, conversationId) => {
+    try {
+      const response = await api.agentRuns.linkConversation(agentRunId, conversationId);
+      if (response.ok) {
+        const updated = await response.json();
+        setAgentRuns(prev => prev.map(r => r.id === agentRunId ? updated : r));
+        return { success: true };
+      } else {
+        return { success: false };
+      }
+    } catch (error) {
+      console.error('Error linking conversation to agent run:', error);
+      return { success: false, error: error.message };
+    }
+  }, []);
+
   // ========== Conversations API ==========
 
   const loadConversations = useCallback(async (taskId) => {
@@ -428,15 +506,17 @@ export function TaskContextProvider({ children }) {
     setActiveConversation(null);
     setConversations([]);
     setTaskDoc('');
+    setAgentRuns([]);
 
     if (task) {
-      // Load conversations and task documentation in parallel
+      // Load conversations, task documentation, and agent runs in parallel
       await Promise.all([
         loadConversations(task.id),
-        loadTaskDoc(task.id)
+        loadTaskDoc(task.id),
+        loadAgentRuns(task.id)
       ]);
     }
-  }, [loadConversations, loadTaskDoc]);
+  }, [loadConversations, loadTaskDoc, loadAgentRuns]);
 
   const selectConversation = useCallback((conversation) => {
     setActiveConversation(conversation);
@@ -449,6 +529,7 @@ export function TaskContextProvider({ children }) {
       setSelectedTask(null);
       setConversations([]);
       setTaskDoc('');
+      setAgentRuns([]);
     } else if (selectedProject) {
       setSelectedProject(null);
       setTasks([]);
@@ -467,6 +548,7 @@ export function TaskContextProvider({ children }) {
     setConversations([]);
     setProjectDoc('');
     setTaskDoc('');
+    setAgentRuns([]);
   }, []);
 
   // ========== Board Navigation ==========
@@ -480,6 +562,7 @@ export function TaskContextProvider({ children }) {
     setSelectedProject(project);
     setConversations([]);
     setTaskDoc('');
+    setAgentRuns([]);
 
     if (project) {
       // Load tasks and project documentation in parallel
@@ -616,6 +699,14 @@ export function TaskContextProvider({ children }) {
     isLoadingTaskDoc,
     loadTaskDoc,
     saveTaskDoc,
+
+    // Agent Runs
+    agentRuns,
+    isLoadingAgentRuns,
+    loadAgentRuns,
+    createAgentRun,
+    completeAgentRun,
+    linkAgentRunConversation,
 
     // Conversations
     conversations,

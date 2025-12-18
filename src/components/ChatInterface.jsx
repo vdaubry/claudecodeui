@@ -15,6 +15,7 @@ import MessageComponent from './MessageComponent.jsx';
 import CommandMenu from './CommandMenu';
 import { api, authenticatedFetch } from '../utils/api';
 import { useWebSocket } from '../contexts/WebSocketContext';
+import { useTaskContext } from '../contexts/TaskContext';
 import { useSlashCommands } from '../hooks/useSlashCommands';
 import { useSessionStreaming } from '../hooks/useSessionStreaming';
 
@@ -90,14 +91,54 @@ function ChatInterface({
   onShowSettings,
   autoExpandTools,
   showRawParameters,
-  showThinking
+  showThinking,
+  onCompletePlan
 }) {
   const [sessionMessages, setSessionMessages] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
   const [input, setInput] = useState('');
 
-  // Permission mode state
-  const [permissionMode, setPermissionMode] = useState('bypassPermissions');
+  // Get agent runs from context to check if current conversation is linked to one
+  const { agentRuns } = useTaskContext();
+
+  // Find agent run linked to current conversation (by conversation_id or __agentRunId)
+  // Show "Complete Plan" button only if the agent run is NOT completed
+  const linkedAgentRun = useMemo(() => {
+    if (!activeConversation) return null;
+
+    // First check the ephemeral __agentRunId (set when conversation is first created)
+    const ephemeralId = activeConversation.__agentRunId;
+    if (ephemeralId) {
+      const run = agentRuns.find(r => r.id === ephemeralId);
+      if (run && run.status !== 'completed') return run;
+    }
+
+    // Then check by conversation_id (works for resumed conversations)
+    const runByConvId = agentRuns.find(r => r.conversation_id === activeConversation.id);
+    if (runByConvId && runByConvId.status !== 'completed') return runByConvId;
+
+    return null;
+  }, [activeConversation, agentRuns]);
+
+  // Only pass agentRunId if agent run is not completed
+  const agentRunId = linkedAgentRun?.id || null;
+  const initialPermissionMode = activeConversation?.__permissionMode;
+
+  // Permission mode state - initialize from conversation if it's an agent run
+  const [permissionMode, setPermissionMode] = useState(
+    initialPermissionMode || 'bypassPermissions'
+  );
+
+  // Update permission mode when activeConversation changes (for agent runs)
+  // Include conversation id to ensure we reset when switching conversations
+  useEffect(() => {
+    if (initialPermissionMode) {
+      setPermissionMode(initialPermissionMode);
+    } else {
+      // Reset to default when switching to a non-agent conversation
+      setPermissionMode('bypassPermissions');
+    }
+  }, [activeConversation?.id, initialPermissionMode]);
 
   // Token usage state (will be populated from backend responses)
   const [tokenBudget, setTokenBudget] = useState(null);
@@ -334,14 +375,19 @@ function ChatInterface({
   }, [activeConversation?.id]);
 
   // Load permission mode when conversation changes
+  // Note: Agent run permission mode is handled by the useEffect above (initialPermissionMode)
+  // This effect only handles loading from localStorage for regular conversations
   useEffect(() => {
+    // Skip if this is an agent run conversation (handled by initialPermissionMode useEffect)
+    if (initialPermissionMode) return;
+
     if (activeConversation?.id) {
       const savedMode = localStorage.getItem(`permissionMode-conv-${activeConversation.id}`);
       setPermissionMode(savedMode || 'bypassPermissions');
     } else {
       setPermissionMode('bypassPermissions');
     }
-  }, [activeConversation?.id]);
+  }, [activeConversation?.id, initialPermissionMode]);
 
   // Reset token budget when conversation changes (token tracking not available in new API)
   useEffect(() => {
@@ -672,6 +718,9 @@ function ChatInterface({
         onCommandSelect={handleCommandSelect}
         onCloseCommandMenu={handleCloseCommandMenu}
         isScrolling={isScrolling}
+        // Plan completion props
+        agentRunId={agentRunId}
+        onCompletePlan={onCompletePlan}
       />
 
       {/* Command Menu - positioned above input */}
