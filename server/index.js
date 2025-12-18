@@ -58,11 +58,7 @@ import mime from 'mime-types';
 
 import { queryClaudeSDK, abortClaudeSDKSession, isClaudeSDKSessionActive, getActiveClaudeSDKSessions } from './claude-sdk.js';
 import authRoutes from './routes/auth.js';
-import mcpRoutes from './routes/mcp.js';
 import commandsRoutes from './routes/commands.js';
-import settingsRoutes from './routes/settings.js';
-import agentRoutes from './routes/agent.js';
-import cliAuthRoutes from './routes/cli-auth.js';
 import userRoutes from './routes/user.js';
 import projectsRoutes from './routes/projects.js';
 import tasksRoutes from './routes/tasks.js';
@@ -172,23 +168,11 @@ app.use('/api', validateApiKey);
 // Authentication routes (public)
 app.use('/api/auth', authRoutes);
 
-// MCP API Routes (protected)
-app.use('/api/mcp', authenticateToken, mcpRoutes);
-
 // Commands API Routes (protected)
 app.use('/api/commands', authenticateToken, commandsRoutes);
 
-// Settings API Routes (protected)
-app.use('/api/settings', authenticateToken, settingsRoutes);
-
-// CLI Authentication API Routes (protected)
-app.use('/api/cli', authenticateToken, cliAuthRoutes);
-
 // User API Routes (protected)
 app.use('/api/user', authenticateToken, userRoutes);
-
-// Agent API Routes (uses API key authentication)
-app.use('/api/agent', agentRoutes);
 
 // API Routes - Task-driven workflow (protected)
 app.use('/api/projects', authenticateToken, projectsRoutes);
