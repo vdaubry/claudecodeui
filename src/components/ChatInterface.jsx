@@ -345,6 +345,47 @@ function ChatInterface({
     return historyMessages;
   }, [sessionMessages, streamingMessages]);
 
+  // Auto-complete for implementation and review agents
+  // Track if we've auto-completed this agent run to prevent double-triggering
+  const hasAutoCompletedRef = useRef(false);
+  const prevIsStreamingRef = useRef(false);
+
+  // Reset auto-complete flag when agent run changes
+  useEffect(() => {
+    hasAutoCompletedRef.current = false;
+  }, [agentRunId]);
+
+  // Auto-complete implementation/review agent when streaming finishes
+  useEffect(() => {
+    const wasStreaming = prevIsStreamingRef.current;
+    const justFinishedStreaming = wasStreaming && !isStreaming;
+    prevIsStreamingRef.current = isStreaming;
+
+    // Agent types that auto-complete when streaming finishes
+    const shouldAutoComplete =
+      linkedAgentRun?.agent_type === 'implementation' ||
+      linkedAgentRun?.agent_type === 'review';
+
+    // Auto-complete when:
+    // 1. Streaming just finished
+    // 2. This is an implementation or review agent
+    // 3. Haven't auto-completed yet for this agent run
+    // 4. There are messages (not an empty response)
+    if (
+      justFinishedStreaming &&
+      shouldAutoComplete &&
+      !hasAutoCompletedRef.current &&
+      agentRunId &&
+      displayMessages.length > 0
+    ) {
+      hasAutoCompletedRef.current = true;
+      // Small delay to ensure UI updates before navigation
+      setTimeout(() => {
+        onCompletePlan?.(agentRunId);
+      }, 500);
+    }
+  }, [isStreaming, linkedAgentRun?.agent_type, agentRunId, displayMessages.length, onCompletePlan]);
+
   // Load messages when conversation changes
   useEffect(() => {
     async function loadMessages() {
@@ -720,6 +761,7 @@ function ChatInterface({
         isScrolling={isScrolling}
         // Plan completion props
         agentRunId={agentRunId}
+        agentType={linkedAgentRun?.agent_type}
         onCompletePlan={onCompletePlan}
       />
 

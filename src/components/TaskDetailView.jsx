@@ -9,7 +9,7 @@
  */
 
 import React, { useState, useCallback } from 'react';
-import { FileText, ArrowLeft, ChevronDown, Check } from 'lucide-react';
+import { FileText, ArrowLeft, ChevronDown, Check, CheckCircle2 } from 'lucide-react';
 import { Button } from './ui/button';
 import Breadcrumb from './Breadcrumb';
 import MarkdownEditor from './MarkdownEditor';
@@ -42,6 +42,7 @@ function TaskDetailView({
   onHomeClick,
   onSaveTaskDoc,
   onStatusChange,
+  onWorkflowCompleteChange,
   onNewConversation,
   onResumeConversation,
   onDeleteConversation,
@@ -49,6 +50,7 @@ function TaskDetailView({
 }) {
   const [showStatusDropdown, setShowStatusDropdown] = useState(false);
   const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
+  const [isUpdatingWorkflow, setIsUpdatingWorkflow] = useState(false);
 
   if (!task) return null;
 
@@ -63,6 +65,17 @@ function TaskDetailView({
       await onStatusChange(task.id, newStatus);
     } finally {
       setIsUpdatingStatus(false);
+    }
+  };
+
+  const handleWorkflowCompleteToggle = async () => {
+    if (!onWorkflowCompleteChange) return;
+
+    setIsUpdatingWorkflow(true);
+    try {
+      await onWorkflowCompleteChange(task.id, !task.workflow_complete);
+    } finally {
+      setIsUpdatingWorkflow(false);
     }
   };
 
@@ -110,6 +123,32 @@ function TaskDetailView({
               Task #{task.id} in {project?.name || 'Unknown Project'}
             </p>
           </div>
+
+          {/* Workflow complete toggle */}
+          <button
+            onClick={handleWorkflowCompleteToggle}
+            disabled={isUpdatingWorkflow}
+            title={task.workflow_complete ? 'Workflow complete - click to resume agent loop' : 'Click to mark workflow as complete'}
+            className={cn(
+              'flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium transition-colors flex-shrink-0',
+              task.workflow_complete
+                ? 'bg-green-500/10 text-green-600 dark:text-green-400 hover:bg-green-500/20'
+                : 'bg-gray-500/10 text-gray-500 dark:text-gray-400 hover:bg-gray-500/20',
+              isUpdatingWorkflow && 'opacity-50 cursor-not-allowed'
+            )}
+          >
+            {isUpdatingWorkflow ? (
+              <div className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" />
+            ) : (
+              <CheckCircle2 className={cn(
+                'w-4 h-4',
+                task.workflow_complete && 'fill-green-500/20'
+              )} />
+            )}
+            <span className="hidden sm:inline">
+              {task.workflow_complete ? 'Done' : 'Mark Done'}
+            </span>
+          </button>
 
           {/* Status selector */}
           <div className="relative flex-shrink-0">

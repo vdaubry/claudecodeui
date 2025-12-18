@@ -22,6 +22,7 @@ import ProjectEditPage from './ProjectEditPage';
 import TaskEditPage from './TaskEditPage';
 import { useTaskContext } from '../contexts/TaskContext';
 import { api } from '../utils/api';
+import { generateReviewMessage, generateImplementationMessage } from '../constants/agentConfig';
 import { ArrowLeft } from 'lucide-react';
 import { Button } from './ui/button';
 
@@ -78,6 +79,11 @@ function MainContent({
   // Handle task status change
   const handleStatusChange = useCallback(async (taskId, newStatus) => {
     return await updateTask(taskId, { status: newStatus });
+  }, [updateTask]);
+
+  // Handle workflow_complete toggle
+  const handleWorkflowCompleteChange = useCallback(async (taskId, value) => {
+    return await updateTask(taskId, { workflow_complete: value });
   }, [updateTask]);
 
   // Handle new conversation - opens modal instead of creating immediately
@@ -142,26 +148,147 @@ function MainContent({
     }
   }, [selectedTask, selectedProject, createAgentRun, linkAgentRunConversation, selectConversation]);
 
-  // Handle completing a plan (marks agent run as completed and returns to task detail)
+  // Handle completing a plan (marks agent run as completed)
+  // Auto-chains: implementation ↔ review agent (loop until workflow_complete)
   const handleCompletePlan = useCallback(async (agentRunId) => {
     if (!agentRunId) return;
 
     try {
+      // 1. Find the agent run to check its type
+      const agentRun = agentRuns.find(r => r.id === agentRunId);
+      const agentType = agentRun?.agent_type;
+
+      // 2. Complete the current agent run
       const response = await api.agentRuns.complete(agentRunId);
-      if (response.ok) {
-        // Refresh agent runs for the current task
-        if (selectedTask) {
-          await loadAgentRuns(selectedTask.id);
-        }
-        // Navigate back to task detail
-        navigateBack();
-      } else {
+      if (!response.ok) {
         console.error('Failed to complete agent run');
+        return;
       }
+
+      // 3. Refresh agent runs for the current task
+      if (selectedTask) {
+        await loadAgentRuns(selectedTask.id);
+      }
+
+      // 4. Fetch fresh task data to check workflow_complete
+      // The agent may have set this via the CLI script
+      let freshTask = null;
+      if (selectedTask) {
+        const taskResponse = await api.tasks.get(selectedTask.id);
+        if (taskResponse.ok) {
+          freshTask = await taskResponse.json();
+        }
+      }
+
+      // 5. If workflow_complete is true, stop the loop
+      if (freshTask?.workflow_complete) {
+        console.log('Workflow marked complete, stopping agent loop');
+        navigateBack();
+        return;
+      }
+
+      // 6. Auto-chain: implementation → review
+      if (agentType === 'implementation' && selectedTask && selectedProject) {
+        try {
+          // Create review agent run
+          const reviewResult = await createAgentRun(selectedTask.id, 'review');
+          if (!reviewResult.success) {
+            console.error('Failed to create review agent run:', reviewResult.error);
+            navigateBack();
+            return;
+          }
+
+          const reviewAgentRunId = reviewResult.agentRun.id;
+          const taskDocPath = `.claude-ui/tasks/task-${selectedTask.id}.md`;
+          const reviewMessage = generateReviewMessage(taskDocPath, selectedTask.id);
+
+          // Create conversation for review agent
+          const convResponse = await api.conversations.createWithMessage(selectedTask.id, {
+            message: reviewMessage,
+            projectPath: selectedProject.repo_folder_path,
+            permissionMode: 'bypassPermissions'
+          });
+
+          if (!convResponse.ok) {
+            console.error('Failed to create review conversation');
+            navigateBack();
+            return;
+          }
+
+          const conversation = await convResponse.json();
+
+          // Link conversation to review agent run
+          await linkAgentRunConversation(reviewAgentRunId, conversation.id);
+
+          // Navigate to review chat (don't go back)
+          selectConversation({
+            ...conversation,
+            __initialMessage: reviewMessage,
+            __agentRunId: reviewAgentRunId,
+            __permissionMode: 'bypassPermissions'
+          });
+          return;
+        } catch (chainError) {
+          console.error('Error auto-chaining to review agent:', chainError);
+          navigateBack();
+          return;
+        }
+      }
+
+      // 7. Auto-chain: review → implementation (loop back)
+      if (agentType === 'review' && selectedTask && selectedProject) {
+        try {
+          // Create implementation agent run
+          const implResult = await createAgentRun(selectedTask.id, 'implementation');
+          if (!implResult.success) {
+            console.error('Failed to create implementation agent run:', implResult.error);
+            navigateBack();
+            return;
+          }
+
+          const implAgentRunId = implResult.agentRun.id;
+          const taskDocPath = `.claude-ui/tasks/task-${selectedTask.id}.md`;
+          const implMessage = generateImplementationMessage(taskDocPath, selectedTask.id);
+
+          // Create conversation for implementation agent
+          const convResponse = await api.conversations.createWithMessage(selectedTask.id, {
+            message: implMessage,
+            projectPath: selectedProject.repo_folder_path,
+            permissionMode: 'bypassPermissions'
+          });
+
+          if (!convResponse.ok) {
+            console.error('Failed to create implementation conversation');
+            navigateBack();
+            return;
+          }
+
+          const conversation = await convResponse.json();
+
+          // Link conversation to implementation agent run
+          await linkAgentRunConversation(implAgentRunId, conversation.id);
+
+          // Navigate to implementation chat (continue loop)
+          selectConversation({
+            ...conversation,
+            __initialMessage: implMessage,
+            __agentRunId: implAgentRunId,
+            __permissionMode: 'bypassPermissions'
+          });
+          return;
+        } catch (chainError) {
+          console.error('Error auto-chaining to implementation agent:', chainError);
+          navigateBack();
+          return;
+        }
+      }
+
+      // 8. Default: Navigate back to task detail
+      navigateBack();
     } catch (error) {
       console.error('Error completing plan:', error);
     }
-  }, [selectedTask, loadAgentRuns, navigateBack]);
+  }, [agentRuns, selectedTask, selectedProject, loadAgentRuns, navigateBack, createAgentRun, linkAgentRunConversation, selectConversation]);
 
   // Navigation handlers
   const handleHomeClick = useCallback(() => {
@@ -231,6 +358,7 @@ function MainContent({
           onHomeClick={handleHomeClick}
           onSaveTaskDoc={handleSaveTaskDoc}
           onStatusChange={handleStatusChange}
+          onWorkflowCompleteChange={handleWorkflowCompleteChange}
           onNewConversation={handleNewConversation}
           onResumeConversation={handleResumeConversation}
           onDeleteConversation={deleteConversation}

@@ -1,6 +1,6 @@
 import express from 'express';
 import { WebSocket } from 'ws';
-import { tasksDb, conversationsDb, projectsDb } from '../database/db.js';
+import { tasksDb, conversationsDb, projectsDb, agentRunsDb } from '../database/db.js';
 import { getSessionMessages } from '../services/sessions.js';
 import { updateUserBadge, notifyClaudeComplete } from '../services/notifications.js';
 import { createSessionWithFirstMessage } from '../claude-sdk.js';
@@ -184,12 +184,19 @@ router.post('/tasks/:taskId/conversations', async (req, res) => {
           if (!isError) {
             const taskInfo = tasksDb.getById(taskId);
             const taskTitle = taskInfo?.title || null;
+            const workflowComplete = !!taskInfo?.workflow_complete;
+
+            // Look up agent run by conversation_id to get agent type
+            const agentRuns = agentRunsDb.getByTask(taskId);
+            const linkedAgentRun = agentRuns.find(r => r.conversation_id === conversation.id);
+            const agentType = linkedAgentRun?.agent_type || null;
 
             notifyClaudeComplete(
               userId,
               taskTitle,
               taskId,
-              conversation.id
+              conversation.id,
+              { agentType, workflowComplete }
             ).catch(err => {
               console.error('[Notifications] Failed to send claude-complete notification:', err);
             });

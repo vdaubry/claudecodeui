@@ -60,6 +60,11 @@ vi.mock('lucide-react', () => ({
   ArrowLeft: () => <span data-testid="icon-arrow-left" />,
   ChevronDown: () => <span data-testid="icon-chevron-down" />,
   Check: () => <span data-testid="icon-check" />,
+  Code: () => <span data-testid="icon-code" />,
+  Play: () => <span data-testid="icon-play" />,
+  Loader2: () => <span data-testid="icon-loader" />,
+  CheckCircle: () => <span data-testid="icon-check-circle" />,
+  CheckCircle2: () => <span data-testid="icon-check-circle-2" />,
 }));
 
 describe('TaskDetailView Component', () => {
@@ -83,6 +88,7 @@ describe('TaskDetailView Component', () => {
     onHomeClick: vi.fn(),
     onSaveTaskDoc: vi.fn(),
     onStatusChange: vi.fn(),
+    onWorkflowCompleteChange: vi.fn(),
     onNewConversation: vi.fn(),
     onResumeConversation: vi.fn(),
     onDeleteConversation: vi.fn(),
@@ -303,6 +309,83 @@ describe('TaskDetailView Component', () => {
       const { container } = render(<TaskDetailView {...defaultProps} className="custom-class" />);
 
       expect(container.firstChild.className).toContain('custom-class');
+    });
+  });
+
+  describe('Workflow Complete Toggle', () => {
+    it('should render workflow toggle button with icon', () => {
+      render(
+        <TaskDetailView
+          {...defaultProps}
+          task={{ ...mockTask, workflow_complete: 0 }}
+        />
+      );
+
+      // The button has the CheckCircle2 icon (mocked as icon-check-circle-2)
+      expect(screen.getByTestId('icon-check-circle-2')).toBeInTheDocument();
+    });
+
+    it('should call onWorkflowCompleteChange with true when workflow_complete is 0', async () => {
+      const onWorkflowCompleteChange = vi.fn().mockResolvedValue(undefined);
+      render(
+        <TaskDetailView
+          {...defaultProps}
+          onWorkflowCompleteChange={onWorkflowCompleteChange}
+          task={{ ...mockTask, workflow_complete: 0 }}
+        />
+      );
+
+      // Find the button by its icon
+      const toggleButton = screen.getByTestId('icon-check-circle-2').closest('button');
+      fireEvent.click(toggleButton);
+
+      await waitFor(() => {
+        // Component passes !task.workflow_complete, so 0 becomes true
+        expect(onWorkflowCompleteChange).toHaveBeenCalledWith('t1', true);
+      });
+    });
+
+    it('should call onWorkflowCompleteChange with false when workflow_complete is 1', async () => {
+      const onWorkflowCompleteChange = vi.fn().mockResolvedValue(undefined);
+      render(
+        <TaskDetailView
+          {...defaultProps}
+          onWorkflowCompleteChange={onWorkflowCompleteChange}
+          task={{ ...mockTask, workflow_complete: 1 }}
+        />
+      );
+
+      const toggleButton = screen.getByTestId('icon-check-circle-2').closest('button');
+      fireEvent.click(toggleButton);
+
+      await waitFor(() => {
+        // Component passes !task.workflow_complete, so 1 becomes false
+        expect(onWorkflowCompleteChange).toHaveBeenCalledWith('t1', false);
+      });
+    });
+
+    it('should apply green styling when workflow_complete is 1', () => {
+      render(
+        <TaskDetailView
+          {...defaultProps}
+          task={{ ...mockTask, workflow_complete: 1 }}
+        />
+      );
+
+      const toggleButton = screen.getByTestId('icon-check-circle-2').closest('button');
+      expect(toggleButton.className).toContain('bg-green');
+    });
+
+    it('should apply gray styling when workflow_complete is 0', () => {
+      render(
+        <TaskDetailView
+          {...defaultProps}
+          task={{ ...mockTask, workflow_complete: 0 }}
+        />
+      );
+
+      const toggleButton = screen.getByTestId('icon-check-circle-2').closest('button');
+      expect(toggleButton.className).toContain('bg-gray');
     });
   });
 });

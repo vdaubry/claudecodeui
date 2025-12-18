@@ -191,16 +191,35 @@ async function updateUserBadge(userId) {
  * @param {string|null} taskTitle - Task title for context (optional)
  * @param {number} taskId - Task ID for deep linking
  * @param {number} conversationId - Conversation ID for deep linking
+ * @param {object} options - Additional options
+ * @param {string|null} options.agentType - Agent type ('planification', 'implementation', 'review', or null for user)
+ * @param {boolean} options.workflowComplete - Whether workflow_complete was just set to true
  * @returns {Promise<object|null>} OneSignal response or null
  */
-async function notifyClaudeComplete(userId, taskTitle, taskId, conversationId) {
-    const title = 'Claude Response Ready';
+async function notifyClaudeComplete(userId, taskTitle, taskId, conversationId, options = {}) {
+    const { agentType = null, workflowComplete = false } = options;
+
+    // Determine if we should send notification
+    // 1. User-initiated conversations (no agent) - always notify
+    // 2. Planification agent - always notify when complete
+    // 3. Implementation/Review agents - only notify when workflow_complete becomes true
+    if (agentType === 'implementation' || agentType === 'review') {
+        if (!workflowComplete) {
+            console.log(`[OneSignal] Skipping notification for ${agentType} agent (workflow not complete, loop continues)`);
+            return null;
+        }
+        console.log(`[OneSignal] Workflow complete, sending notification for ${agentType} agent`);
+    }
+
+    const title = workflowComplete
+        ? 'Task Workflow Complete'
+        : 'Claude Response Ready';
     const message = taskTitle
-        ? `Response ready for: ${taskTitle}`
-        : 'Claude has finished responding';
+        ? (workflowComplete ? `Task ready for review: ${taskTitle}` : `Response ready for: ${taskTitle}`)
+        : (workflowComplete ? 'Task workflow complete, ready for review' : 'Claude has finished responding');
 
     return sendBannerNotification(userId, title, message, {
-        type: 'claude_complete',
+        type: workflowComplete ? 'workflow_complete' : 'claude_complete',
         taskId: String(taskId),
         conversationId: String(conversationId)
     });

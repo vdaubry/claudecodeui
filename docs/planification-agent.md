@@ -1,196 +1,124 @@
-# Planification Agent Feature
-
-## Status: Phase 1 & 2 Complete
+# Agent System Documentation
 
 ## Overview
 
-The Planification Agent helps users create detailed implementation plans for tasks. It runs in plan mode, asks clarifying questions, and produces a comprehensive onboarding document that any developer can use to complete the task.
+The Agent system provides automated workflows for task implementation. Agents run as specialized conversations that help users plan, implement, and review features. The system supports three agent types that form an automated loop: **Planification** (creates plan), **Implementation** (writes code), and **Review** (validates work).
 
----
+## Architecture
 
-## Phase 1: Core Infrastructure (COMPLETED)
+### Key Files
+
+| File | Purpose |
+|------|---------|
+| `src/constants/agentConfig.js` | Agent message generators with prompts |
+| `src/components/AgentSection.jsx` | Agent UI with Run/Resume buttons |
+| `src/components/MainContent.jsx` | Agent orchestration, loop control |
+| `src/components/ChatInterface.jsx` | Auto-complete detection |
+| `src/components/TaskDetailView.jsx` | Task detail UI with workflow toggle |
+| `server/database/db.js` | Database operations |
+| `server/database/init.sql` | Database schema |
+| `scripts/complete-workflow.js` | CLI to mark workflow complete |
+| `server/services/notifications.js` | Push notification logic |
 
 ### Database Schema
-- [x] `task_agent_runs` table in `server/database/init.sql`
-- [x] Migration in `server/database/db.js`
-- [x] `agentRunsDb` operations (create, getByTask, updateStatus, linkConversation, etc.)
 
-### Backend REST API
-- [x] `server/routes/agent-runs.js` - REST endpoints
-- [x] Routes registered in `server/index.js`
-
-### Frontend API Client
-- [x] `agentRuns` object in `src/utils/api.js`
-
-### State Management
-- [x] Agent runs state in `src/contexts/TaskContext.jsx`
-- [x] Auto-load agent runs when selecting a task
-
-### UI Components
-- [x] `src/components/AgentSection.jsx` - Agent list with Run/Completed buttons
-- [x] `src/components/TaskDetailView.jsx` - AgentSection integration
-- [x] `src/components/MainContent.jsx` - handleRunAgent handler
-- [x] `src/components/ChatInterface.jsx` - Plan mode detection
-- [x] `src/components/MessageInput.jsx` - "Complete Plan" button
-
-### Bug Fixes
-- [x] Fixed permission mode conflict between localStorage and agent run initialization
-
----
-
-## Phase 2: Enhanced Planning Agent (COMPLETED)
-
-### Goal
-Improve the planning agent to produce a comprehensive task documentation that serves as an onboarding document for new developers.
-
-### Requirements
-
-The planning agent should:
-
-1. **Ask Clarifying Questions First**
-   - Before producing any plan, ask all necessary questions to understand the task
-   - Understand user intent, constraints, edge cases, and preferences
-
-2. **Update Task Documentation**
-   - Edit the task's documentation file directly
-   - Include the path to task doc in the user message
-   - Structure as an onboarding document for new developers
-
-3. **Documentation Structure**
-   The task documentation should include:
-
-   - **Overview**: Initial user request and context
-   - **Implementation Plan**: Exact plan produced, phase by phase
-   - **Technical Details**: Architecture decisions, file changes, dependencies
-   - **Testing Strategy**:
-     - Unit tests to create or update
-     - Manual testing with Playwright MCP scenarios
-   - **To-Do List**: Clear progress tracking
-     - Implementation steps (phase by phase)
-     - Unit test creation
-     - Playwright MCP manual testing scenarios
-
-4. **Developer Onboarding Focus**
-   - Assume the reader understands the codebase but knows nothing about this task
-   - Include all information needed to complete the task independently
-   - Allow pausing and resuming implementation with clear progress tracking
-
-### Implementation Steps
-
-- [x] Update hardcoded message in `AgentSection.jsx` with enhanced prompt
-- [x] Include task documentation path in the message (`.claude-ui/tasks/task-{taskId}.md`)
-- [x] Pass `taskId` prop from TaskDetailView to AgentSection
-- [x] Prefix message with `@agent-Plan` to use Claude SDK planification sub-agent
-- [x] Change from plan mode to bypassPermissions mode (so agent can write files)
-- [x] Update Complete Plan button to show for all agent runs (not just plan mode)
-- [x] Test the enhanced planning flow with Playwright
-
-### Enhanced Agent Message Template
-
-```
-@agent-Plan You are helping me plan the implementation of a task. Your goal is to create a comprehensive onboarding document that any developer can use to complete this task.
-
-## Your Process
-
-1. **Ask Clarifying Questions First**
-   Before creating any plan, ask me all questions you need to fully understand:
-   - The exact requirements and expected behavior
-   - Edge cases and error handling
-   - Any constraints or preferences
-   - Integration points with existing code
-
-2. **Explore the Codebase**
-   Once you understand the requirements, explore the codebase to understand:
-   - Current implementation patterns
-   - Relevant files and components
-   - Testing patterns used in the project
-
-3. **Create the Implementation Plan**
-   After gathering information, update the task documentation file at:
-   `[TASK_DOC_PATH]`
-
-   Structure the document as an onboarding guide with these sections:
-
-   ### Overview
-   - Summary of what this task accomplishes
-   - Initial user request and context
-   - Key decisions made during planning
-
-   ### Implementation Plan
-   - Phase-by-phase breakdown
-   - Files to modify/create
-   - Technical approach for each phase
-
-   ### Testing Strategy
-   - Unit tests to create or update
-   - Manual testing scenarios using Playwright MCP
-   - Expected behavior to verify
-
-   ### To-Do List
-   Track progress with checkboxes:
-   - [ ] Phase 1: [description]
-   - [ ] Phase 2: [description]
-   - [ ] Unit tests
-   - [ ] Playwright manual testing
-
-The documentation should be complete enough that a developer who understands the codebase but knows nothing about this specific task can implement it independently.
-
-Please start by asking your clarifying questions.
+**tasks table:**
+```sql
+- id, project_id, title
+- status: 'pending' | 'in_progress' | 'completed'
+- workflow_complete: INTEGER (0/1) - stops agent loop when true
+- created_at, updated_at
 ```
 
----
+**task_agent_runs table:**
+```sql
+- id, task_id
+- agent_type: 'planification' | 'implementation' | 'review'
+- status: 'pending' | 'running' | 'completed' | 'failed'
+- conversation_id, created_at, completed_at
+```
 
-## Files Modified (Phase 1)
+## Agent Loop Flow
 
-| File | Status | Changes |
-|------|--------|---------|
-| `server/database/init.sql` | Done | Added `task_agent_runs` table |
-| `server/database/db.js` | Done | Added migration + `agentRunsDb` operations |
-| `server/routes/agent-runs.js` | Done | NEW - REST endpoints |
-| `server/index.js` | Done | Registered agent-runs routes |
-| `src/utils/api.js` | Done | Added `agentRuns` API client |
-| `src/contexts/TaskContext.jsx` | Done | Added agent runs state + operations |
-| `src/components/AgentSection.jsx` | Done | NEW - Agent list component |
-| `src/components/TaskDetailView.jsx` | Done | Added AgentSection below docs |
-| `src/components/MainContent.jsx` | Done | Added `handleRunAgent` handler |
-| `src/components/ChatInterface.jsx` | Done | Plan mode detection + permission fix |
-| `src/components/MessageInput.jsx` | Done | Added "Complete Plan" button |
+```
+User clicks "Run Implementation"
+       ↓
+Implementation Agent runs
+       ↓
+Auto-complete when streaming ends
+       ↓
+Check workflow_complete from DB
+       ↓
+workflow_complete? ─YES─→ STOP (notify user)
+       │
+       NO
+       ↓
+Chain to Review Agent
+       ↓
+Review Agent runs tests
+       ↓
+Auto-complete when streaming ends
+       ↓
+Check workflow_complete from DB
+       ↓
+workflow_complete? ─YES─→ STOP (notify user)
+       │
+       NO
+       ↓
+Chain back to Implementation (loop continues)
+```
 
-## Files Modified (Phase 2)
+## Agent Types
 
-| File | Status | Changes |
-|------|--------|---------|
-| `src/components/AgentSection.jsx` | Done | Added `generatePlanificationMessage()` function with enhanced prompt |
-| `src/components/TaskDetailView.jsx` | Done | Pass `taskId` prop to AgentSection |
+### Planification Agent
+- **Purpose:** Creates implementation plan through Q&A
+- **Completion:** Manual - user clicks "Complete Plan"
+- **Output:** Task documentation at `.claude-ui/tasks/task-{id}.md`
 
----
+### Implementation Agent
+- **Purpose:** Implements next unchecked phase from To-Do List
+- **Completion:** Auto-complete when streaming ends
+- **Chains to:** Review Agent (unless workflow_complete)
 
-## User Flow
+### Review Agent
+- **Purpose:** Reviews code, runs tests, validates implementation
+- **Completion:** Auto-complete when streaming ends
+- **Chains to:** Implementation Agent (unless workflow_complete)
 
-1. User views a task in TaskDetailView
-2. Below the documentation section, they see an "Agents" section with "Planification" agent
-3. If not run yet: shows "Run" button with play icon
-4. Click "Run" → creates conversation in plan mode with enhanced message → navigates to chat
-5. Agent asks clarifying questions
-6. User answers questions
-7. Agent explores codebase and creates comprehensive task documentation
-8. User reviews the plan
-9. Click "Complete Plan" → marks agent as completed → returns to TaskDetailView
-10. Task documentation now contains the full implementation plan and to-do list
+## Workflow Complete Feature
 
----
+### Purpose
+Stops the implementation ↔ review loop when the task is finished, preventing infinite agent scheduling.
 
-## Testing
+### How It Works
+1. Agent detects all work is complete (all To-Do items checked, tests pass)
+2. Agent runs: `node scripts/complete-workflow.js {taskId}`
+3. Sets `workflow_complete = 1` in database
+4. Next agent completion checks this flag and stops the loop
+5. Push notification sent only when workflow completes
 
-### Phase 1 Testing (Completed)
-- [x] Database migration creates table on server start
-- [x] API endpoints work via Playwright
-- [x] UI flow: Run agent → Plan mode chat → Complete Plan → Completed status
+### Manual Override
+- Toggle button on Task Detail page: "Mark Done" / "Done"
+- Allows user to manually stop or resume the agent loop
 
-### Phase 2 Testing (Completed)
-- [x] Enhanced message is sent to agent
-- [x] Task doc path is correctly included (`.claude-ui/tasks/task-{taskId}.md`)
-- [x] Plan Mode and Complete Plan buttons appear correctly
-- [ ] Agent asks clarifying questions before planning (depends on LLM behavior)
-- [ ] Agent updates task documentation file (depends on LLM behavior)
-- [ ] Documentation includes all required sections (depends on LLM behavior)
+### CLI Script
+```bash
+node scripts/complete-workflow.js <taskId>
+```
+- Sets workflow_complete = 1 for the specified task
+- Used by agents to signal completion
+
+## Push Notifications
+
+| Scenario | Notification |
+|----------|--------------|
+| User conversation completes | Yes |
+| Planification agent completes | Yes |
+| Implementation agent completes | Only if workflow_complete |
+| Review agent completes | Only if workflow_complete |
+
+## Previous Work Summary
+
+- **Phase 1-7:** Implemented review agent with auto-chain from implementation
+- **All unit tests passing (620+)**
+- **Current:** Added workflow_complete feature to control agent loop

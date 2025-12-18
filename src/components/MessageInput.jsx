@@ -74,6 +74,7 @@ const MessageInput = memo(function MessageInput({
   isScrolling = false, // Signal from parent when user is scrolling
   // Plan completion props (for agent runs)
   agentRunId = null,
+  agentType = null,
   onCompletePlan,
 }) {
   // Get connection state and manual reconnect from WebSocket context
@@ -435,8 +436,8 @@ const MessageInput = memo(function MessageInput({
           </div>
         </button>
 
-        {/* Complete Plan Button - shown for agent run conversations */}
-        {agentRunId && onCompletePlan && (
+        {/* Complete Plan Button - shown for agent run conversations (except implementation/review agents which auto-complete) */}
+        {agentRunId && agentType !== 'implementation' && agentType !== 'review' && onCompletePlan && (
           <button
             type="button"
             onClick={() => onCompletePlan(agentRunId)}

@@ -88,6 +88,11 @@ const runMigrations = () => {
       db.exec('CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status)');
     }
 
+    if (!taskColumnNames.includes('workflow_complete')) {
+      console.log('Running migration: Adding workflow_complete column to tasks');
+      db.exec('ALTER TABLE tasks ADD COLUMN workflow_complete INTEGER DEFAULT 0 NOT NULL');
+    }
+
     // Task Agent Runs table migration (for existing databases)
     try {
       db.prepare("SELECT 1 FROM task_agent_runs LIMIT 1").get();
@@ -385,7 +390,7 @@ const tasksDb = {
   // Update a task
   update: (id, updates) => {
     try {
-      const allowedFields = ['title', 'status'];
+      const allowedFields = ['title', 'status', 'workflow_complete'];
       const setClause = [];
       const values = [];
 

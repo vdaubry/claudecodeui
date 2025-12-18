@@ -175,6 +175,16 @@ router.put('/tasks/:id', async (req, res) => {
       }
       updates.status = req.body.status;
     }
+    if (req.body.workflow_complete !== undefined) {
+      // Accept boolean or integer (0/1)
+      const value = req.body.workflow_complete;
+      if (typeof value !== 'boolean' && value !== 0 && value !== 1) {
+        return res.status(400).json({
+          error: 'workflow_complete must be a boolean or 0/1'
+        });
+      }
+      updates.workflow_complete = value ? 1 : 0;
+    }
 
     const task = tasksDb.update(taskId, updates);
 

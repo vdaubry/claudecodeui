@@ -64,7 +64,7 @@ import projectsRoutes from './routes/projects.js';
 import tasksRoutes from './routes/tasks.js';
 import conversationsRoutes from './routes/conversations.js';
 import agentRunsRoutes from './routes/agent-runs.js';
-import { initializeDatabase, projectsDb, tasksDb, conversationsDb } from './database/db.js';
+import { initializeDatabase, projectsDb, tasksDb, conversationsDb, agentRunsDb } from './database/db.js';
 import { buildContextPrompt } from './services/documentation.js';
 import { transcribeAudio } from './services/transcription.js';
 import { validateApiKey, authenticateToken, authenticateWebSocket } from './middleware/auth.js';
@@ -382,15 +382,23 @@ function handleChatConnection(ws, request) {
 
                                         if (msg.type === 'claude-complete' && request?.user?.id) {
                                             const userId = request.user.id;
-                                            // Get task title for notification context
+                                            // Get task info for notification context
                                             const taskInfo = tasksDb.getById(sessionData.taskId);
                                             const taskTitle = taskInfo?.title || null;
+                                            const workflowComplete = !!taskInfo?.workflow_complete;
+
+                                            // Look up agent run by conversation_id to get agent type
+                                            const agentRuns = agentRunsDb.getByTask(sessionData.taskId);
+                                            const linkedAgentRun = agentRuns.find(r => r.conversation_id === sessionData.conversationId);
+                                            const agentType = linkedAgentRun?.agent_type || null;
 
                                             console.log('[DEBUG] Sending claude-complete notification:', {
                                                 userId,
                                                 taskTitle,
                                                 taskId: sessionData.taskId,
-                                                conversationId: sessionData.conversationId
+                                                conversationId: sessionData.conversationId,
+                                                agentType,
+                                                workflowComplete
                                             });
 
                                             // Fire and forget notification
@@ -398,7 +406,8 @@ function handleChatConnection(ws, request) {
                                                 userId,
                                                 taskTitle,
                                                 sessionData.taskId,
-                                                sessionData.conversationId
+                                                sessionData.conversationId,
+                                                { agentType, workflowComplete }
                                             ).catch(err => {
                                                 console.error('[Notifications] Failed to send claude-complete notification:', err);
                                             });

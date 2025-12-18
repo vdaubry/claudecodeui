@@ -6,73 +6,17 @@
  */
 
 import React, { useState } from 'react';
-import { Play, Check, Loader2, FileText } from 'lucide-react';
+import { Play, Check, Loader2, FileText, Code, CheckCircle } from 'lucide-react';
+import {
+  generatePlanificationMessage,
+  generateImplementationMessage,
+  generateReviewMessage
+} from '../constants/agentConfig';
 import { Button } from './ui/button';
 import { cn } from '../lib/utils';
 
-// Generate the planification agent message with task doc path
-// Uses @agent-Plan to direct Claude SDK to use the planification sub-agent
-const generatePlanificationMessage = (taskDocPath) => `@agent-Plan You are helping me plan the implementation of a task. Your goal is to create a comprehensive onboarding document that any developer can use to complete this task.
-
-## Your Process
-
-### 1. Ask Clarifying Questions First
-Before creating any plan, ask me all questions you need to fully understand:
-- The exact requirements and expected behavior
-- Edge cases and error handling
-- Any constraints or preferences
-- Integration points with existing code
-
-Do NOT proceed to planning until you have asked and received answers to your clarifying questions.
-
-### 2. Explore the Codebase
-Once you understand the requirements, explore the codebase to understand:
-- Current implementation patterns
-- Relevant files and components
-- Testing patterns used in the project
-
-### 3. Create the Implementation Plan
-After gathering all information, update the task documentation file at:
-\`${taskDocPath}\`
-
-Structure the document as an onboarding guide for a new developer with these sections:
-
-#### Overview
-- Summary of what this task accomplishes
-- Initial user request and context
-- Key decisions made during planning
-
-#### Implementation Plan
-- Phase-by-phase breakdown with clear steps
-- Files to modify/create for each phase
-- Technical approach and architecture decisions
-
-#### Testing Strategy
-- **Unit Tests**: List specific unit tests to create or update
-- **Manual Testing (Playwright MCP)**: Detailed scenarios including:
-  - Navigation steps
-  - Expected behavior to verify
-  - Element selectors to check
-
-#### To-Do List
-Track progress with checkboxes. Include ALL steps:
-
-**Implementation:**
-- [ ] Phase 1: [description]
-- [ ] Phase 2: [description]
-- [ ] ...
-
-**Testing:**
-- [ ] Unit test: [test description]
-- [ ] Unit test: [test description]
-- [ ] Playwright: [scenario description]
-- [ ] Playwright: [scenario description]
-
-The documentation must be complete enough that a developer who understands the codebase but knows nothing about this specific task can implement it independently. This allows pausing and resuming implementation while maintaining clear progress tracking.
-
-Please start by asking your clarifying questions.`;
-
 // Agent type configurations
+// Message generators are imported from ../constants/agentConfig.js
 const AGENT_TYPES = [
   {
     type: 'planification',
@@ -80,8 +24,21 @@ const AGENT_TYPES = [
     description: 'Create a detailed implementation plan',
     icon: FileText,
     getMessage: generatePlanificationMessage
+  },
+  {
+    type: 'implementation',
+    label: 'Implementation',
+    description: 'Implement the next phase from the plan',
+    icon: Code,
+    getMessage: generateImplementationMessage
+  },
+  {
+    type: 'review',
+    label: 'Review',
+    description: 'Review implementation and run tests',
+    icon: CheckCircle,
+    getMessage: generateReviewMessage
   }
-  // Future agents: implementation, review
 ];
 
 function AgentSection({
@@ -101,9 +58,9 @@ function AgentSection({
     try {
       // Generate task doc path based on task ID (stored in .claude-ui/tasks/)
       const taskDocPath = `.claude-ui/tasks/task-${taskId}.md`;
-      // Generate the message with the task doc path
+      // Generate the message with the task doc path and task ID
       const message = agentConfig.getMessage
-        ? agentConfig.getMessage(taskDocPath)
+        ? agentConfig.getMessage(taskDocPath, taskId)
         : agentConfig.message;
       await onRunAgent(agentConfig.type, message);
     } finally {

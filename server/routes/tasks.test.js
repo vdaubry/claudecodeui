@@ -280,6 +280,52 @@ describe('Tasks Routes - Phase 3', () => {
       expect(response.body.error).toBe('Invalid status. Must be one of: pending, in_progress, completed');
       expect(tasksDb.update).not.toHaveBeenCalled();
     });
+
+    it('should update workflow_complete to 1', async () => {
+      const mockTaskWithProject = { id: 1, project_id: 1, user_id: testUserId, workflow_complete: 0 };
+      const updatedTask = { id: 1, project_id: 1, title: 'Task 1', workflow_complete: 1 };
+      tasksDb.getWithProject.mockReturnValue(mockTaskWithProject);
+      tasksDb.update.mockReturnValue(updatedTask);
+
+      const response = await request(app)
+        .put('/api/tasks/1')
+        .send({ workflow_complete: 1 });
+
+      expect(response.status).toBe(200);
+      expect(response.body.workflow_complete).toBe(1);
+      expect(tasksDb.update).toHaveBeenCalledWith(1, { workflow_complete: 1 });
+    });
+
+    it('should update workflow_complete to 0', async () => {
+      const mockTaskWithProject = { id: 1, project_id: 1, user_id: testUserId, workflow_complete: 1 };
+      const updatedTask = { id: 1, project_id: 1, title: 'Task 1', workflow_complete: 0 };
+      tasksDb.getWithProject.mockReturnValue(mockTaskWithProject);
+      tasksDb.update.mockReturnValue(updatedTask);
+
+      const response = await request(app)
+        .put('/api/tasks/1')
+        .send({ workflow_complete: 0 });
+
+      expect(response.status).toBe(200);
+      expect(response.body.workflow_complete).toBe(0);
+      expect(tasksDb.update).toHaveBeenCalledWith(1, { workflow_complete: 0 });
+    });
+
+    it('should update workflow_complete along with status', async () => {
+      const mockTaskWithProject = { id: 1, project_id: 1, user_id: testUserId, status: 'pending', workflow_complete: 0 };
+      const updatedTask = { id: 1, project_id: 1, title: 'Task 1', status: 'completed', workflow_complete: 1 };
+      tasksDb.getWithProject.mockReturnValue(mockTaskWithProject);
+      tasksDb.update.mockReturnValue(updatedTask);
+
+      const response = await request(app)
+        .put('/api/tasks/1')
+        .send({ status: 'completed', workflow_complete: 1 });
+
+      expect(response.status).toBe(200);
+      expect(response.body.status).toBe('completed');
+      expect(response.body.workflow_complete).toBe(1);
+      expect(tasksDb.update).toHaveBeenCalledWith(1, { status: 'completed', workflow_complete: 1 });
+    });
   });
 
   describe('DELETE /api/tasks/:id', () => {

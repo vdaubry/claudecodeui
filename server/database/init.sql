@@ -34,11 +34,13 @@ CREATE INDEX IF NOT EXISTS idx_projects_repo_folder_path ON projects(repo_folder
 
 -- Tasks table - Work items belonging to projects
 -- Status: 'pending' (default), 'in_progress', 'completed'
+-- workflow_complete: Boolean flag to stop agent loop when task is finished
 CREATE TABLE IF NOT EXISTS tasks (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     project_id INTEGER NOT NULL,
     title TEXT,
     status TEXT DEFAULT 'pending' CHECK(status IN ('pending', 'in_progress', 'completed')),
+    workflow_complete INTEGER DEFAULT 0 NOT NULL,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
