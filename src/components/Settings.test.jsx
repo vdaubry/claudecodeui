@@ -200,24 +200,27 @@ describe('Settings Component', () => {
     });
 
     it('should remove tool from allowed list when X clicked', async () => {
+      // Pre-populate with a tool via localStorage
+      const savedSettings = {
+        allowedTools: ['ToolToRemove'],
+        disallowedTools: [],
+        skipPermissions: false,
+      };
+      localStorageMock.getItem.mockReturnValue(JSON.stringify(savedSettings));
+
       render(<Settings isOpen={true} onClose={vi.fn()} />);
 
-      // Add a tool first
-      const input = screen.getByPlaceholderText(/e.g., "Bash\(git log:\*\)"/);
-      fireEvent.change(input, { target: { value: 'TestToolToRemove' } });
-      fireEvent.keyPress(input, { key: 'Enter', code: 'Enter' });
-
       await waitFor(() => {
-        expect(screen.getByText('TestToolToRemove')).toBeInTheDocument();
+        expect(screen.getByText('ToolToRemove')).toBeInTheDocument();
       });
 
       // Find the remove button within the tool badge
-      const toolBadge = screen.getByText('TestToolToRemove').closest('div');
+      const toolBadge = screen.getByText('ToolToRemove').closest('div');
       const removeButton = within(toolBadge).getByRole('button');
       fireEvent.click(removeButton);
 
       await waitFor(() => {
-        expect(screen.queryByText('TestToolToRemove')).not.toBeInTheDocument();
+        expect(screen.queryByText('ToolToRemove')).not.toBeInTheDocument();
       });
     });
 
@@ -260,13 +263,17 @@ describe('Settings Component', () => {
   });
 
   describe('Modal Actions', () => {
-    it('should call onClose when X button clicked', () => {
+    it('should call onClose when X button clicked', async () => {
       const onClose = vi.fn();
       render(<Settings isOpen={true} onClose={onClose} />);
 
-      // Find the close button in the header
-      const closeButton = screen.getByTestId('icon-x').closest('button');
-      fireEvent.click(closeButton);
+      await waitFor(() => {
+        // Find the close button in the header (first X icon)
+        const xIcons = screen.getAllByTestId('icon-x');
+        const closeButton = xIcons[0].closest('button');
+        expect(closeButton).not.toBeNull();
+        fireEvent.click(closeButton);
+      });
 
       expect(onClose).toHaveBeenCalled();
     });
