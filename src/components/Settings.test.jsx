@@ -1,19 +1,50 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
+import Settings from './Settings';
 
-// Since Settings.jsx is a complex component with many dependencies,
-// we'll test the core functionality by mocking dependencies and testing
-// the actual component rendering and interactions.
+// Mock ThemeContext
+vi.mock('../contexts/ThemeContext', () => ({
+  useTheme: vi.fn(() => ({
+    isDarkMode: false,
+    toggleDarkMode: vi.fn(),
+  })),
+}));
 
-// For now, create a simplified test that validates the component structure
-// Full component testing would require extensive mocking of:
-// - CredentialsSettings
-// - McpServerSettings
-// - Multiple UI components
-// - localStorage
-// - API calls
+// Mock CredentialsSettings component
+vi.mock('./CredentialsSettings', () => ({
+  default: () => <div data-testid="credentials-settings">Credentials Settings</div>,
+}));
+
+// Mock authenticatedFetch
+vi.mock('../utils/api', () => ({
+  authenticatedFetch: vi.fn(),
+}));
+
+// Mock lucide-react icons
+vi.mock('lucide-react', () => ({
+  X: () => <span data-testid="icon-x" />,
+  Plus: () => <span data-testid="icon-plus" />,
+  Settings: () => <span data-testid="icon-settings" />,
+  Shield: () => <span data-testid="icon-shield" />,
+  AlertTriangle: () => <span data-testid="icon-alert" />,
+  Moon: () => <span data-testid="icon-moon" />,
+  Sun: () => <span data-testid="icon-sun" />,
+  Server: () => <span data-testid="icon-server" />,
+  Edit3: () => <span data-testid="icon-edit" />,
+  Trash2: () => <span data-testid="icon-trash" />,
+  Globe: () => <span data-testid="icon-globe" />,
+  Zap: () => <span data-testid="icon-zap" />,
+  FolderOpen: () => <span data-testid="icon-folder" />,
+  Key: () => <span data-testid="icon-key" />,
+  Terminal: () => <span data-testid="icon-terminal" />,
+}));
+
+import { useTheme } from '../contexts/ThemeContext';
+import { authenticatedFetch } from '../utils/api';
 
 describe('Settings Component', () => {
+  const mockToggleDarkMode = vi.fn();
+
   // Mock localStorage
   const localStorageMock = (() => {
     let store = {};
@@ -29,225 +60,302 @@ describe('Settings Component', () => {
     vi.clearAllMocks();
     localStorageMock.clear();
     Object.defineProperty(window, 'localStorage', { value: localStorageMock });
-  });
 
-  describe('Tool Management', () => {
-    it('should add tool to list without duplicates', () => {
-      const addTool = (tool, tools) => {
-        if (tool && !tools.includes(tool)) {
-          return [...tools, tool];
-        }
-        return tools;
-      };
-
-      expect(addTool('Write', [])).toEqual(['Write']);
-      expect(addTool('Write', ['Write'])).toEqual(['Write']);
-      expect(addTool('Read', ['Write'])).toEqual(['Write', 'Read']);
-      expect(addTool('', ['Write'])).toEqual(['Write']);
+    // Default mock for useTheme
+    useTheme.mockReturnValue({
+      isDarkMode: false,
+      toggleDarkMode: mockToggleDarkMode,
     });
 
-    it('should remove tool from list', () => {
-      const removeTool = (tool, tools) => tools.filter(t => t !== tool);
+    // Default mock for authenticatedFetch - return empty servers
+    authenticatedFetch.mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ success: true, servers: [] }),
+    });
+  });
 
-      expect(removeTool('Read', ['Write', 'Read', 'Edit'])).toEqual(['Write', 'Edit']);
-      expect(removeTool('Unknown', ['Write'])).toEqual(['Write']);
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
+  describe('Rendering', () => {
+    it('should return null when not open', () => {
+      const { container } = render(
+        <Settings isOpen={false} onClose={vi.fn()} />
+      );
+
+      expect(container.firstChild).toBeNull();
+    });
+
+    it('should render modal when open', () => {
+      render(<Settings isOpen={true} onClose={vi.fn()} />);
+
+      expect(screen.getByText('Settings')).toBeInTheDocument();
+    });
+
+    it('should display Settings title with icon', () => {
+      render(<Settings isOpen={true} onClose={vi.fn()} />);
+
+      expect(screen.getByText('Settings')).toBeInTheDocument();
+      expect(screen.getByTestId('icon-settings')).toBeInTheDocument();
+    });
+  });
+
+  describe('Tab Navigation', () => {
+    it('should render all three tabs', () => {
+      render(<Settings isOpen={true} onClose={vi.fn()} />);
+
+      expect(screen.getByText('Tools')).toBeInTheDocument();
+      expect(screen.getByText('Appearance')).toBeInTheDocument();
+      expect(screen.getByText('API & Tokens')).toBeInTheDocument();
+    });
+
+    it('should show Tools tab by default', () => {
+      render(<Settings isOpen={true} onClose={vi.fn()} />);
+
+      expect(screen.getByText('Allowed Tools')).toBeInTheDocument();
+    });
+
+    it('should switch to Appearance tab when clicked', () => {
+      render(<Settings isOpen={true} onClose={vi.fn()} />);
+
+      fireEvent.click(screen.getByText('Appearance'));
+
+      expect(screen.getByText('Dark Mode')).toBeInTheDocument();
+    });
+
+    it('should switch to API & Tokens tab when clicked', () => {
+      render(<Settings isOpen={true} onClose={vi.fn()} />);
+
+      fireEvent.click(screen.getByText('API & Tokens'));
+
+      expect(screen.getByTestId('credentials-settings')).toBeInTheDocument();
+    });
+
+    it('should respect initialTab prop', () => {
+      render(<Settings isOpen={true} onClose={vi.fn()} initialTab="appearance" />);
+
+      expect(screen.getByText('Dark Mode')).toBeInTheDocument();
+    });
+  });
+
+  describe('Tools Tab', () => {
+    it('should display skip permissions checkbox', () => {
+      render(<Settings isOpen={true} onClose={vi.fn()} />);
+
+      expect(screen.getByText('Permission Settings')).toBeInTheDocument();
+      expect(screen.getByText(/Skip permission prompts/)).toBeInTheDocument();
+    });
+
+    it('should toggle skip permissions when checkbox clicked', () => {
+      render(<Settings isOpen={true} onClose={vi.fn()} />);
+
+      const checkbox = screen.getByRole('checkbox');
+      expect(checkbox).not.toBeChecked();
+
+      fireEvent.click(checkbox);
+
+      expect(checkbox).toBeChecked();
+    });
+
+    it('should display allowed tools section', () => {
+      render(<Settings isOpen={true} onClose={vi.fn()} />);
+
+      expect(screen.getByText('Allowed Tools')).toBeInTheDocument();
+      expect(screen.getByPlaceholderText(/e.g., "Bash\(git log:\*\)"/)).toBeInTheDocument();
+    });
+
+    it('should display disallowed tools section', () => {
+      render(<Settings isOpen={true} onClose={vi.fn()} />);
+
+      expect(screen.getByText('Disallowed Tools')).toBeInTheDocument();
+    });
+
+    it('should add tool to allowed list when entered', () => {
+      render(<Settings isOpen={true} onClose={vi.fn()} />);
+
+      const input = screen.getByPlaceholderText(/e.g., "Bash\(git log:\*\)"/);
+      fireEvent.change(input, { target: { value: 'Write' } });
+      fireEvent.keyPress(input, { key: 'Enter', code: 'Enter' });
+
+      expect(screen.getByText('Write')).toBeInTheDocument();
+    });
+
+    it('should add common tools when quick add button clicked', async () => {
+      render(<Settings isOpen={true} onClose={vi.fn()} />);
+
+      await waitFor(() => {
+        // Find the quick add section
+        const quickAddSection = screen.getByText('Quick add common tools:').parentElement;
+        const readButton = within(quickAddSection).getByRole('button', { name: 'Read' });
+        fireEvent.click(readButton);
+      });
+
+      // The button should now be disabled (tool was added)
+      await waitFor(() => {
+        const quickAddSection = screen.getByText('Quick add common tools:').parentElement;
+        const readButton = within(quickAddSection).getByRole('button', { name: 'Read' });
+        expect(readButton).toBeDisabled();
+      });
+    });
+
+    it('should remove tool from allowed list when X clicked', async () => {
+      render(<Settings isOpen={true} onClose={vi.fn()} />);
+
+      // Add a tool first
+      const input = screen.getByPlaceholderText(/e.g., "Bash\(git log:\*\)"/);
+      fireEvent.change(input, { target: { value: 'TestToolToRemove' } });
+      fireEvent.keyPress(input, { key: 'Enter', code: 'Enter' });
+
+      await waitFor(() => {
+        expect(screen.getByText('TestToolToRemove')).toBeInTheDocument();
+      });
+
+      // Find the remove button within the tool badge
+      const toolBadge = screen.getByText('TestToolToRemove').closest('div');
+      const removeButton = within(toolBadge).getByRole('button');
+      fireEvent.click(removeButton);
+
+      await waitFor(() => {
+        expect(screen.queryByText('TestToolToRemove')).not.toBeInTheDocument();
+      });
+    });
+
+    // MCP Servers section test removed - feature will be rewritten
+  });
+
+  describe('Appearance Tab', () => {
+    it('should display dark mode toggle', () => {
+      render(<Settings isOpen={true} onClose={vi.fn()} initialTab="appearance" />);
+
+      expect(screen.getByText('Dark Mode')).toBeInTheDocument();
+      expect(screen.getByLabelText('Toggle dark mode')).toBeInTheDocument();
+    });
+
+    it('should call toggleDarkMode when toggle clicked', () => {
+      render(<Settings isOpen={true} onClose={vi.fn()} initialTab="appearance" />);
+
+      const toggle = screen.getByLabelText('Toggle dark mode');
+      fireEvent.click(toggle);
+
+      expect(mockToggleDarkMode).toHaveBeenCalled();
+    });
+
+    it('should display project sorting option', () => {
+      render(<Settings isOpen={true} onClose={vi.fn()} initialTab="appearance" />);
+
+      expect(screen.getByText('Project Sorting')).toBeInTheDocument();
+    });
+
+    it('should display code editor settings', () => {
+      render(<Settings isOpen={true} onClose={vi.fn()} initialTab="appearance" />);
+
+      expect(screen.getByText('Code Editor')).toBeInTheDocument();
+      expect(screen.getByText('Editor Theme')).toBeInTheDocument();
+      expect(screen.getByText('Word Wrap')).toBeInTheDocument();
+      expect(screen.getByText('Show Minimap')).toBeInTheDocument();
+      expect(screen.getByText('Show Line Numbers')).toBeInTheDocument();
+      expect(screen.getByText('Font Size')).toBeInTheDocument();
+    });
+  });
+
+  describe('Modal Actions', () => {
+    it('should call onClose when X button clicked', () => {
+      const onClose = vi.fn();
+      render(<Settings isOpen={true} onClose={onClose} />);
+
+      // Find the close button in the header
+      const closeButton = screen.getByTestId('icon-x').closest('button');
+      fireEvent.click(closeButton);
+
+      expect(onClose).toHaveBeenCalled();
+    });
+
+    it('should call onClose when Cancel button clicked', () => {
+      const onClose = vi.fn();
+      render(<Settings isOpen={true} onClose={onClose} />);
+
+      fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+
+      expect(onClose).toHaveBeenCalled();
+    });
+
+    it('should save settings and show success message when Save clicked', async () => {
+      const onClose = vi.fn();
+      render(<Settings isOpen={true} onClose={onClose} />);
+
+      fireEvent.click(screen.getByRole('button', { name: 'Save Settings' }));
+
+      await waitFor(() => {
+        expect(screen.getByText('Settings saved successfully!')).toBeInTheDocument();
+      });
     });
   });
 
   describe('Settings Persistence', () => {
-    it('should save settings to localStorage', () => {
-      const settings = {
-        allowedTools: ['Write', 'Read'],
+    it('should load settings from localStorage on open', async () => {
+      const savedSettings = {
+        allowedTools: ['UniqueWrite', 'UniqueRead'],
         disallowedTools: ['Bash(rm:*)'],
-        skipPermissions: false,
+        skipPermissions: true,
+        projectSortOrder: 'date',
       };
+      localStorageMock.getItem.mockReturnValue(JSON.stringify(savedSettings));
 
-      localStorage.setItem('claude-settings', JSON.stringify(settings));
+      render(<Settings isOpen={true} onClose={vi.fn()} />);
 
-      expect(localStorageMock.setItem).toHaveBeenCalledWith(
-        'claude-settings',
-        JSON.stringify(settings)
-      );
-    });
-
-    it('should load settings from localStorage', () => {
-      const settings = { allowedTools: ['Glob'], skipPermissions: true };
-      localStorageMock.getItem.mockReturnValue(JSON.stringify(settings));
-
-      const loaded = localStorage.getItem('claude-settings');
-      const parsed = JSON.parse(loaded);
-
-      expect(parsed.allowedTools).toEqual(['Glob']);
-      expect(parsed.skipPermissions).toBe(true);
-    });
-
-    it('should handle missing settings gracefully', () => {
-      localStorageMock.getItem.mockReturnValue(null);
-
-      const loaded = localStorage.getItem('claude-settings');
-      const defaults = loaded ? JSON.parse(loaded) : {
-        allowedTools: [],
-        disallowedTools: [],
-        skipPermissions: false,
-      };
-
-      expect(defaults.allowedTools).toEqual([]);
-      expect(defaults.skipPermissions).toBe(false);
-    });
-  });
-
-  describe('MCP Server JSON Validation', () => {
-    const validateMcpJson = (jsonString) => {
-      try {
-        const parsed = JSON.parse(jsonString);
-        if (!parsed.type) {
-          return { valid: false, error: 'Missing required field: type' };
-        }
-        if (parsed.type === 'stdio' && !parsed.command) {
-          return { valid: false, error: 'stdio type requires a command field' };
-        }
-        if ((parsed.type === 'http' || parsed.type === 'sse') && !parsed.url) {
-          return { valid: false, error: `${parsed.type} type requires a url field` };
-        }
-        return { valid: true, error: null };
-      } catch {
-        return { valid: false, error: 'Invalid JSON format' };
-      }
-    };
-
-    it('should reject invalid JSON', () => {
-      expect(validateMcpJson('not json')).toEqual({
-        valid: false,
-        error: 'Invalid JSON format',
+      await waitFor(() => {
+        expect(screen.getByText('UniqueWrite')).toBeInTheDocument();
+        expect(screen.getByText('UniqueRead')).toBeInTheDocument();
+        expect(screen.getByRole('checkbox')).toBeChecked();
       });
     });
 
-    it('should require type field', () => {
-      expect(validateMcpJson('{"command": "npx"}')).toEqual({
-        valid: false,
-        error: 'Missing required field: type',
-      });
-    });
+    it('should save settings to localStorage on save', async () => {
+      render(<Settings isOpen={true} onClose={vi.fn()} />);
 
-    it('should require command for stdio type', () => {
-      expect(validateMcpJson('{"type": "stdio"}')).toEqual({
-        valid: false,
-        error: 'stdio type requires a command field',
-      });
-    });
+      // Save settings
+      fireEvent.click(screen.getByRole('button', { name: 'Save Settings' }));
 
-    it('should require url for http type', () => {
-      expect(validateMcpJson('{"type": "http"}')).toEqual({
-        valid: false,
-        error: 'http type requires a url field',
-      });
-    });
-
-    it('should require url for sse type', () => {
-      expect(validateMcpJson('{"type": "sse"}')).toEqual({
-        valid: false,
-        error: 'sse type requires a url field',
-      });
-    });
-
-    it('should accept valid stdio config', () => {
-      const config = JSON.stringify({ type: 'stdio', command: 'npx', args: ['test'] });
-      expect(validateMcpJson(config)).toEqual({ valid: true, error: null });
-    });
-
-    it('should accept valid http config', () => {
-      const config = JSON.stringify({ type: 'http', url: 'https://example.com' });
-      expect(validateMcpJson(config)).toEqual({ valid: true, error: null });
-    });
-  });
-
-  describe('Environment Variables Parsing', () => {
-    const parseEnvVars = (text) => {
-      const env = {};
-      text.split('\n').forEach(line => {
-        const [key, ...valueParts] = line.split('=');
-        if (key && key.trim()) {
-          env[key.trim()] = valueParts.join('=').trim();
-        }
-      });
-      return env;
-    };
-
-    it('should parse simple key=value pairs', () => {
-      expect(parseEnvVars('API_KEY=secret')).toEqual({ API_KEY: 'secret' });
-    });
-
-    it('should parse multiple variables', () => {
-      expect(parseEnvVars('KEY1=val1\nKEY2=val2')).toEqual({
-        KEY1: 'val1',
-        KEY2: 'val2',
-      });
-    });
-
-    it('should handle values with equals signs', () => {
-      expect(parseEnvVars('CONN=host=local;port=5432')).toEqual({
-        CONN: 'host=local;port=5432',
-      });
-    });
-
-    it('should skip empty lines', () => {
-      expect(parseEnvVars('KEY1=val1\n\nKEY2=val2')).toEqual({
-        KEY1: 'val1',
-        KEY2: 'val2',
+      await waitFor(() => {
+        expect(localStorageMock.setItem).toHaveBeenCalledWith(
+          'claude-settings',
+          expect.any(String)
+        );
       });
     });
   });
 
-  describe('Transport Type Icons', () => {
-    const getTransportIcon = (type) => {
-      switch (type) {
-        case 'stdio': return 'Terminal';
-        case 'sse': return 'Zap';
-        case 'http': return 'Globe';
-        default: return 'Server';
-      }
-    };
+  // MCP Server Management tests removed - feature will be rewritten
 
-    it('should return Terminal for stdio', () => {
-      expect(getTransportIcon('stdio')).toBe('Terminal');
+  describe('Code Editor Settings Persistence', () => {
+    it('should save editor theme to localStorage', () => {
+      render(<Settings isOpen={true} onClose={vi.fn()} initialTab="appearance" />);
+
+      const editorThemeToggle = screen.getByLabelText('Toggle editor theme');
+      fireEvent.click(editorThemeToggle);
+
+      expect(localStorageMock.setItem).toHaveBeenCalledWith('codeEditorTheme', expect.any(String));
     });
 
-    it('should return Zap for sse', () => {
-      expect(getTransportIcon('sse')).toBe('Zap');
-    });
+    it('should dispatch codeEditorSettingsChanged event on theme change', () => {
+      const dispatchEventSpy = vi.spyOn(window, 'dispatchEvent');
 
-    it('should return Globe for http', () => {
-      expect(getTransportIcon('http')).toBe('Globe');
-    });
+      render(<Settings isOpen={true} onClose={vi.fn()} initialTab="appearance" />);
 
-    it('should return Server for unknown type', () => {
-      expect(getTransportIcon('unknown')).toBe('Server');
+      const editorThemeToggle = screen.getByLabelText('Toggle editor theme');
+      fireEvent.click(editorThemeToggle);
+
+      expect(dispatchEventSpy).toHaveBeenCalledWith(expect.any(Event));
     });
   });
 
-  describe('Common Tools List', () => {
-    const COMMON_TOOLS = [
-      'Write', 'Read', 'Edit', 'Glob', 'Grep',
-      'MultiEdit', 'Task', 'TodoWrite', 'TodoRead',
-      'WebFetch', 'WebSearch'
-    ];
+  describe('Tool Pattern Help Section', () => {
+    it('should display tool pattern examples', () => {
+      render(<Settings isOpen={true} onClose={vi.fn()} />);
 
-    it('should contain all expected tools', () => {
-      expect(COMMON_TOOLS).toContain('Write');
-      expect(COMMON_TOOLS).toContain('Read');
-      expect(COMMON_TOOLS).toContain('Edit');
-      expect(COMMON_TOOLS).toContain('Glob');
-      expect(COMMON_TOOLS).toContain('Grep');
-      expect(COMMON_TOOLS).toContain('MultiEdit');
-      expect(COMMON_TOOLS).toContain('Task');
-      expect(COMMON_TOOLS).toContain('TodoWrite');
-      expect(COMMON_TOOLS).toContain('TodoRead');
-      expect(COMMON_TOOLS).toContain('WebFetch');
-      expect(COMMON_TOOLS).toContain('WebSearch');
-    });
-
-    it('should have 11 common tools', () => {
-      expect(COMMON_TOOLS).toHaveLength(11);
+      expect(screen.getByText('Tool Pattern Examples:')).toBeInTheDocument();
+      expect(screen.getByText(/"Bash\(git log:\*\)"/)).toBeInTheDocument();
     });
   });
 });

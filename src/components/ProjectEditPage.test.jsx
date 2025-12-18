@@ -1,204 +1,519 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import ProjectEditPage from './ProjectEditPage';
+import { useTaskContext } from '../contexts/TaskContext';
 
-/**
- * ProjectEditPage uses useTaskContext() internally, making it complex to test
- * without mocking the entire context. These tests focus on the core logic patterns.
- */
-describe('ProjectEditPage Logic', () => {
-  describe('Form Validation', () => {
-    it('should require non-empty project name', () => {
-      const validateName = (name) => name.trim().length > 0;
+// Mock TaskContext
+vi.mock('../contexts/TaskContext', () => ({
+  useTaskContext: vi.fn(),
+}));
 
-      expect(validateName('')).toBe(false);
-      expect(validateName('   ')).toBe(false);
-      expect(validateName('Valid Name')).toBe(true);
+// Mock MicButton component
+vi.mock('./MicButton', () => ({
+  MicButton: ({ onTranscript }) => (
+    <button data-testid="mic-button" onClick={() => onTranscript('Transcribed text')}>
+      Mic
+    </button>
+  ),
+}));
+
+// Mock lucide-react icons
+vi.mock('lucide-react', () => ({
+  ArrowLeft: () => <span data-testid="icon-arrow-left" />,
+  Save: () => <span data-testid="icon-save" />,
+  Trash2: () => <span data-testid="icon-trash" />,
+  FolderOpen: () => <span data-testid="icon-folder" />,
+  AlertTriangle: () => <span data-testid="icon-alert" />,
+}));
+
+describe('ProjectEditPage Component', () => {
+  const mockEditingProject = {
+    id: 'p1',
+    name: 'Test Project',
+    repo_folder_path: '/path/to/project',
+  };
+
+  const defaultContextValue = {
+    editingProject: mockEditingProject,
+    projectDoc: 'Initial documentation',
+    isLoadingProjectDoc: false,
+    updateProject: vi.fn(),
+    deleteProject: vi.fn(),
+    exitEditMode: vi.fn(),
+    navigateToBoard: vi.fn(),
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    useTaskContext.mockReturnValue(defaultContextValue);
+  });
+
+  describe('Rendering', () => {
+    it('should display empty state when no project is being edited', () => {
+      useTaskContext.mockReturnValue({
+        ...defaultContextValue,
+        editingProject: null,
+      });
+
+      render(<ProjectEditPage />);
+
+      expect(screen.getByText('No project selected for editing')).toBeInTheDocument();
     });
 
-    it('should trim whitespace from name', () => {
-      const name = '  Padded Name  ';
-      expect(name.trim()).toBe('Padded Name');
+    it('should render the page with project data', () => {
+      render(<ProjectEditPage />);
+
+      expect(screen.getByTestId('project-edit-page')).toBeInTheDocument();
+      expect(screen.getByText('Edit Project')).toBeInTheDocument();
+    });
+
+    it('should display project name in input field', () => {
+      render(<ProjectEditPage />);
+
+      const nameInput = screen.getByTestId('name-input');
+      expect(nameInput).toHaveValue('Test Project');
+    });
+
+    it('should display project folder path', () => {
+      render(<ProjectEditPage />);
+
+      expect(screen.getByText('/path/to/project')).toBeInTheDocument();
+    });
+
+    it('should display project documentation', () => {
+      render(<ProjectEditPage />);
+
+      const textarea = screen.getByTestId('documentation-textarea');
+      expect(textarea).toHaveValue('Initial documentation');
     });
   });
 
-  describe('Change Detection', () => {
-    it('should detect name changes', () => {
-      const editingProject = { id: 'p1', name: 'Original Name' };
-      const projectDoc = 'Some docs';
-      const currentName = 'Updated Name';
-      const currentDoc = 'Some docs';
+  describe('Form Interactions', () => {
+    it('should update name when user types', () => {
+      render(<ProjectEditPage />);
 
-      const nameChanged = currentName !== (editingProject.name || '');
-      const docChanged = currentDoc !== (projectDoc || '');
-      const hasChanges = nameChanged || docChanged;
+      const nameInput = screen.getByTestId('name-input');
+      fireEvent.change(nameInput, { target: { value: 'Updated Project' } });
 
-      expect(nameChanged).toBe(true);
-      expect(docChanged).toBe(false);
-      expect(hasChanges).toBe(true);
+      expect(nameInput).toHaveValue('Updated Project');
     });
 
-    it('should detect documentation changes', () => {
-      const editingProject = { id: 'p1', name: 'Test' };
-      const projectDoc = 'Original docs';
-      const currentName = 'Test';
-      const currentDoc = 'Updated docs';
+    it('should update documentation when user types', () => {
+      render(<ProjectEditPage />);
 
-      const nameChanged = currentName !== (editingProject.name || '');
-      const docChanged = currentDoc !== (projectDoc || '');
-      const hasChanges = nameChanged || docChanged;
+      const textarea = screen.getByTestId('documentation-textarea');
+      fireEvent.change(textarea, { target: { value: 'Updated docs' } });
 
-      expect(nameChanged).toBe(false);
-      expect(docChanged).toBe(true);
-      expect(hasChanges).toBe(true);
+      expect(textarea).toHaveValue('Updated docs');
     });
 
-    it('should not detect changes when values match', () => {
-      const editingProject = { id: 'p1', name: 'Test' };
-      const projectDoc = 'Docs';
-      const currentName = 'Test';
-      const currentDoc = 'Docs';
+    it('should enable save button when changes are made', () => {
+      render(<ProjectEditPage />);
 
-      const nameChanged = currentName !== (editingProject.name || '');
-      const docChanged = currentDoc !== (projectDoc || '');
-      const hasChanges = nameChanged || docChanged;
+      const saveButton = screen.getByTestId('save-button');
+      expect(saveButton).toBeDisabled(); // No changes yet
 
-      expect(hasChanges).toBe(false);
+      const nameInput = screen.getByTestId('name-input');
+      fireEvent.change(nameInput, { target: { value: 'Changed Name' } });
+
+      expect(saveButton).not.toBeDisabled();
+    });
+
+    it('should add transcribed text to documentation when mic button used', () => {
+      render(<ProjectEditPage />);
+
+      const micButton = screen.getByTestId('mic-button');
+      fireEvent.click(micButton);
+
+      const textarea = screen.getByTestId('documentation-textarea');
+      expect(textarea).toHaveValue('Initial documentation Transcribed text');
     });
   });
 
   describe('Save Operation', () => {
     it('should call updateProject with correct parameters', async () => {
       const updateProject = vi.fn().mockResolvedValue({ success: true });
-      const editingProject = { id: 'p1' };
-      const name = 'Updated Name';
-      const documentation = 'Updated docs';
+      useTaskContext.mockReturnValue({
+        ...defaultContextValue,
+        updateProject,
+      });
 
-      await updateProject(editingProject.id, { name: name.trim(), documentation });
+      render(<ProjectEditPage />);
 
-      expect(updateProject).toHaveBeenCalledWith('p1', {
-        name: 'Updated Name',
-        documentation: 'Updated docs',
+      // Make a change
+      const nameInput = screen.getByTestId('name-input');
+      fireEvent.change(nameInput, { target: { value: 'New Name' } });
+
+      // Click save
+      fireEvent.click(screen.getByTestId('save-button'));
+
+      await waitFor(() => {
+        expect(updateProject).toHaveBeenCalledWith('p1', {
+          name: 'New Name',
+          documentation: 'Initial documentation',
+        });
       });
     });
 
-    it('should handle save failure', async () => {
-      const updateProject = vi.fn().mockResolvedValue({
-        success: false,
-        error: 'Failed to save',
+    it('should call exitEditMode on successful save', async () => {
+      const exitEditMode = vi.fn();
+      const updateProject = vi.fn().mockResolvedValue({ success: true });
+      useTaskContext.mockReturnValue({
+        ...defaultContextValue,
+        updateProject,
+        exitEditMode,
       });
 
-      const result = await updateProject('p1', { name: 'Test' });
+      render(<ProjectEditPage />);
 
-      expect(result.success).toBe(false);
-      expect(result.error).toBe('Failed to save');
+      const nameInput = screen.getByTestId('name-input');
+      fireEvent.change(nameInput, { target: { value: 'New Name' } });
+      fireEvent.click(screen.getByTestId('save-button'));
+
+      await waitFor(() => {
+        expect(exitEditMode).toHaveBeenCalled();
+      });
+    });
+
+    it('should display error when save fails', async () => {
+      const updateProject = vi.fn().mockResolvedValue({
+        success: false,
+        error: 'Failed to save project',
+      });
+      useTaskContext.mockReturnValue({
+        ...defaultContextValue,
+        updateProject,
+      });
+
+      render(<ProjectEditPage />);
+
+      const nameInput = screen.getByTestId('name-input');
+      fireEvent.change(nameInput, { target: { value: 'New Name' } });
+      fireEvent.click(screen.getByTestId('save-button'));
+
+      await waitFor(() => {
+        expect(screen.getByTestId('error-message')).toBeInTheDocument();
+        expect(screen.getByText('Failed to save project')).toBeInTheDocument();
+      });
+    });
+
+    it('should show error when name is empty', async () => {
+      render(<ProjectEditPage />);
+
+      // Make name change first to enable save, then clear it
+      const nameInput = screen.getByTestId('name-input');
+      fireEvent.change(nameInput, { target: { value: '' } });
+
+      // Change docs to enable button
+      const textarea = screen.getByTestId('documentation-textarea');
+      fireEvent.change(textarea, { target: { value: 'New docs' } });
+
+      fireEvent.click(screen.getByTestId('save-button'));
+
+      await waitFor(() => {
+        expect(screen.getByText('Project name is required')).toBeInTheDocument();
+      });
     });
   });
 
   describe('Delete Operation', () => {
-    it('should call deleteProject with project id', async () => {
-      const deleteProject = vi.fn().mockResolvedValue({ success: true });
-      const editingProject = { id: 'p1' };
+    it('should show delete confirmation when delete button clicked', () => {
+      render(<ProjectEditPage />);
 
-      await deleteProject(editingProject.id);
+      fireEvent.click(screen.getByTestId('delete-button'));
 
-      expect(deleteProject).toHaveBeenCalledWith('p1');
+      expect(screen.getByTestId('delete-confirmation')).toBeInTheDocument();
+      expect(screen.getByText(/Are you sure you want to delete/)).toBeInTheDocument();
     });
 
-    it('should handle delete failure', async () => {
-      const deleteProject = vi.fn().mockResolvedValue({
-        success: false,
-        error: 'Cannot delete',
+    it('should hide confirmation when cancel clicked', () => {
+      render(<ProjectEditPage />);
+
+      fireEvent.click(screen.getByTestId('delete-button'));
+      expect(screen.getByTestId('delete-confirmation')).toBeInTheDocument();
+
+      fireEvent.click(screen.getByTestId('cancel-delete-button'));
+
+      expect(screen.queryByTestId('delete-confirmation')).not.toBeInTheDocument();
+    });
+
+    it('should call deleteProject when confirmed', async () => {
+      const deleteProject = vi.fn().mockResolvedValue({ success: true });
+      useTaskContext.mockReturnValue({
+        ...defaultContextValue,
+        deleteProject,
       });
 
-      const result = await deleteProject('p1');
+      render(<ProjectEditPage />);
 
-      expect(result.success).toBe(false);
-      expect(result.error).toBe('Cannot delete');
+      fireEvent.click(screen.getByTestId('delete-button'));
+      fireEvent.click(screen.getByTestId('confirm-delete-button'));
+
+      await waitFor(() => {
+        expect(deleteProject).toHaveBeenCalledWith('p1');
+      });
+    });
+
+    it('should call exitEditMode on successful delete', async () => {
+      const exitEditMode = vi.fn();
+      const deleteProject = vi.fn().mockResolvedValue({ success: true });
+      useTaskContext.mockReturnValue({
+        ...defaultContextValue,
+        deleteProject,
+        exitEditMode,
+      });
+
+      render(<ProjectEditPage />);
+
+      fireEvent.click(screen.getByTestId('delete-button'));
+      fireEvent.click(screen.getByTestId('confirm-delete-button'));
+
+      await waitFor(() => {
+        expect(exitEditMode).toHaveBeenCalled();
+      });
+    });
+
+    it('should display error when delete fails', async () => {
+      const deleteProject = vi.fn().mockResolvedValue({
+        success: false,
+        error: 'Cannot delete project',
+      });
+      useTaskContext.mockReturnValue({
+        ...defaultContextValue,
+        deleteProject,
+      });
+
+      render(<ProjectEditPage />);
+
+      fireEvent.click(screen.getByTestId('delete-button'));
+      fireEvent.click(screen.getByTestId('confirm-delete-button'));
+
+      await waitFor(() => {
+        expect(screen.getByText('Cannot delete project')).toBeInTheDocument();
+      });
     });
   });
 
-  describe('Button State', () => {
-    it('should disable save when saving', () => {
-      const isSaving = true;
-      const isDeleting = false;
-      const hasChanges = true;
-      const nameValid = true;
+  describe('Navigation', () => {
+    it('should call exitEditMode when back button clicked', () => {
+      const exitEditMode = vi.fn();
+      useTaskContext.mockReturnValue({
+        ...defaultContextValue,
+        exitEditMode,
+      });
 
-      const saveDisabled = isSaving || isDeleting || !hasChanges || !nameValid;
-      expect(saveDisabled).toBe(true);
+      render(<ProjectEditPage />);
+
+      fireEvent.click(screen.getByTestId('back-button'));
+
+      expect(exitEditMode).toHaveBeenCalled();
     });
 
-    it('should disable save when deleting', () => {
-      const isSaving = false;
-      const isDeleting = true;
-      const hasChanges = true;
-      const nameValid = true;
+    it('should call exitEditMode when Cancel button clicked', () => {
+      const exitEditMode = vi.fn();
+      useTaskContext.mockReturnValue({
+        ...defaultContextValue,
+        exitEditMode,
+      });
 
-      const saveDisabled = isSaving || isDeleting || !hasChanges || !nameValid;
-      expect(saveDisabled).toBe(true);
-    });
+      render(<ProjectEditPage />);
 
-    it('should disable save when no changes', () => {
-      const isSaving = false;
-      const isDeleting = false;
-      const hasChanges = false;
-      const nameValid = true;
+      fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
 
-      const saveDisabled = isSaving || isDeleting || !hasChanges || !nameValid;
-      expect(saveDisabled).toBe(true);
-    });
-
-    it('should disable save when name invalid', () => {
-      const isSaving = false;
-      const isDeleting = false;
-      const hasChanges = true;
-      const nameValid = false;
-
-      const saveDisabled = isSaving || isDeleting || !hasChanges || !nameValid;
-      expect(saveDisabled).toBe(true);
-    });
-
-    it('should enable save when ready', () => {
-      const isSaving = false;
-      const isDeleting = false;
-      const hasChanges = true;
-      const nameValid = true;
-
-      const saveDisabled = isSaving || isDeleting || !hasChanges || !nameValid;
-      expect(saveDisabled).toBe(false);
+      expect(exitEditMode).toHaveBeenCalled();
     });
   });
 
   describe('Keyboard Shortcuts', () => {
-    it('should detect Ctrl+S for save', () => {
-      const event = { ctrlKey: true, key: 's' };
-      const isSaveShortcut = (event.ctrlKey || event.metaKey) && event.key === 's';
-      expect(isSaveShortcut).toBe(true);
+    it('should call exitEditMode when Escape pressed', () => {
+      const exitEditMode = vi.fn();
+      useTaskContext.mockReturnValue({
+        ...defaultContextValue,
+        exitEditMode,
+      });
+
+      render(<ProjectEditPage />);
+
+      const page = screen.getByTestId('project-edit-page');
+      fireEvent.keyDown(page, { key: 'Escape' });
+
+      expect(exitEditMode).toHaveBeenCalled();
     });
 
-    it('should detect Cmd+S for save (Mac)', () => {
-      const event = { metaKey: true, key: 's' };
-      const isSaveShortcut = (event.ctrlKey || event.metaKey) && event.key === 's';
-      expect(isSaveShortcut).toBe(true);
+    it('should save when Ctrl+S pressed', async () => {
+      const updateProject = vi.fn().mockResolvedValue({ success: true });
+      useTaskContext.mockReturnValue({
+        ...defaultContextValue,
+        updateProject,
+      });
+
+      render(<ProjectEditPage />);
+
+      // Make a change first
+      const nameInput = screen.getByTestId('name-input');
+      fireEvent.change(nameInput, { target: { value: 'New Name' } });
+
+      const page = screen.getByTestId('project-edit-page');
+      fireEvent.keyDown(page, { key: 's', ctrlKey: true });
+
+      await waitFor(() => {
+        expect(updateProject).toHaveBeenCalled();
+      });
     });
 
-    it('should detect Escape for cancel', () => {
-      const event = { key: 'Escape' };
-      const isCancelShortcut = event.key === 'Escape';
-      expect(isCancelShortcut).toBe(true);
+    it('should save when Cmd+S pressed (Mac)', async () => {
+      const updateProject = vi.fn().mockResolvedValue({ success: true });
+      useTaskContext.mockReturnValue({
+        ...defaultContextValue,
+        updateProject,
+      });
+
+      render(<ProjectEditPage />);
+
+      const nameInput = screen.getByTestId('name-input');
+      fireEvent.change(nameInput, { target: { value: 'New Name' } });
+
+      const page = screen.getByTestId('project-edit-page');
+      fireEvent.keyDown(page, { key: 's', metaKey: true });
+
+      await waitFor(() => {
+        expect(updateProject).toHaveBeenCalled();
+      });
+    });
+
+    it('should close delete confirmation on Escape', () => {
+      render(<ProjectEditPage />);
+
+      fireEvent.click(screen.getByTestId('delete-button'));
+      expect(screen.getByTestId('delete-confirmation')).toBeInTheDocument();
+
+      const page = screen.getByTestId('project-edit-page');
+      fireEvent.keyDown(page, { key: 'Escape' });
+
+      expect(screen.queryByTestId('delete-confirmation')).not.toBeInTheDocument();
     });
   });
 
-  describe('Null Project Handling', () => {
-    it('should return early when editingProject is null', () => {
-      const editingProject = null;
-      const shouldRender = editingProject !== null;
-      expect(shouldRender).toBe(false);
+  describe('Loading States', () => {
+    it('should show loading skeleton when documentation is loading', () => {
+      useTaskContext.mockReturnValue({
+        ...defaultContextValue,
+        isLoadingProjectDoc: true,
+      });
+
+      render(<ProjectEditPage />);
+
+      expect(screen.queryByTestId('documentation-textarea')).not.toBeInTheDocument();
+      // Should show animated skeleton
+      const loadingSection = screen.getByText('Documentation').parentElement;
+      expect(loadingSection.querySelector('.animate-pulse')).toBeInTheDocument();
     });
 
-    it('should render when editingProject is provided', () => {
-      const editingProject = { id: 'p1', name: 'Test' };
-      const shouldRender = editingProject !== null;
-      expect(shouldRender).toBe(true);
+    it('should show saving state on save button', async () => {
+      const updateProject = vi.fn().mockImplementation(() =>
+        new Promise(resolve => setTimeout(() => resolve({ success: true }), 100))
+      );
+      useTaskContext.mockReturnValue({
+        ...defaultContextValue,
+        updateProject,
+      });
+
+      render(<ProjectEditPage />);
+
+      const nameInput = screen.getByTestId('name-input');
+      fireEvent.change(nameInput, { target: { value: 'New Name' } });
+      fireEvent.click(screen.getByTestId('save-button'));
+
+      expect(screen.getByText('Saving...')).toBeInTheDocument();
+    });
+
+    it('should show deleting state on confirm delete button', async () => {
+      const deleteProject = vi.fn().mockImplementation(() =>
+        new Promise(resolve => setTimeout(() => resolve({ success: true }), 100))
+      );
+      useTaskContext.mockReturnValue({
+        ...defaultContextValue,
+        deleteProject,
+      });
+
+      render(<ProjectEditPage />);
+
+      fireEvent.click(screen.getByTestId('delete-button'));
+      fireEvent.click(screen.getByTestId('confirm-delete-button'));
+
+      expect(screen.getByText('Deleting...')).toBeInTheDocument();
+    });
+  });
+
+  describe('Header', () => {
+    it('should display Edit Project header', () => {
+      render(<ProjectEditPage />);
+
+      expect(screen.getByText('Edit Project')).toBeInTheDocument();
+      expect(screen.getByTestId('icon-folder')).toBeInTheDocument();
+    });
+
+    it('should display back button', () => {
+      render(<ProjectEditPage />);
+
+      expect(screen.getByTestId('back-button')).toBeInTheDocument();
+      expect(screen.getByTestId('icon-arrow-left')).toBeInTheDocument();
+    });
+  });
+
+  describe('Labels and Hints', () => {
+    it('should display form field labels', () => {
+      render(<ProjectEditPage />);
+
+      expect(screen.getByText('Project Name')).toBeInTheDocument();
+      expect(screen.getByText('Folder Path')).toBeInTheDocument();
+      expect(screen.getByText('Documentation')).toBeInTheDocument();
+    });
+
+    it('should display keyboard hint footer', () => {
+      render(<ProjectEditPage />);
+
+      // Keyboard hints are displayed in the footer with kbd elements
+      expect(screen.getByText('Ctrl')).toBeInTheDocument();
+      expect(screen.getByText('S')).toBeInTheDocument();
+      expect(screen.getByText('Esc')).toBeInTheDocument();
+    });
+
+    it('should display documentation help text', () => {
+      render(<ProjectEditPage />);
+
+      expect(screen.getByText(/Supports markdown formatting/)).toBeInTheDocument();
+    });
+  });
+
+  describe('Danger Zone', () => {
+    it('should display danger zone section', () => {
+      render(<ProjectEditPage />);
+
+      expect(screen.getByText('Danger Zone')).toBeInTheDocument();
+    });
+
+    it('should display delete button with warning styling', () => {
+      render(<ProjectEditPage />);
+
+      const deleteButton = screen.getByTestId('delete-button');
+      expect(deleteButton).toHaveTextContent('Delete Project');
+    });
+  });
+
+  describe('No Folder Path', () => {
+    it('should display "No folder path" when repo_folder_path is empty', () => {
+      useTaskContext.mockReturnValue({
+        ...defaultContextValue,
+        editingProject: {
+          ...mockEditingProject,
+          repo_folder_path: null,
+        },
+      });
+
+      render(<ProjectEditPage />);
+
+      expect(screen.getByText('No folder path')).toBeInTheDocument();
     });
   });
 });

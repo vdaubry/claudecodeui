@@ -5,7 +5,10 @@ This document tracks test files that contain "rotten tests" - tests that test th
 ## Summary
 
 - **Total test files analyzed:** 26
-- **Rotten tests:** 14 files
+- **Originally rotten:** 14 files
+- **Properly refactored:** 9 files ✅
+- **Still rotten (logic-only tests):** 3 files ⚠️
+- **Deleted (obsolete):** 2 files 🗑️
 - **Valid tests:** 12 files
 
 ### The Problem
@@ -199,7 +202,7 @@ A proper test should:
 
 | Test File | Scenario | Status | Notes |
 |-----------|----------|--------|-------|
-| `Dashboard.test.jsx` | 🔧 REFACTOR | ✅ Done | Already properly refactored |
+| `Dashboard.test.jsx` | 🔧 REFACTOR | ✅ Done | Refactored - 19 proper component tests |
 | `CompletedCollapse.test.jsx` | 🗑️ DELETE | ✅ Done | Deleted - component not imported anywhere |
 | `InProgressSection.test.jsx` | 🔧 REFACTOR | ✅ Done | Refactored - 14 proper component tests |
 | `ProjectCard.test.jsx` | 🗑️ DELETE | ✅ Done | Deleted - replaced by ProjectCardGrid |
@@ -209,7 +212,54 @@ A proper test should:
 | `BoardTaskCard.test.jsx` | 🔧 REFACTOR | ✅ Done | Refactored - 25 proper component tests |
 | `BoardColumn.test.jsx` | 🔧 REFACTOR | ✅ Done | Refactored - 22 proper component tests |
 | `BoardView.test.jsx` | 🔧 REFACTOR | ✅ Done | Refactored - 20 proper component tests |
-| `Settings.test.jsx` | 🔧 REFACTOR | ✅ Done | Refactored - 22 logic tests (context-based component) |
+| `Settings.test.jsx` | 🔧 REFACTOR | ⚠️ Still Rotten | 22 logic-only tests - does NOT import or render `<Settings />` |
 | `TaskDetailView.test.jsx` | 🔧 REFACTOR | ✅ Done | Refactored - 26 proper component tests |
-| `ProjectEditPage.test.jsx` | 🔧 REFACTOR | ✅ Done | Refactored - 19 logic tests (context-based component) |
-| `TaskEditPage.test.jsx` | 🔧 REFACTOR | ✅ Done | Refactored - 24 logic tests (context-based component) |
+| `ProjectEditPage.test.jsx` | 🔧 REFACTOR | ⚠️ Still Rotten | 19 logic-only tests - does NOT import or render `<ProjectEditPage />` |
+| `TaskEditPage.test.jsx` | 🔧 REFACTOR | ⚠️ Still Rotten | 24 logic-only tests - does NOT import or render `<TaskEditPage />` |
+
+---
+
+## Still Rotten: Details
+
+The following 3 test files still exhibit the rotten test pattern. They test inline-defined logic rather than importing and rendering the actual React components.
+
+### `Settings.test.jsx` ⚠️
+
+**Problem:** Defines and tests functions like `addTool`, `removeTool`, `validateMcpJson`, `parseEnvVars` inline. Never imports or renders the `<Settings />` component.
+
+**What's untested:**
+- Settings modal opening/closing
+- Tab navigation between Tools/MCP/Editor settings
+- Form interactions (adding/removing tools)
+- Save/cancel button functionality
+- Theme toggle behavior
+
+**To fix:** Mock `useTheme` and render `<Settings isOpen={true} />`, then test actual user interactions.
+
+### `ProjectEditPage.test.jsx` ⚠️
+
+**Problem:** Tests validation logic and change detection using inline-defined variables. Never imports or renders the `<ProjectEditPage />` component.
+
+**What's untested:**
+- Form rendering with current project values
+- User typing in name input
+- Documentation editor behavior
+- Save button enabling/disabling based on changes
+- Delete confirmation flow
+- Keyboard shortcuts (Ctrl+S, Escape)
+
+**To fix:** Mock `useTaskContext` and render `<ProjectEditPage />`, then test form interactions.
+
+### `TaskEditPage.test.jsx` ⚠️
+
+**Problem:** Tests validation logic and change detection using inline-defined variables. Never imports or renders the `<TaskEditPage />` component.
+
+**What's untested:**
+- Form rendering with current task values
+- User typing in title input
+- Status dropdown selection
+- Documentation editor behavior
+- Save/delete button functionality
+- Keyboard shortcuts
+
+**To fix:** Mock `useTaskContext` and render `<TaskEditPage />`, then test form interactions.
