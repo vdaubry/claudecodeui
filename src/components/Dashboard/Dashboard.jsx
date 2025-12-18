@@ -14,7 +14,7 @@ import { ScrollArea } from '../ui/scroll-area';
 import { useTaskContext } from '../../contexts/TaskContext';
 import { api } from '../../utils/api';
 import ViewToggle from './ViewToggle';
-import ProjectCard from './ProjectCard';
+import ProjectCardGrid from './ProjectCardGrid';
 import InProgressSection from './InProgressSection';
 import TaskForm from '../TaskForm';
 import { cn } from '../../lib/utils';
@@ -43,7 +43,11 @@ function Dashboard({
     deleteTask,
     updateTask,
     createTask,
-    loadProjects
+    loadProjects,
+    navigateToBoard,
+    navigateToProjectEdit,
+    isTaskLive,
+    liveTaskIds
   } = useTaskContext();
 
   // View mode: 'project' or 'in_progress'
@@ -54,64 +58,102 @@ function Dashboard({
   const [taskFormProject, setTaskFormProject] = useState(null);
   const [isCreatingTask, setIsCreatingTask] = useState(false);
 
-  // Track expanded projects (first project expanded by default)
-  const [expandedProjects, setExpandedProjects] = useState(new Set());
-
-  // Track tasks loaded per project for project view
-  const [projectTasks, setProjectTasks] = useState({});
+  // Project data cache: task counts and documentation for grid cards
+  const [projectData, setProjectData] = useState({});
+  const [isLoadingProjectData, setIsLoadingProjectData] = useState(false);
 
   // In-progress tasks state (fetched from /api/tasks?status=in_progress)
   const [inProgressTasks, setInProgressTasks] = useState([]);
   const [isLoadingInProgress, setIsLoadingInProgress] = useState(false);
 
-  // Auto-expand first project on load
+  // Load project data (task counts and docs) for all projects
   useEffect(() => {
-    if (projects.length > 0 && expandedProjects.size === 0) {
-      setExpandedProjects(new Set([projects[0].id]));
-    }
-  }, [projects]);
+    const loadAllProjectData = async () => {
+      if (projects.length === 0) return;
 
-  // When a project is expanded, load its tasks
-  useEffect(() => {
-    const loadProjectTasks = async () => {
-      for (const projectId of expandedProjects) {
-        if (!projectTasks[projectId]) {
-          // Select project temporarily to load tasks
-          const project = projects.find(p => p.id === projectId);
-          if (project) {
-            await selectProject(project);
-          }
-        }
+      setIsLoadingProjectData(true);
+      const newProjectData = {};
+
+      try {
+        // Fetch data for all projects in parallel
+        await Promise.all(
+          projects.map(async (project) => {
+            try {
+              // Fetch tasks for this project
+              const tasksResponse = await api.tasks.list(project.id);
+              let projectTasks = [];
+              if (tasksResponse.ok) {
+                const data = await tasksResponse.json();
+                projectTasks = data.tasks || data || [];
+              }
+
+              // Fetch documentation for this project
+              const docResponse = await api.projects.getDoc(project.id);
+              let documentation = '';
+              if (docResponse.ok) {
+                const docData = await docResponse.json();
+                documentation = docData.content || '';
+              }
+
+              // Count tasks by status
+              const taskCounts = {
+                pending: projectTasks.filter(t => t.status === 'pending' || (!t.status && !t.completed)).length,
+                in_progress: projectTasks.filter(t => t.status === 'in_progress').length,
+                completed: projectTasks.filter(t => t.status === 'completed' || t.completed).length
+              };
+
+              // Check if any task in this project is live
+              const hasLiveTask = projectTasks.some(t => isTaskLive(t.id));
+
+              newProjectData[project.id] = {
+                taskCounts,
+                documentation,
+                hasLiveTask,
+                tasks: projectTasks
+              };
+            } catch (error) {
+              console.error(`Error loading data for project ${project.id}:`, error);
+              newProjectData[project.id] = {
+                taskCounts: { pending: 0, in_progress: 0, completed: 0 },
+                documentation: '',
+                hasLiveTask: false,
+                tasks: []
+              };
+            }
+          })
+        );
+
+        setProjectData(newProjectData);
+      } finally {
+        setIsLoadingProjectData(false);
       }
     };
 
-    if (expandedProjects.size > 0) {
-      loadProjectTasks();
-    }
-  }, [expandedProjects, projects]);
+    loadAllProjectData();
+  }, [projects, isTaskLive]);
 
-  // Update projectTasks when tasks change
+  // Update live task status when liveTaskIds changes
   useEffect(() => {
-    if (selectedProject && tasks.length >= 0) {
-      setProjectTasks(prev => ({
-        ...prev,
-        [selectedProject.id]: tasks
-      }));
-    }
-  }, [selectedProject, tasks]);
+    if (Object.keys(projectData).length === 0) return;
 
-  // Toggle project expansion
-  const toggleProject = (projectId) => {
-    setExpandedProjects(prev => {
-      const next = new Set(prev);
-      if (next.has(projectId)) {
-        next.delete(projectId);
-      } else {
-        next.add(projectId);
-      }
-      return next;
+    setProjectData(prev => {
+      const updated = { ...prev };
+      let hasChanges = false;
+
+      Object.keys(updated).forEach(projectId => {
+        const data = updated[projectId];
+        if (data.tasks) {
+          const hasLiveTask = data.tasks.some(t => isTaskLive(t.id));
+          if (data.hasLiveTask !== hasLiveTask) {
+            updated[projectId] = { ...data, hasLiveTask };
+            hasChanges = true;
+          }
+        }
+      });
+
+      return hasChanges ? updated : prev;
     });
-  };
+  }, [liveTaskIds, isTaskLive]);
 
   // Load in-progress tasks when switching to in_progress view
   const loadInProgressTasks = useCallback(async () => {
@@ -215,6 +257,22 @@ function Dashboard({
     return result;
   }, [updateTask]);
 
+  // Handle project card click - navigate to board view
+  const handleProjectCardClick = useCallback((project) => {
+    navigateToBoard(project);
+  }, [navigateToBoard]);
+
+  // Handle status badge click - navigate to board view (badge status could be used for filtering in the future)
+  const handleStatusBadgeClick = useCallback((project, status) => {
+    navigateToBoard(project);
+  }, [navigateToBoard]);
+
+  // Handle project edit click
+  const handleEditProjectClick = useCallback((project) => {
+    // Use the callback from App.jsx to show the edit modal
+    onEditProject?.(project);
+  }, [onEditProject]);
+
   // Loading state
   if (isLoadingProjects && projects.length === 0) {
     return (
@@ -231,13 +289,13 @@ function Dashboard({
   }
 
   return (
-    <div className="h-full flex flex-col bg-background">
+    <div className="h-full flex flex-col bg-gradient-to-b from-background to-muted/20">
       {/* Header */}
-      <div className="flex-shrink-0 border-b border-border p-4">
+      <div className="flex-shrink-0 border-b border-border p-4 bg-background/80 backdrop-blur-sm">
         <div className="flex items-center justify-between">
           {/* Logo and title */}
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-primary rounded-lg flex items-center justify-center shadow-sm">
+            <div className="w-10 h-10 bg-gradient-to-br from-primary to-primary/80 rounded-lg flex items-center justify-center shadow-md">
               <MessageSquare className="w-5 h-5 text-primary-foreground" />
             </div>
             <div>
@@ -294,37 +352,42 @@ function Dashboard({
         <div className="p-4 space-y-4">
           {projects.length === 0 ? (
             // Empty state
-            <div className="text-center py-16">
-              <div className="w-16 h-16 mx-auto mb-6 bg-muted rounded-full flex items-center justify-center">
-                <FolderPlus className="w-8 h-8 text-muted-foreground" />
+            <div className="text-center py-16 px-4">
+              <div className="w-20 h-20 mx-auto mb-6 bg-gradient-to-br from-muted to-muted/60 rounded-2xl flex items-center justify-center shadow-inner">
+                <FolderPlus className="w-10 h-10 text-muted-foreground" />
               </div>
               <h2 className="text-2xl font-semibold mb-3 text-foreground">No Projects Yet</h2>
-              <p className="text-muted-foreground mb-6 max-w-md mx-auto">
+              <p className="text-muted-foreground mb-8 max-w-md mx-auto leading-relaxed">
                 Create your first project to start managing tasks and conversations with Claude.
               </p>
-              <Button onClick={onShowProjectForm}>
-                <FolderPlus className="w-4 h-4 mr-2" />
+              <Button onClick={onShowProjectForm} size="lg" className="shadow-md hover:shadow-lg transition-shadow">
+                <FolderPlus className="w-5 h-5 mr-2" />
                 Create Project
               </Button>
             </div>
           ) : viewMode === 'project' ? (
-            // Project view
-            <div className="space-y-3">
-              {projects.map((project, index) => (
-                <ProjectCard
-                  key={project.id}
-                  project={project}
-                  tasks={projectTasks[project.id] || []}
-                  isExpanded={expandedProjects.has(project.id)}
-                  isLoading={selectedProject?.id === project.id && isLoadingTasks}
-                  onToggle={() => toggleProject(project.id)}
-                  onTaskClick={handleTaskClick}
-                  onNewTask={() => handleNewTask(project)}
-                  onEditProject={() => onEditProject?.(project)}
-                  onDeleteProject={deleteProject}
-                  onDeleteTask={deleteTask}
-                />
-              ))}
+            // Project grid view
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              {projects.map((project) => {
+                const data = projectData[project.id] || {
+                  taskCounts: { pending: 0, in_progress: 0, completed: 0 },
+                  documentation: '',
+                  hasLiveTask: false
+                };
+                return (
+                  <ProjectCardGrid
+                    key={project.id}
+                    project={project}
+                    taskCounts={data.taskCounts}
+                    documentationPreview={data.documentation}
+                    hasLiveTask={data.hasLiveTask}
+                    onCardClick={() => handleProjectCardClick(project)}
+                    onEditClick={() => handleEditProjectClick(project)}
+                    onDeleteClick={() => deleteProject(project.id)}
+                    onStatusBadgeClick={(status) => handleStatusBadgeClick(project, status)}
+                  />
+                );
+              })}
             </div>
           ) : (
             // In Progress view - navigate directly to latest conversation
