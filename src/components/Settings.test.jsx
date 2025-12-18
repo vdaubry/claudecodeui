@@ -189,8 +189,6 @@ describe('Settings Component', () => {
         expect(screen.queryByText('ToolToRemove')).not.toBeInTheDocument();
       });
     });
-
-    // MCP Servers section test removed - feature will be rewritten
   });
 
   describe('Appearance Tab', () => {
@@ -298,8 +296,6 @@ describe('Settings Component', () => {
       });
     });
   });
-
-  // MCP Server Management tests removed - feature will be rewritten
 
   describe('Code Editor Settings Persistence', () => {
     it('should save editor theme to localStorage', () => {
