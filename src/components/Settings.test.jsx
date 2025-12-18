@@ -10,16 +10,6 @@ vi.mock('../contexts/ThemeContext', () => ({
   })),
 }));
 
-// Mock CredentialsSettings component
-vi.mock('./CredentialsSettings', () => ({
-  default: () => <div data-testid="credentials-settings">Credentials Settings</div>,
-}));
-
-// Mock authenticatedFetch
-vi.mock('../utils/api', () => ({
-  authenticatedFetch: vi.fn(),
-}));
-
 // Mock lucide-react icons
 vi.mock('lucide-react', () => ({
   X: () => <span data-testid="icon-x" />,
@@ -29,18 +19,9 @@ vi.mock('lucide-react', () => ({
   AlertTriangle: () => <span data-testid="icon-alert" />,
   Moon: () => <span data-testid="icon-moon" />,
   Sun: () => <span data-testid="icon-sun" />,
-  Server: () => <span data-testid="icon-server" />,
-  Edit3: () => <span data-testid="icon-edit" />,
-  Trash2: () => <span data-testid="icon-trash" />,
-  Globe: () => <span data-testid="icon-globe" />,
-  Zap: () => <span data-testid="icon-zap" />,
-  FolderOpen: () => <span data-testid="icon-folder" />,
-  Key: () => <span data-testid="icon-key" />,
-  Terminal: () => <span data-testid="icon-terminal" />,
 }));
 
 import { useTheme } from '../contexts/ThemeContext';
-import { authenticatedFetch } from '../utils/api';
 
 describe('Settings Component', () => {
   const mockToggleDarkMode = vi.fn();
@@ -65,12 +46,6 @@ describe('Settings Component', () => {
     useTheme.mockReturnValue({
       isDarkMode: false,
       toggleDarkMode: mockToggleDarkMode,
-    });
-
-    // Default mock for authenticatedFetch - return empty servers
-    authenticatedFetch.mockResolvedValue({
-      ok: true,
-      json: () => Promise.resolve({ success: true, servers: [] }),
     });
   });
 
@@ -102,12 +77,11 @@ describe('Settings Component', () => {
   });
 
   describe('Tab Navigation', () => {
-    it('should render all three tabs', () => {
+    it('should render both tabs', () => {
       render(<Settings isOpen={true} onClose={vi.fn()} />);
 
       expect(screen.getByText('Tools')).toBeInTheDocument();
       expect(screen.getByText('Appearance')).toBeInTheDocument();
-      expect(screen.getByText('API & Tokens')).toBeInTheDocument();
     });
 
     it('should show Tools tab by default', () => {
@@ -122,14 +96,6 @@ describe('Settings Component', () => {
       fireEvent.click(screen.getByText('Appearance'));
 
       expect(screen.getByText('Dark Mode')).toBeInTheDocument();
-    });
-
-    it('should switch to API & Tokens tab when clicked', () => {
-      render(<Settings isOpen={true} onClose={vi.fn()} />);
-
-      fireEvent.click(screen.getByText('API & Tokens'));
-
-      expect(screen.getByTestId('credentials-settings')).toBeInTheDocument();
     });
 
     it('should respect initialTab prop', () => {
@@ -223,8 +189,6 @@ describe('Settings Component', () => {
         expect(screen.queryByText('ToolToRemove')).not.toBeInTheDocument();
       });
     });
-
-    // MCP Servers section test removed - feature will be rewritten
   });
 
   describe('Appearance Tab', () => {
@@ -332,8 +296,6 @@ describe('Settings Component', () => {
       });
     });
   });
-
-  // MCP Server Management tests removed - feature will be rewritten
 
   describe('Code Editor Settings Persistence', () => {
     it('should save editor theme to localStorage', () => {
