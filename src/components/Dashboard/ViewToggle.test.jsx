@@ -1,91 +1,105 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { render, screen, fireEvent } from '@testing-library/react';
+import ViewToggle from './ViewToggle';
 
-describe('ViewToggle Logic', () => {
-  describe('View Mode Validation', () => {
-    it('should accept valid view modes', () => {
-      const validModes = ['project', 'in_progress'];
+// Mock lucide-react icons
+vi.mock('lucide-react', () => ({
+  LayoutGrid: () => <span data-testid="icon-layout-grid" />,
+  Clock: () => <span data-testid="icon-clock" />,
+}));
 
-      const isValidMode = (mode) => validModes.includes(mode);
+describe('ViewToggle Component', () => {
+  const defaultProps = {
+    viewMode: 'project',
+    onViewModeChange: vi.fn(),
+    inProgressCount: 0,
+  };
 
-      expect(isValidMode('project')).toBe(true);
-      expect(isValidMode('in_progress')).toBe(true);
-      expect(isValidMode('invalid')).toBe(false);
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  describe('Rendering', () => {
+    it('should render both view mode buttons', () => {
+      render(<ViewToggle {...defaultProps} />);
+
+      expect(screen.getByText('By Project')).toBeInTheDocument();
+      expect(screen.getByText('In Progress')).toBeInTheDocument();
     });
 
-    it('should default to project mode for invalid input', () => {
-      const getValidMode = (mode) => {
-        const validModes = ['project', 'in_progress'];
-        return validModes.includes(mode) ? mode : 'project';
-      };
+    it('should render icons for each button', () => {
+      render(<ViewToggle {...defaultProps} />);
 
-      expect(getValidMode('invalid')).toBe('project');
-      expect(getValidMode('')).toBe('project');
-      expect(getValidMode(null)).toBe('project');
+      expect(screen.getByTestId('icon-layout-grid')).toBeInTheDocument();
+      expect(screen.getByTestId('icon-clock')).toBeInTheDocument();
     });
   });
 
-  describe('View Mode Change Handler', () => {
-    it('should call change handler with new mode', () => {
-      const onViewModeChange = vi.fn();
+  describe('Active State', () => {
+    it('should style project button as active when viewMode is project', () => {
+      render(<ViewToggle {...defaultProps} viewMode="project" />);
 
-      onViewModeChange('in_progress');
-      expect(onViewModeChange).toHaveBeenCalledWith('in_progress');
-      expect(onViewModeChange).toHaveBeenCalledTimes(1);
+      const projectButton = screen.getByText('By Project').closest('button');
+      expect(projectButton.className).toContain('bg-background');
+      expect(projectButton.className).toContain('shadow-sm');
     });
 
-    it('should not change if same mode selected', () => {
-      let currentMode = 'project';
-      const changes = [];
+    it('should style in-progress button as active when viewMode is in_progress', () => {
+      render(<ViewToggle {...defaultProps} viewMode="in_progress" />);
 
-      const handleViewModeChange = (newMode) => {
-        if (newMode !== currentMode) {
-          currentMode = newMode;
-          changes.push(newMode);
-        }
-      };
+      const inProgressButton = screen.getByText('In Progress').closest('button');
+      expect(inProgressButton.className).toContain('bg-background');
+      expect(inProgressButton.className).toContain('shadow-sm');
+    });
 
-      handleViewModeChange('project'); // Same mode - no change
-      expect(changes).toHaveLength(0);
+    it('should style inactive button differently', () => {
+      render(<ViewToggle {...defaultProps} viewMode="project" />);
 
-      handleViewModeChange('in_progress'); // Different mode - change
-      expect(changes).toHaveLength(1);
-      expect(changes[0]).toBe('in_progress');
+      const inProgressButton = screen.getByText('In Progress').closest('button');
+      expect(inProgressButton.className).toContain('text-muted-foreground');
+      expect(inProgressButton.className).not.toContain('shadow-sm');
     });
   });
 
-  describe('Button State Logic', () => {
-    it('should mark current mode as active', () => {
-      const viewMode = 'project';
+  describe('Click Handlers', () => {
+    it('should call onViewModeChange with project when project button is clicked', () => {
+      render(<ViewToggle {...defaultProps} viewMode="in_progress" />);
 
-      const isProjectActive = viewMode === 'project';
-      const isInProgressActive = viewMode === 'in_progress';
+      fireEvent.click(screen.getByText('By Project'));
 
-      expect(isProjectActive).toBe(true);
-      expect(isInProgressActive).toBe(false);
+      expect(defaultProps.onViewModeChange).toHaveBeenCalledWith('project');
+      expect(defaultProps.onViewModeChange).toHaveBeenCalledTimes(1);
     });
 
-    it('should update active state when mode changes', () => {
-      let viewMode = 'project';
+    it('should call onViewModeChange with in_progress when in-progress button is clicked', () => {
+      render(<ViewToggle {...defaultProps} viewMode="project" />);
 
-      expect(viewMode === 'project').toBe(true);
-      expect(viewMode === 'in_progress').toBe(false);
+      fireEvent.click(screen.getByText('In Progress'));
 
-      viewMode = 'in_progress';
-
-      expect(viewMode === 'project').toBe(false);
-      expect(viewMode === 'in_progress').toBe(true);
+      expect(defaultProps.onViewModeChange).toHaveBeenCalledWith('in_progress');
+      expect(defaultProps.onViewModeChange).toHaveBeenCalledTimes(1);
     });
   });
 
-  describe('View Mode Labels', () => {
-    it('should have correct labels for each mode', () => {
-      const labels = {
-        project: 'By Project',
-        in_progress: 'In Progress'
-      };
+  describe('In Progress Count Badge', () => {
+    it('should not show count badge when inProgressCount is 0', () => {
+      render(<ViewToggle {...defaultProps} inProgressCount={0} />);
 
-      expect(labels.project).toBe('By Project');
-      expect(labels.in_progress).toBe('In Progress');
+      expect(screen.queryByText('0')).not.toBeInTheDocument();
+    });
+
+    it('should show count badge when inProgressCount is greater than 0', () => {
+      render(<ViewToggle {...defaultProps} inProgressCount={5} />);
+
+      expect(screen.getByText('5')).toBeInTheDocument();
+    });
+
+    it('should style the count badge with yellow colors', () => {
+      render(<ViewToggle {...defaultProps} inProgressCount={3} />);
+
+      const badge = screen.getByText('3');
+      expect(badge.className).toContain('bg-yellow-500');
+      expect(badge.className).toContain('text-yellow-600');
     });
   });
 });

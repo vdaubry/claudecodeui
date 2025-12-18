@@ -54,20 +54,26 @@ export function TaskContextProvider({ children }) {
   const [selectedTask, setSelectedTask] = useState(null);
   const [activeConversation, setActiveConversation] = useState(null);
 
+  // Edit mode state (for dedicated edit pages)
+  const [editingProject, setEditingProject] = useState(null);
+  const [editingTask, setEditingTask] = useState(null);
+
   // Documentation state
   const [projectDoc, setProjectDoc] = useState('');
   const [taskDoc, setTaskDoc] = useState('');
   const [isLoadingProjectDoc, setIsLoadingProjectDoc] = useState(false);
   const [isLoadingTaskDoc, setIsLoadingTaskDoc] = useState(false);
 
-  // Current view state - derived from selection
-  // Possible values: 'empty', 'project-detail', 'task-detail', 'chat'
+  // Current view state - derived from selection and edit mode
+  // Possible values: 'empty', 'board', 'task-detail', 'chat', 'project-edit', 'task-edit'
   const getCurrentView = useCallback(() => {
     if (activeConversation) return 'chat';
+    if (editingTask) return 'task-edit';
+    if (editingProject) return 'project-edit';
     if (selectedTask) return 'task-detail';
-    if (selectedProject) return 'project-detail';
+    if (selectedProject) return 'board';
     return 'empty';
-  }, [activeConversation, selectedTask, selectedProject]);
+  }, [activeConversation, selectedTask, selectedProject, editingTask, editingProject]);
 
   // ========== Projects API ==========
 
@@ -455,10 +461,59 @@ export function TaskContextProvider({ children }) {
     setSelectedProject(null);
     setSelectedTask(null);
     setActiveConversation(null);
+    setEditingProject(null);
+    setEditingTask(null);
     setTasks([]);
     setConversations([]);
     setProjectDoc('');
     setTaskDoc('');
+  }, []);
+
+  // ========== Board Navigation ==========
+
+  // Navigate to board view for a project
+  const navigateToBoard = useCallback(async (project) => {
+    setEditingProject(null);
+    setEditingTask(null);
+    setSelectedTask(null);
+    setActiveConversation(null);
+    setSelectedProject(project);
+    setConversations([]);
+    setTaskDoc('');
+
+    if (project) {
+      // Load tasks and project documentation in parallel
+      await Promise.all([
+        loadTasks(project.id),
+        loadProjectDoc(project.id)
+      ]);
+    }
+  }, [loadTasks, loadProjectDoc]);
+
+  // Navigate to project edit page
+  const navigateToProjectEdit = useCallback(async (project) => {
+    setEditingProject(project);
+    setEditingTask(null);
+    // Load project documentation if not already loaded
+    if (project && (!selectedProject || selectedProject.id !== project.id)) {
+      await loadProjectDoc(project.id);
+    }
+  }, [selectedProject, loadProjectDoc]);
+
+  // Navigate to task edit page
+  const navigateToTaskEdit = useCallback(async (task) => {
+    setEditingTask(task);
+    setEditingProject(null);
+    // Load task documentation if not already loaded
+    if (task && (!selectedTask || selectedTask.id !== task.id)) {
+      await loadTaskDoc(task.id);
+    }
+  }, [selectedTask, loadTaskDoc]);
+
+  // Exit edit mode and return to previous view
+  const exitEditMode = useCallback(() => {
+    setEditingProject(null);
+    setEditingTask(null);
   }, []);
 
   // ========== Effects ==========
@@ -579,6 +634,16 @@ export function TaskContextProvider({ children }) {
     selectConversation,
     navigateBack,
     clearSelection,
+
+    // Board navigation
+    navigateToBoard,
+    navigateToProjectEdit,
+    navigateToTaskEdit,
+    exitEditMode,
+
+    // Edit mode state
+    editingProject,
+    editingTask,
 
     // View state
     currentView: getCurrentView(),

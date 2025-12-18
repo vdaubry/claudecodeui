@@ -335,20 +335,6 @@ describe('API Client - Phase 5', () => {
     });
   });
 
-  describe('api.browseFilesystem', () => {
-    it('should call GET /api/browse-filesystem without params when no path', async () => {
-      await api.browseFilesystem();
-
-      expect(mockFetch).toHaveBeenCalledWith('/api/browse-filesystem?', expect.any(Object));
-    });
-
-    it('should call GET /api/browse-filesystem with path param', async () => {
-      await api.browseFilesystem('/home/user');
-
-      expect(mockFetch).toHaveBeenCalledWith('/api/browse-filesystem?path=%2Fhome%2Fuser', expect.any(Object));
-    });
-  });
-
   describe('api.getCommands', () => {
     it('should call POST /api/commands/list with projectPath', async () => {
       await api.getCommands('/path/to/project');

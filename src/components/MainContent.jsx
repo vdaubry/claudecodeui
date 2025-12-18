@@ -2,9 +2,12 @@
  * MainContent.jsx - Main Content Area
  *
  * Task-driven workflow views:
- * - dashboard: Full-screen Dashboard with all projects/tasks (replaces empty + project-detail)
+ * - empty: Dashboard with project cards grid
+ * - board: BoardView with Kanban columns for a project
  * - task-detail: TaskDetailView with documentation and conversations
  * - chat: ChatInterface for active conversation
+ * - project-edit: ProjectEditPage for editing project details
+ * - task-edit: TaskEditPage for editing task details
  */
 
 import React, { useState, useCallback } from 'react';
@@ -13,7 +16,10 @@ import ErrorBoundary from './ErrorBoundary';
 import TaskDetailView from './TaskDetailView';
 import Breadcrumb from './Breadcrumb';
 import { Dashboard } from './Dashboard';
+import BoardView from './Dashboard/BoardView';
 import NewConversationModal from './NewConversationModal';
+import ProjectEditPage from './ProjectEditPage';
+import TaskEditPage from './TaskEditPage';
 import { useTaskContext } from '../contexts/TaskContext';
 import { ArrowLeft } from 'lucide-react';
 import { Button } from './ui/button';
@@ -26,11 +32,7 @@ function MainContent({
   onEditProject,
   autoExpandTools,
   showRawParameters,
-  showThinking,
-  updateAvailable,
-  latestVersion,
-  releaseInfo,
-  onShowVersionModal
+  showThinking
 }) {
   const {
     // Selection state
@@ -40,17 +42,11 @@ function MainContent({
     currentView,
 
     // Data
-    projects,
-    tasks,
     conversations,
-    projectDoc,
     taskDoc,
 
     // Loading states
-    isLoadingProjects,
-    isLoadingTasks,
     isLoadingConversations,
-    isLoadingProjectDoc,
     isLoadingTaskDoc,
 
     // Actions
@@ -59,27 +55,13 @@ function MainContent({
     selectConversation,
     navigateBack,
     clearSelection,
-    createTask,
     updateTask,
-    deleteTask,
-    createConversation,
     deleteConversation,
-    saveProjectDoc,
-    saveTaskDoc,
-    updateProject
+    saveTaskDoc
   } = useTaskContext();
-
-  // Edit project modal state (handled in App.jsx via callback)
-  const [editingProject, setEditingProject] = useState(null);
 
   // New conversation modal state
   const [showNewConversationModal, setShowNewConversationModal] = useState(false);
-
-  // Handle project documentation save
-  const handleSaveProjectDoc = useCallback(async (content) => {
-    if (!selectedProject) return { success: false, error: 'No project selected' };
-    return await saveProjectDoc(selectedProject.id, content);
-  }, [selectedProject, saveProjectDoc]);
 
   // Handle task documentation save
   const handleSaveTaskDoc = useCallback(async (content) => {
@@ -91,12 +73,6 @@ function MainContent({
   const handleStatusChange = useCallback(async (taskId, newStatus) => {
     return await updateTask(taskId, { status: newStatus });
   }, [updateTask]);
-
-  // Handle task creation
-  const handleCreateTask = useCallback(async ({ title, documentation }) => {
-    if (!selectedProject) return { success: false, error: 'No project selected' };
-    return await createTask(selectedProject.id, title, documentation);
-  }, [selectedProject, createTask]);
 
   // Handle new conversation - opens modal instead of creating immediately
   const handleNewConversation = useCallback(() => {
@@ -134,21 +110,32 @@ function MainContent({
     }
   }, [selectedTask, selectTask]);
 
-  // Dashboard view - empty state OR project-detail (now merged into Dashboard)
-  if (currentView === 'empty' || currentView === 'project-detail') {
+  // Dashboard view - shows project cards grid
+  if (currentView === 'empty') {
     return (
       <Dashboard
         onShowSettings={onShowSettings}
         onShowProjectForm={onShowProjectForm}
         onEditProject={onEditProject}
         onTaskClick={(task) => selectTask(task)}
-        updateAvailable={updateAvailable}
-        latestVersion={latestVersion}
-        releaseInfo={releaseInfo}
-        onShowVersionModal={onShowVersionModal}
         isMobile={isMobile}
       />
     );
+  }
+
+  // Board view - Kanban columns for a project
+  if (currentView === 'board') {
+    return <BoardView />;
+  }
+
+  // Project edit page
+  if (currentView === 'project-edit') {
+    return <ProjectEditPage />;
+  }
+
+  // Task edit page
+  if (currentView === 'task-edit') {
+    return <TaskEditPage />;
   }
 
   // Task detail view

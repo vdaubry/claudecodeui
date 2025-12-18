@@ -1,252 +1,308 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import TaskDetailView from './TaskDetailView';
 
-// Status configuration matching the component
-const STATUS_OPTIONS = [
-  { value: 'pending', label: 'Pending', color: 'bg-gray-500/10 text-gray-600 dark:text-gray-400' },
-  { value: 'in_progress', label: 'In Progress', color: 'bg-yellow-500/10 text-yellow-600 dark:text-yellow-400' },
-  { value: 'completed', label: 'Completed', color: 'bg-green-500/10 text-green-600 dark:text-green-400' },
-];
+// Mock child components
+vi.mock('./ui/button', () => ({
+  Button: ({ children, onClick, variant, size, className, disabled }) => (
+    <button onClick={onClick} className={className} disabled={disabled}>
+      {children}
+    </button>
+  ),
+}));
 
-describe('TaskDetailView Status Dropdown Logic', () => {
+vi.mock('./Breadcrumb', () => ({
+  default: ({ project, task, onProjectClick, onHomeClick }) => (
+    <div data-testid="breadcrumb">
+      <button data-testid="home-click" onClick={onHomeClick}>Home</button>
+      <button data-testid="project-click" onClick={() => onProjectClick?.(project)}>
+        {project?.name}
+      </button>
+      <span>{task?.title}</span>
+    </div>
+  ),
+}));
+
+vi.mock('./MarkdownEditor', () => ({
+  default: ({ content, onSave, isLoading, placeholder }) => (
+    <div data-testid="markdown-editor">
+      <span data-testid="doc-content">{content || placeholder}</span>
+      {isLoading && <span data-testid="doc-loading">Loading...</span>}
+      <button data-testid="save-doc" onClick={() => onSave?.('Updated docs')}>Save</button>
+    </div>
+  ),
+}));
+
+vi.mock('./ConversationList', () => ({
+  default: ({ conversations, isLoading, onNewConversation, onResumeConversation, onDeleteConversation, activeConversationId }) => (
+    <div data-testid="conversation-list">
+      {isLoading && <span data-testid="conv-loading">Loading...</span>}
+      <span data-testid="conv-count">{conversations?.length || 0}</span>
+      <button data-testid="new-conv" onClick={onNewConversation}>New</button>
+      {conversations?.map((c) => (
+        <div key={c.id} data-testid={`conv-${c.id}`}>
+          <button data-testid={`resume-${c.id}`} onClick={() => onResumeConversation(c)}>
+            Resume
+          </button>
+          <button data-testid={`delete-${c.id}`} onClick={() => onDeleteConversation(c.id)}>
+            Delete
+          </button>
+          {activeConversationId === c.id && <span data-testid="active-indicator">Active</span>}
+        </div>
+      ))}
+    </div>
+  ),
+}));
+
+// Mock lucide-react icons
+vi.mock('lucide-react', () => ({
+  FileText: () => <span data-testid="icon-file-text" />,
+  ArrowLeft: () => <span data-testid="icon-arrow-left" />,
+  ChevronDown: () => <span data-testid="icon-chevron-down" />,
+  Check: () => <span data-testid="icon-check" />,
+}));
+
+describe('TaskDetailView Component', () => {
+  const mockProject = { id: 'p1', name: 'Test Project' };
+  const mockTask = { id: 't1', title: 'Test Task', status: 'pending' };
+  const mockConversations = [
+    { id: 'c1', title: 'Conversation 1' },
+    { id: 'c2', title: 'Conversation 2' },
+  ];
+
+  const defaultProps = {
+    project: mockProject,
+    task: mockTask,
+    taskDoc: '# Task Documentation',
+    conversations: mockConversations,
+    activeConversationId: null,
+    isLoadingDoc: false,
+    isLoadingConversations: false,
+    onBack: vi.fn(),
+    onProjectClick: vi.fn(),
+    onHomeClick: vi.fn(),
+    onSaveTaskDoc: vi.fn(),
+    onStatusChange: vi.fn(),
+    onNewConversation: vi.fn(),
+    onResumeConversation: vi.fn(),
+    onDeleteConversation: vi.fn(),
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  describe('Rendering', () => {
+    it('should return null when task is null', () => {
+      const { container } = render(<TaskDetailView {...defaultProps} task={null} />);
+      expect(container.firstChild).toBeNull();
+    });
+
+    it('should render task title', () => {
+      render(<TaskDetailView {...defaultProps} />);
+      // Title appears in both breadcrumb and h1, verify at least one
+      expect(screen.getAllByText('Test Task').length).toBeGreaterThanOrEqual(1);
+    });
+
+    it('should render fallback title when task.title is missing', () => {
+      render(<TaskDetailView {...defaultProps} task={{ id: 't1', status: 'pending' }} />);
+      expect(screen.getByText('Task t1')).toBeInTheDocument();
+    });
+
+    it('should render project name in subtitle', () => {
+      render(<TaskDetailView {...defaultProps} />);
+      expect(screen.getByText(/in Test Project/)).toBeInTheDocument();
+    });
+
+    it('should render breadcrumb', () => {
+      render(<TaskDetailView {...defaultProps} />);
+      expect(screen.getByTestId('breadcrumb')).toBeInTheDocument();
+    });
+
+    it('should render markdown editor with task doc', () => {
+      render(<TaskDetailView {...defaultProps} />);
+      expect(screen.getByTestId('doc-content')).toHaveTextContent('# Task Documentation');
+    });
+
+    it('should render conversation list', () => {
+      render(<TaskDetailView {...defaultProps} />);
+      expect(screen.getByTestId('conversation-list')).toBeInTheDocument();
+      expect(screen.getByTestId('conv-count')).toHaveTextContent('2');
+    });
+  });
+
   describe('Status Display', () => {
-    it('should render status dropdown button with current status (pending)', () => {
-      const task = { id: 1, status: 'pending' };
-      const currentStatus = STATUS_OPTIONS.find(s => s.value === task.status) || STATUS_OPTIONS[0];
-
-      expect(currentStatus.label).toBe('Pending');
-      expect(currentStatus.color).toContain('gray');
+    it('should show Pending status for pending task', () => {
+      render(<TaskDetailView {...defaultProps} task={{ ...mockTask, status: 'pending' }} />);
+      expect(screen.getByText('Pending')).toBeInTheDocument();
     });
 
-    it('should render status dropdown button with current status (in_progress)', () => {
-      const task = { id: 1, status: 'in_progress' };
-      const currentStatus = STATUS_OPTIONS.find(s => s.value === task.status) || STATUS_OPTIONS[0];
-
-      expect(currentStatus.label).toBe('In Progress');
-      expect(currentStatus.color).toContain('yellow');
+    it('should show In Progress status for in_progress task', () => {
+      render(<TaskDetailView {...defaultProps} task={{ ...mockTask, status: 'in_progress' }} />);
+      expect(screen.getByText('In Progress')).toBeInTheDocument();
     });
 
-    it('should render status dropdown button with current status (completed)', () => {
-      const task = { id: 1, status: 'completed' };
-      const currentStatus = STATUS_OPTIONS.find(s => s.value === task.status) || STATUS_OPTIONS[0];
-
-      expect(currentStatus.label).toBe('Completed');
-      expect(currentStatus.color).toContain('green');
+    it('should show Completed status for completed task', () => {
+      render(<TaskDetailView {...defaultProps} task={{ ...mockTask, status: 'completed' }} />);
+      expect(screen.getByText('Completed')).toBeInTheDocument();
     });
 
-    it('should default to pending for unknown status', () => {
-      const task = { id: 1, status: 'unknown' };
-      const currentStatus = STATUS_OPTIONS.find(s => s.value === task.status) || STATUS_OPTIONS[0];
-
-      expect(currentStatus.label).toBe('Pending');
+    it('should default to Pending for unknown status', () => {
+      render(<TaskDetailView {...defaultProps} task={{ ...mockTask, status: 'unknown' }} />);
+      expect(screen.getByText('Pending')).toBeInTheDocument();
     });
   });
 
-  describe('Dropdown Options', () => {
-    it('should show all three status options', () => {
-      expect(STATUS_OPTIONS).toHaveLength(3);
-      expect(STATUS_OPTIONS.map(s => s.value)).toEqual(['pending', 'in_progress', 'completed']);
-      expect(STATUS_OPTIONS.map(s => s.label)).toEqual(['Pending', 'In Progress', 'Completed']);
-    });
+  describe('Status Dropdown', () => {
+    it('should open dropdown when status button is clicked', () => {
+      render(<TaskDetailView {...defaultProps} />);
 
-    it('should have correct styling for each status option', () => {
-      const pendingOption = STATUS_OPTIONS.find(s => s.value === 'pending');
-      const inProgressOption = STATUS_OPTIONS.find(s => s.value === 'in_progress');
-      const completedOption = STATUS_OPTIONS.find(s => s.value === 'completed');
+      // Dropdown should not be visible initially
+      expect(screen.queryAllByText('In Progress').length).toBe(0);
 
-      expect(pendingOption.color).toContain('gray');
-      expect(inProgressOption.color).toContain('yellow');
-      expect(completedOption.color).toContain('green');
-    });
-  });
+      // Click the status button
+      fireEvent.click(screen.getByText('Pending'));
 
-  describe('Status Change Handler', () => {
-    it('should call onStatusChange when new status selected', async () => {
-      const task = { id: 123, status: 'pending' };
-      const onStatusChange = vi.fn().mockResolvedValue(undefined);
-
-      // Simulate status change to in_progress
-      const newStatus = 'in_progress';
-      if (newStatus !== task.status && onStatusChange) {
-        await onStatusChange(task.id, newStatus);
-      }
-
-      expect(onStatusChange).toHaveBeenCalledWith(123, 'in_progress');
-    });
-
-    it('should not call onStatusChange when same status selected', async () => {
-      const task = { id: 123, status: 'pending' };
-      const onStatusChange = vi.fn();
-
-      // Simulate selecting the same status
-      const newStatus = 'pending';
-      if (newStatus !== task.status && onStatusChange) {
-        await onStatusChange(task.id, newStatus);
-      }
-
-      expect(onStatusChange).not.toHaveBeenCalled();
-    });
-
-    it('should not call onStatusChange when onStatusChange is undefined', async () => {
-      const task = { id: 123, status: 'pending' };
-      const onStatusChange = undefined;
-      let called = false;
-
-      // Simulate status change with undefined handler
-      const newStatus = 'in_progress';
-      if (newStatus !== task.status && onStatusChange) {
-        called = true;
-      }
-
-      expect(called).toBe(false);
-    });
-  });
-
-  describe('Dropdown State', () => {
-    it('should open dropdown when status button clicked', () => {
-      let showStatusDropdown = false;
-
-      // Simulate clicking the button
-      showStatusDropdown = !showStatusDropdown;
-
-      expect(showStatusDropdown).toBe(true);
-    });
-
-    it('should close dropdown after selection', async () => {
-      let showStatusDropdown = true;
-      const onStatusChange = vi.fn().mockResolvedValue(undefined);
-      const task = { id: 1, status: 'pending' };
-
-      // Simulate selecting a new status
-      const newStatus = 'in_progress';
-      showStatusDropdown = false; // Close on selection
-      if (newStatus !== task.status) {
-        await onStatusChange(task.id, newStatus);
-      }
-
-      expect(showStatusDropdown).toBe(false);
-      expect(onStatusChange).toHaveBeenCalled();
+      // Now dropdown should show all options
+      expect(screen.getByText('In Progress')).toBeInTheDocument();
+      expect(screen.getByText('Completed')).toBeInTheDocument();
     });
 
     it('should close dropdown when clicking outside', () => {
-      let showStatusDropdown = true;
+      render(<TaskDetailView {...defaultProps} />);
 
-      // Simulate clicking the overlay/outside
-      showStatusDropdown = false;
+      // Open dropdown
+      fireEvent.click(screen.getByText('Pending'));
+      expect(screen.getByText('In Progress')).toBeInTheDocument();
 
-      expect(showStatusDropdown).toBe(false);
+      // Click overlay (fixed inset-0 div)
+      const overlay = document.querySelector('.fixed.inset-0');
+      fireEvent.click(overlay);
+
+      // Dropdown should close (In Progress no longer visible in dropdown)
+      expect(screen.queryAllByText('In Progress').length).toBe(0);
+    });
+
+    it('should call onStatusChange when new status is selected', async () => {
+      const onStatusChange = vi.fn().mockResolvedValue(undefined);
+      render(<TaskDetailView {...defaultProps} onStatusChange={onStatusChange} />);
+
+      // Open dropdown
+      fireEvent.click(screen.getByText('Pending'));
+
+      // Select new status
+      fireEvent.click(screen.getByText('In Progress'));
+
+      await waitFor(() => {
+        expect(onStatusChange).toHaveBeenCalledWith('t1', 'in_progress');
+      });
+    });
+
+    it('should not call onStatusChange when same status is selected', async () => {
+      const onStatusChange = vi.fn();
+      render(<TaskDetailView {...defaultProps} onStatusChange={onStatusChange} />);
+
+      // Open dropdown
+      fireEvent.click(screen.getByText('Pending'));
+
+      // Click the same status (Pending in dropdown)
+      const pendingOptions = screen.getAllByText('Pending');
+      fireEvent.click(pendingOptions[pendingOptions.length - 1]); // Click the one in dropdown
+
+      expect(onStatusChange).not.toHaveBeenCalled();
     });
   });
 
-  describe('Loading State', () => {
-    it('should show loading state while status is updating', async () => {
-      let isUpdatingStatus = false;
+  describe('Navigation', () => {
+    it('should call onBack when back button is clicked', () => {
+      render(<TaskDetailView {...defaultProps} />);
 
-      // Simulate starting an update
-      isUpdatingStatus = true;
-      expect(isUpdatingStatus).toBe(true);
+      const backButton = screen.getByTestId('icon-arrow-left').closest('button');
+      fireEvent.click(backButton);
 
-      // Button should be disabled during update
-      const buttonDisabled = isUpdatingStatus;
-      expect(buttonDisabled).toBe(true);
+      expect(defaultProps.onBack).toHaveBeenCalled();
     });
 
-    it('should clear loading state after update completes', async () => {
-      let isUpdatingStatus = true;
+    it('should call onHomeClick from breadcrumb', () => {
+      render(<TaskDetailView {...defaultProps} />);
 
-      // Simulate update completion (in finally block)
-      isUpdatingStatus = false;
+      fireEvent.click(screen.getByTestId('home-click'));
 
-      expect(isUpdatingStatus).toBe(false);
+      expect(defaultProps.onHomeClick).toHaveBeenCalled();
     });
 
-    it('should clear loading state even if update fails', async () => {
-      let isUpdatingStatus = true;
-      const onStatusChange = vi.fn().mockRejectedValue(new Error('Update failed'));
+    it('should call onProjectClick from breadcrumb', () => {
+      render(<TaskDetailView {...defaultProps} />);
 
-      try {
-        isUpdatingStatus = true;
-        await onStatusChange(1, 'in_progress');
-      } catch {
-        // Error expected
-      } finally {
-        isUpdatingStatus = false;
-      }
+      fireEvent.click(screen.getByTestId('project-click'));
 
-      expect(isUpdatingStatus).toBe(false);
+      expect(defaultProps.onProjectClick).toHaveBeenCalled();
     });
   });
 
-  describe('Task Null Check', () => {
-    it('should return null if task is null', () => {
-      const task = null;
+  describe('Conversation Actions', () => {
+    it('should call onNewConversation', () => {
+      render(<TaskDetailView {...defaultProps} />);
 
-      // Component early return
-      const shouldRender = task !== null;
-      expect(shouldRender).toBe(false);
+      fireEvent.click(screen.getByTestId('new-conv'));
+
+      expect(defaultProps.onNewConversation).toHaveBeenCalled();
     });
 
-    it('should return null if task is undefined', () => {
-      const task = undefined;
+    it('should call onResumeConversation with conversation', () => {
+      render(<TaskDetailView {...defaultProps} />);
 
-      // Component early return
-      const shouldRender = !!task;
-      expect(shouldRender).toBe(false);
+      fireEvent.click(screen.getByTestId('resume-c1'));
+
+      expect(defaultProps.onResumeConversation).toHaveBeenCalledWith(mockConversations[0]);
     });
 
-    it('should render when task is valid', () => {
-      const task = { id: 1, status: 'pending' };
+    it('should call onDeleteConversation with id', () => {
+      render(<TaskDetailView {...defaultProps} />);
 
-      const shouldRender = !!task;
-      expect(shouldRender).toBe(true);
+      fireEvent.click(screen.getByTestId('delete-c2'));
+
+      expect(defaultProps.onDeleteConversation).toHaveBeenCalledWith('c2');
     });
   });
 
-  describe('Status Change Flow', () => {
-    it('should handle complete status change flow from pending to in_progress', async () => {
-      const task = { id: 1, status: 'pending' };
-      const onStatusChange = vi.fn().mockResolvedValue(undefined);
-      let showStatusDropdown = false;
-      let isUpdatingStatus = false;
+  describe('Document Actions', () => {
+    it('should call onSaveTaskDoc when save is clicked', () => {
+      render(<TaskDetailView {...defaultProps} />);
 
-      // Step 1: Open dropdown
-      showStatusDropdown = true;
-      expect(showStatusDropdown).toBe(true);
+      fireEvent.click(screen.getByTestId('save-doc'));
 
-      // Step 2: Select new status
-      const newStatus = 'in_progress';
-      if (newStatus !== task.status) {
-        isUpdatingStatus = true;
-        showStatusDropdown = false;
+      expect(defaultProps.onSaveTaskDoc).toHaveBeenCalledWith('Updated docs');
+    });
+  });
 
-        try {
-          await onStatusChange(task.id, newStatus);
-        } finally {
-          isUpdatingStatus = false;
-        }
-      }
+  describe('Loading States', () => {
+    it('should pass isLoadingDoc to MarkdownEditor', () => {
+      render(<TaskDetailView {...defaultProps} isLoadingDoc={true} />);
 
-      // Verify flow completed correctly
-      expect(showStatusDropdown).toBe(false);
-      expect(isUpdatingStatus).toBe(false);
-      expect(onStatusChange).toHaveBeenCalledWith(1, 'in_progress');
+      expect(screen.getByTestId('doc-loading')).toBeInTheDocument();
     });
 
-    it('should handle status change from in_progress to completed', async () => {
-      const task = { id: 2, status: 'in_progress' };
-      const onStatusChange = vi.fn().mockResolvedValue(undefined);
+    it('should pass isLoadingConversations to ConversationList', () => {
+      render(<TaskDetailView {...defaultProps} isLoadingConversations={true} />);
 
-      await onStatusChange(task.id, 'completed');
-
-      expect(onStatusChange).toHaveBeenCalledWith(2, 'completed');
+      expect(screen.getByTestId('conv-loading')).toBeInTheDocument();
     });
+  });
 
-    it('should handle status change from completed back to in_progress', async () => {
-      const task = { id: 3, status: 'completed' };
-      const onStatusChange = vi.fn().mockResolvedValue(undefined);
+  describe('Active Conversation', () => {
+    it('should highlight active conversation', () => {
+      render(<TaskDetailView {...defaultProps} activeConversationId="c1" />);
 
-      await onStatusChange(task.id, 'in_progress');
+      expect(screen.getByTestId('conv-c1').querySelector('[data-testid="active-indicator"]')).toBeInTheDocument();
+    });
+  });
 
-      expect(onStatusChange).toHaveBeenCalledWith(3, 'in_progress');
+  describe('Custom ClassName', () => {
+    it('should apply custom className', () => {
+      const { container } = render(<TaskDetailView {...defaultProps} className="custom-class" />);
+
+      expect(container.firstChild.className).toContain('custom-class');
     });
   });
 });
