@@ -18,6 +18,9 @@ vi.mock('../database/db.js', () => ({
 
 import { userDb } from '../database/db.js';
 
+// Test token for unit tests
+const TEST_AUTH_TOKEN = 'test-auth-token-for-unit-tests';
+
 describe('Auth Middleware', () => {
   const mockUser = { id: 1, username: 'testuser' };
   let originalEnv;
@@ -25,6 +28,8 @@ describe('Auth Middleware', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     originalEnv = { ...process.env };
+    // Set AUTH_TOKEN for tests
+    process.env.AUTH_TOKEN = TEST_AUTH_TOKEN;
   });
 
   afterEach(() => {
@@ -91,11 +96,11 @@ describe('Auth Middleware', () => {
       expect(req.user).toEqual(mockUser);
     });
 
-    it('should authenticate with test token in query parameter', async () => {
+    it('should authenticate with auth token in query parameter', async () => {
       userDb.getFirstUser.mockReturnValue(mockUser);
       const req = {
         headers: {},
-        query: { token: 'claude-ui-test-token-2024' }
+        query: { token: TEST_AUTH_TOKEN }
       };
       const res = {};
       const next = vi.fn();
@@ -106,10 +111,10 @@ describe('Auth Middleware', () => {
       expect(req.user).toEqual(mockUser);
     });
 
-    it('should authenticate with test token in x-test-token header', async () => {
+    it('should authenticate with auth token in x-auth-token header', async () => {
       userDb.getFirstUser.mockReturnValue(mockUser);
       const req = {
-        headers: { 'x-test-token': 'claude-ui-test-token-2024' },
+        headers: { 'x-auth-token': TEST_AUTH_TOKEN },
         query: {}
       };
       const res = {};
@@ -121,10 +126,10 @@ describe('Auth Middleware', () => {
       expect(req.user).toEqual(mockUser);
     });
 
-    it('should authenticate with test token as Bearer token', async () => {
+    it('should authenticate with auth token as Bearer token', async () => {
       userDb.getFirstUser.mockReturnValue(mockUser);
       const req = {
-        headers: { authorization: 'Bearer claude-ui-test-token-2024' },
+        headers: { authorization: `Bearer ${TEST_AUTH_TOKEN}` },
         query: {}
       };
       const res = {};
@@ -263,10 +268,10 @@ describe('Auth Middleware', () => {
       expect(result.username).toBe('testuser');
     });
 
-    it('should authenticate with test token', () => {
+    it('should authenticate with auth token', () => {
       userDb.getFirstUser.mockReturnValue(mockUser);
 
-      const result = authenticateWebSocket('claude-ui-test-token-2024');
+      const result = authenticateWebSocket(TEST_AUTH_TOKEN);
 
       expect(result).toBeDefined();
       expect(result.userId).toBe(1);

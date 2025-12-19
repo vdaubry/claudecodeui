@@ -8,12 +8,13 @@
  * - Conversation history with +/Resume buttons
  */
 
-import React, { useState } from 'react';
-import { FileText, ArrowLeft, ChevronDown, Check } from 'lucide-react';
+import React, { useState, useCallback } from 'react';
+import { FileText, ArrowLeft, ChevronDown, Check, CheckCircle2 } from 'lucide-react';
 import { Button } from './ui/button';
 import Breadcrumb from './Breadcrumb';
 import MarkdownEditor from './MarkdownEditor';
 import ConversationList from './ConversationList';
+import AgentSection from './AgentSection';
 import { cn } from '../lib/utils';
 
 // Status configuration
@@ -31,11 +32,17 @@ function TaskDetailView({
   activeConversationId,
   isLoadingDoc = false,
   isLoadingConversations = false,
+  // Agent runs props
+  agentRuns = [],
+  isLoadingAgentRuns = false,
+  onRunAgent,
+  // Callbacks
   onBack,
   onProjectClick,
   onHomeClick,
   onSaveTaskDoc,
   onStatusChange,
+  onWorkflowCompleteChange,
   onNewConversation,
   onResumeConversation,
   onDeleteConversation,
@@ -43,6 +50,7 @@ function TaskDetailView({
 }) {
   const [showStatusDropdown, setShowStatusDropdown] = useState(false);
   const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
+  const [isUpdatingWorkflow, setIsUpdatingWorkflow] = useState(false);
 
   if (!task) return null;
 
@@ -59,6 +67,26 @@ function TaskDetailView({
       setIsUpdatingStatus(false);
     }
   };
+
+  const handleWorkflowCompleteToggle = async () => {
+    if (!onWorkflowCompleteChange) return;
+
+    setIsUpdatingWorkflow(true);
+    try {
+      await onWorkflowCompleteChange(task.id, !task.workflow_complete);
+    } finally {
+      setIsUpdatingWorkflow(false);
+    }
+  };
+
+  // Handle resuming an agent's linked conversation
+  const handleResumeAgent = useCallback((conversationId) => {
+    if (!conversationId || !onResumeConversation) return;
+    const conversation = conversations.find(c => c.id === conversationId);
+    if (conversation) {
+      onResumeConversation(conversation);
+    }
+  }, [conversations, onResumeConversation]);
 
   return (
     <div className={cn('h-full flex flex-col', className)}>
@@ -95,6 +123,32 @@ function TaskDetailView({
               Task #{task.id} in {project?.name || 'Unknown Project'}
             </p>
           </div>
+
+          {/* Workflow complete toggle */}
+          <button
+            onClick={handleWorkflowCompleteToggle}
+            disabled={isUpdatingWorkflow}
+            title={task.workflow_complete ? 'Workflow complete - click to resume agent loop' : 'Click to mark workflow as complete'}
+            className={cn(
+              'flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium transition-colors flex-shrink-0',
+              task.workflow_complete
+                ? 'bg-green-500/10 text-green-600 dark:text-green-400 hover:bg-green-500/20'
+                : 'bg-gray-500/10 text-gray-500 dark:text-gray-400 hover:bg-gray-500/20',
+              isUpdatingWorkflow && 'opacity-50 cursor-not-allowed'
+            )}
+          >
+            {isUpdatingWorkflow ? (
+              <div className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" />
+            ) : (
+              <CheckCircle2 className={cn(
+                'w-4 h-4',
+                task.workflow_complete && 'fill-green-500/20'
+              )} />
+            )}
+            <span className="hidden sm:inline">
+              {task.workflow_complete ? 'Done' : 'Mark Done'}
+            </span>
+          </button>
 
           {/* Status selector */}
           <div className="relative flex-shrink-0">
@@ -163,14 +217,21 @@ function TaskDetailView({
           />
         </div>
 
-        {/* Right panel - Documentation */}
+        {/* Right panel - Documentation and Agents */}
         <div className="flex-1 flex flex-col min-h-0">
           <MarkdownEditor
             content={taskDoc}
             onSave={onSaveTaskDoc}
             isLoading={isLoadingDoc}
             placeholder="No task documentation yet. Click Edit to describe what needs to be done."
-            className="h-full"
+            className="flex-1 min-h-0"
+          />
+          <AgentSection
+            agentRuns={agentRuns}
+            isLoading={isLoadingAgentRuns}
+            onRunAgent={onRunAgent}
+            onResumeAgent={handleResumeAgent}
+            workflowComplete={task.workflow_complete}
           />
         </div>
       </div>

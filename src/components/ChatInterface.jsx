@@ -13,7 +13,7 @@ import ClaudeStatus from './ClaudeStatus.jsx';
 import MessageInput from './MessageInput.jsx';
 import MessageComponent from './MessageComponent.jsx';
 import CommandMenu from './CommandMenu';
-import { api, authenticatedFetch } from '../utils/api';
+import { api } from '../utils/api';
 import { useWebSocket } from '../contexts/WebSocketContext';
 import { useSlashCommands } from '../hooks/useSlashCommands';
 import { useSessionStreaming } from '../hooks/useSessionStreaming';
@@ -96,8 +96,23 @@ function ChatInterface({
   const [isLoading, setIsLoading] = useState(false);
   const [input, setInput] = useState('');
 
-  // Permission mode state
-  const [permissionMode, setPermissionMode] = useState('bypassPermissions');
+  const initialPermissionMode = activeConversation?.__permissionMode;
+
+  // Permission mode state - initialize from conversation if it's an agent run
+  const [permissionMode, setPermissionMode] = useState(
+    initialPermissionMode || 'bypassPermissions'
+  );
+
+  // Update permission mode when activeConversation changes (for agent runs)
+  // Include conversation id to ensure we reset when switching conversations
+  useEffect(() => {
+    if (initialPermissionMode) {
+      setPermissionMode(initialPermissionMode);
+    } else {
+      // Reset to default when switching to a non-agent conversation
+      setPermissionMode('bypassPermissions');
+    }
+  }, [activeConversation?.id, initialPermissionMode]);
 
   // Token usage state (will be populated from backend responses)
   const [tokenBudget, setTokenBudget] = useState(null);
@@ -334,14 +349,19 @@ function ChatInterface({
   }, [activeConversation?.id]);
 
   // Load permission mode when conversation changes
+  // Note: Agent run permission mode is handled by the useEffect above (initialPermissionMode)
+  // This effect only handles loading from localStorage for regular conversations
   useEffect(() => {
+    // Skip if this is an agent run conversation (handled by initialPermissionMode useEffect)
+    if (initialPermissionMode) return;
+
     if (activeConversation?.id) {
       const savedMode = localStorage.getItem(`permissionMode-conv-${activeConversation.id}`);
       setPermissionMode(savedMode || 'bypassPermissions');
     } else {
       setPermissionMode('bypassPermissions');
     }
-  }, [activeConversation?.id]);
+  }, [activeConversation?.id, initialPermissionMode]);
 
   // Reset token budget when conversation changes (token tracking not available in new API)
   useEffect(() => {

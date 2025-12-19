@@ -21,6 +21,8 @@ import NewConversationModal from './NewConversationModal';
 import ProjectEditPage from './ProjectEditPage';
 import TaskEditPage from './TaskEditPage';
 import { useTaskContext } from '../contexts/TaskContext';
+import { useToast } from '../contexts/ToastContext';
+import { api } from '../utils/api';
 import { ArrowLeft } from 'lucide-react';
 import { Button } from './ui/button';
 
@@ -44,10 +46,12 @@ function MainContent({
     // Data
     conversations,
     taskDoc,
+    agentRuns,
 
     // Loading states
     isLoadingConversations,
     isLoadingTaskDoc,
+    isLoadingAgentRuns,
 
     // Actions
     selectProject,
@@ -57,8 +61,12 @@ function MainContent({
     clearSelection,
     updateTask,
     deleteConversation,
-    saveTaskDoc
+    saveTaskDoc,
+    loadAgentRuns
   } = useTaskContext();
+
+  // Toast notifications
+  const { toast } = useToast();
 
   // New conversation modal state
   const [showNewConversationModal, setShowNewConversationModal] = useState(false);
@@ -72,6 +80,11 @@ function MainContent({
   // Handle task status change
   const handleStatusChange = useCallback(async (taskId, newStatus) => {
     return await updateTask(taskId, { status: newStatus });
+  }, [updateTask]);
+
+  // Handle workflow_complete toggle
+  const handleWorkflowCompleteChange = useCallback(async (taskId, value) => {
+    return await updateTask(taskId, { workflow_complete: value });
   }, [updateTask]);
 
   // Handle new conversation - opens modal instead of creating immediately
@@ -90,6 +103,47 @@ function MainContent({
   const handleResumeConversation = useCallback((conversation) => {
     selectConversation(conversation);
   }, [selectConversation]);
+
+  // Handle running an agent (calls backend which handles everything)
+  // Backend creates agent run, conversation, starts streaming, and handles chaining
+  const handleRunAgent = useCallback(async (agentType) => {
+    if (!selectedTask) return;
+
+    try {
+      // Call backend to start agent run
+      // Backend handles: create agent run, create conversation, start streaming, auto-chain
+      const response = await api.agentRuns.create(selectedTask.id, agentType);
+
+      if (response.status === 409) {
+        // Agent already running
+        const data = await response.json();
+        toast.warning(`${data.runningAgent?.agent_type || 'An'} agent is already running`);
+        return;
+      }
+
+      if (response.status >= 400 && response.status < 500) {
+        // Client error (400-499)
+        const data = await response.json();
+        toast.error(data.error || `Failed to start ${agentType} agent`);
+        return;
+      }
+
+      if (!response.ok) {
+        // Server error (500+) or other errors
+        const data = await response.json().catch(() => ({}));
+        toast.error(data.error || `Server error starting ${agentType} agent`);
+        return;
+      }
+
+      // Refresh agent runs list to show the new running agent
+      await loadAgentRuns(selectedTask.id);
+
+      toast.success(`${agentType.charAt(0).toUpperCase() + agentType.slice(1)} agent started`);
+    } catch (error) {
+      console.error('Error starting agent:', error);
+      toast.error(`Failed to start agent: ${error.message}`);
+    }
+  }, [selectedTask, loadAgentRuns, toast]);
 
   // Navigation handlers
   const handleHomeClick = useCallback(() => {
@@ -149,11 +203,17 @@ function MainContent({
           conversations={conversations}
           isLoadingDoc={isLoadingTaskDoc}
           isLoadingConversations={isLoadingConversations}
+          // Agent runs
+          agentRuns={agentRuns}
+          isLoadingAgentRuns={isLoadingAgentRuns}
+          onRunAgent={handleRunAgent}
+          // Callbacks
           onBack={navigateBack}
           onProjectClick={handleProjectClick}
           onHomeClick={handleHomeClick}
           onSaveTaskDoc={handleSaveTaskDoc}
           onStatusChange={handleStatusChange}
+          onWorkflowCompleteChange={handleWorkflowCompleteChange}
           onNewConversation={handleNewConversation}
           onResumeConversation={handleResumeConversation}
           onDeleteConversation={deleteConversation}

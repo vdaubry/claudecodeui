@@ -34,11 +34,13 @@ CREATE INDEX IF NOT EXISTS idx_projects_repo_folder_path ON projects(repo_folder
 
 -- Tasks table - Work items belonging to projects
 -- Status: 'pending' (default), 'in_progress', 'completed'
+-- workflow_complete: Boolean flag to stop agent loop when task is finished
 CREATE TABLE IF NOT EXISTS tasks (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     project_id INTEGER NOT NULL,
     title TEXT,
     status TEXT DEFAULT 'pending' CHECK(status IN ('pending', 'in_progress', 'completed')),
+    workflow_complete INTEGER DEFAULT 0 NOT NULL,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
@@ -58,3 +60,20 @@ CREATE TABLE IF NOT EXISTS conversations (
 
 CREATE INDEX IF NOT EXISTS idx_conversations_task_id ON conversations(task_id);
 CREATE INDEX IF NOT EXISTS idx_conversations_claude_id ON conversations(claude_conversation_id);
+
+-- Task Agent Runs table - Tracks automated agent runs for tasks
+-- Agent types: 'planification', 'implementation', 'review'
+-- Status: 'pending', 'running', 'completed', 'failed'
+CREATE TABLE IF NOT EXISTS task_agent_runs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    task_id INTEGER NOT NULL,
+    agent_type TEXT NOT NULL CHECK(agent_type IN ('planification', 'implementation', 'review')),
+    status TEXT DEFAULT 'pending' CHECK(status IN ('pending', 'running', 'completed', 'failed')),
+    conversation_id INTEGER,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    completed_at DATETIME,
+    FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE,
+    FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE SET NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_task_agent_runs_task_id ON task_agent_runs(task_id);

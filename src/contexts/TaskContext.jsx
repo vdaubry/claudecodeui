@@ -64,6 +64,10 @@ export function TaskContextProvider({ children }) {
   const [isLoadingProjectDoc, setIsLoadingProjectDoc] = useState(false);
   const [isLoadingTaskDoc, setIsLoadingTaskDoc] = useState(false);
 
+  // Agent runs state (for automated agent workflows)
+  const [agentRuns, setAgentRuns] = useState([]);
+  const [isLoadingAgentRuns, setIsLoadingAgentRuns] = useState(false);
+
   // Current view state - derived from selection and edit mode
   // Possible values: 'empty', 'board', 'task-detail', 'chat', 'project-edit', 'task-edit'
   const getCurrentView = useCallback(() => {
@@ -341,6 +345,30 @@ export function TaskContextProvider({ children }) {
     }
   }, []);
 
+  // ========== Agent Runs API ==========
+
+  const loadAgentRuns = useCallback(async (taskId) => {
+    if (!taskId) {
+      setAgentRuns([]);
+      return;
+    }
+    setIsLoadingAgentRuns(true);
+    try {
+      const response = await api.agentRuns.list(taskId);
+      if (response.ok) {
+        const data = await response.json();
+        setAgentRuns(data);
+      } else {
+        setAgentRuns([]);
+      }
+    } catch (error) {
+      console.error('Error loading agent runs:', error);
+      setAgentRuns([]);
+    } finally {
+      setIsLoadingAgentRuns(false);
+    }
+  }, []);
+
   // ========== Conversations API ==========
 
   const loadConversations = useCallback(async (taskId) => {
@@ -428,15 +456,17 @@ export function TaskContextProvider({ children }) {
     setActiveConversation(null);
     setConversations([]);
     setTaskDoc('');
+    setAgentRuns([]);
 
     if (task) {
-      // Load conversations and task documentation in parallel
+      // Load conversations, task documentation, and agent runs in parallel
       await Promise.all([
         loadConversations(task.id),
-        loadTaskDoc(task.id)
+        loadTaskDoc(task.id),
+        loadAgentRuns(task.id)
       ]);
     }
-  }, [loadConversations, loadTaskDoc]);
+  }, [loadConversations, loadTaskDoc, loadAgentRuns]);
 
   const selectConversation = useCallback((conversation) => {
     setActiveConversation(conversation);
@@ -449,6 +479,7 @@ export function TaskContextProvider({ children }) {
       setSelectedTask(null);
       setConversations([]);
       setTaskDoc('');
+      setAgentRuns([]);
     } else if (selectedProject) {
       setSelectedProject(null);
       setTasks([]);
@@ -467,6 +498,7 @@ export function TaskContextProvider({ children }) {
     setConversations([]);
     setProjectDoc('');
     setTaskDoc('');
+    setAgentRuns([]);
   }, []);
 
   // ========== Board Navigation ==========
@@ -480,6 +512,7 @@ export function TaskContextProvider({ children }) {
     setSelectedProject(project);
     setConversations([]);
     setTaskDoc('');
+    setAgentRuns([]);
 
     if (project) {
       // Load tasks and project documentation in parallel
@@ -616,6 +649,11 @@ export function TaskContextProvider({ children }) {
     isLoadingTaskDoc,
     loadTaskDoc,
     saveTaskDoc,
+
+    // Agent Runs
+    agentRuns,
+    isLoadingAgentRuns,
+    loadAgentRuns,
 
     // Conversations
     conversations,

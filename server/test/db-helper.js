@@ -143,7 +143,7 @@ export function createTestDatabase() {
       `).get(taskId);
     },
     update: (id, updates) => {
-      const allowedFields = ['title', 'status'];
+      const allowedFields = ['title', 'status', 'workflow_complete'];
       const setClause = [];
       const values = [];
 
@@ -184,6 +184,80 @@ export function createTestDatabase() {
     }
   };
 
+  const agentRunsDb = {
+    create: (taskId, agentType, conversationId = null) => {
+      const stmt = db.prepare(`
+        INSERT INTO task_agent_runs (task_id, agent_type, status, conversation_id)
+        VALUES (?, ?, 'running', ?)
+      `);
+      const result = stmt.run(taskId, agentType, conversationId);
+      return {
+        id: result.lastInsertRowid,
+        task_id: taskId,
+        agent_type: agentType,
+        status: 'running',
+        conversation_id: conversationId,
+        created_at: new Date().toISOString(),
+        completed_at: null
+      };
+    },
+    getByTask: (taskId) => {
+      return db.prepare(`
+        SELECT * FROM task_agent_runs
+        WHERE task_id = ?
+        ORDER BY created_at DESC
+      `).all(taskId);
+    },
+    getById: (id) => {
+      return db.prepare('SELECT * FROM task_agent_runs WHERE id = ?').get(id);
+    },
+    getByTaskAndType: (taskId, agentType) => {
+      return db.prepare(`
+        SELECT * FROM task_agent_runs
+        WHERE task_id = ? AND agent_type = ?
+        ORDER BY created_at DESC
+        LIMIT 1
+      `).get(taskId, agentType);
+    },
+    updateStatus: (id, status) => {
+      const validStatuses = ['pending', 'running', 'completed', 'failed'];
+      if (!validStatuses.includes(status)) {
+        throw new Error(`Invalid status: ${status}. Must be one of: ${validStatuses.join(', ')}`);
+      }
+
+      let stmt;
+      if (status === 'completed') {
+        stmt = db.prepare(`
+          UPDATE task_agent_runs
+          SET status = ?, completed_at = CURRENT_TIMESTAMP
+          WHERE id = ?
+        `);
+      } else {
+        stmt = db.prepare(`
+          UPDATE task_agent_runs
+          SET status = ?, completed_at = NULL
+          WHERE id = ?
+        `);
+      }
+      stmt.run(status, id);
+      return agentRunsDb.getById(id);
+    },
+    linkConversation: (id, conversationId) => {
+      const stmt = db.prepare(`
+        UPDATE task_agent_runs
+        SET conversation_id = ?
+        WHERE id = ?
+      `);
+      stmt.run(conversationId, id);
+      return agentRunsDb.getById(id);
+    },
+    delete: (id) => {
+      const stmt = db.prepare('DELETE FROM task_agent_runs WHERE id = ?');
+      const result = stmt.run(id);
+      return result.changes > 0;
+    }
+  };
+
   const conversationsDb = {
     create: (taskId) => {
       const stmt = db.prepare('INSERT INTO conversations (task_id) VALUES (?)');
@@ -214,6 +288,7 @@ export function createTestDatabase() {
     projectsDb,
     tasksDb,
     conversationsDb,
+    agentRunsDb,
     close: () => db.close()
   };
 }

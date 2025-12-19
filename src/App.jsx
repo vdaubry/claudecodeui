@@ -17,6 +17,7 @@ import { ThemeProvider } from './contexts/ThemeContext';
 import { AuthProvider } from './contexts/AuthContext';
 import { WebSocketProvider } from './contexts/WebSocketContext';
 import { TaskContextProvider, useTaskContext } from './contexts/TaskContext';
+import { ToastProvider } from './contexts/ToastContext';
 import ProtectedRoute from './components/ProtectedRoute';
 import useLocalStorage from './hooks/useLocalStorage';
 
@@ -162,13 +163,15 @@ function App() {
       <AuthProvider>
         <WebSocketProvider>
           <TaskContextProvider>
-            <ProtectedRoute>
-              <Router>
-                <Routes>
-                  <Route path="/*" element={<AppContent />} />
-                </Routes>
-              </Router>
-            </ProtectedRoute>
+            <ToastProvider>
+              <ProtectedRoute>
+                <Router>
+                  <Routes>
+                    <Route path="/*" element={<AppContent />} />
+                  </Routes>
+                </Router>
+              </ProtectedRoute>
+            </ToastProvider>
           </TaskContextProvider>
         </WebSocketProvider>
       </AuthProvider>

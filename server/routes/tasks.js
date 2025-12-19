@@ -1,11 +1,12 @@
 import express from 'express';
-import { projectsDb, tasksDb } from '../database/db.js';
+import { projectsDb, tasksDb, agentRunsDb } from '../database/db.js';
 import {
   readTaskDoc,
   writeTaskDoc,
   deleteTaskDoc
 } from '../services/documentation.js';
 import { notifyTaskStatusChange } from '../services/notifications.js';
+import { forceCompleteRunningAgents } from '../services/agentRunner.js';
 
 const router = express.Router();
 
@@ -175,6 +176,16 @@ router.put('/tasks/:id', async (req, res) => {
       }
       updates.status = req.body.status;
     }
+    if (req.body.workflow_complete !== undefined) {
+      // Accept boolean or integer (0/1)
+      const value = req.body.workflow_complete;
+      if (typeof value !== 'boolean' && value !== 0 && value !== 1) {
+        return res.status(400).json({
+          error: 'workflow_complete must be a boolean or 0/1'
+        });
+      }
+      updates.workflow_complete = value ? 1 : 0;
+    }
 
     const task = tasksDb.update(taskId, updates);
 
@@ -309,6 +320,62 @@ router.put('/tasks/:id/documentation', (req, res) => {
   } catch (error) {
     console.error('Error writing task documentation:', error);
     res.status(500).json({ error: 'Failed to write task documentation' });
+  }
+});
+
+/**
+ * PUT /api/tasks/:id/workflow-complete
+ * Toggle workflow complete status
+ * Used for recovery from stuck states - when complete=true, force-completes all running agents
+ *
+ * Body: { complete: boolean }
+ */
+router.put('/tasks/:id/workflow-complete', (req, res) => {
+  try {
+    const userId = req.user.id;
+    const taskId = parseInt(req.params.id, 10);
+    const { complete } = req.body;
+
+    if (isNaN(taskId)) {
+      return res.status(400).json({ error: 'Invalid task ID' });
+    }
+
+    if (typeof complete !== 'boolean') {
+      return res.status(400).json({ error: 'complete must be a boolean' });
+    }
+
+    // Get task with project info to verify ownership
+    const taskWithProject = tasksDb.getWithProject(taskId);
+
+    if (!taskWithProject) {
+      return res.status(404).json({ error: 'Task not found' });
+    }
+
+    // Verify the project belongs to the user
+    if (taskWithProject.user_id !== userId) {
+      return res.status(404).json({ error: 'Task not found' });
+    }
+
+    // Update task workflow_complete flag
+    tasksDb.update(taskId, { workflow_complete: complete ? 1 : 0 });
+
+    // If marking as complete, force-complete all running agent runs
+    let forceCompletedCount = 0;
+    if (complete) {
+      forceCompletedCount = forceCompleteRunningAgents(taskId);
+      if (forceCompletedCount > 0) {
+        console.log(`[Recovery] Force-completed ${forceCompletedCount} stuck agent run(s) for task ${taskId}`);
+      }
+    }
+
+    res.json({
+      success: true,
+      workflow_complete: complete,
+      forceCompletedAgents: forceCompletedCount
+    });
+  } catch (error) {
+    console.error('Error updating workflow complete:', error);
+    res.status(500).json({ error: 'Failed to update workflow complete' });
   }
 });
 

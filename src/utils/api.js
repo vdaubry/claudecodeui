@@ -132,6 +132,30 @@ export const api = {
     },
   },
 
+  // Agent Runs API (for automated agent workflows)
+  agentRuns: {
+    list: (taskId) => authenticatedFetch(`/api/tasks/${taskId}/agent-runs`),
+    create: (taskId, agentType) =>
+      authenticatedFetch(`/api/tasks/${taskId}/agent-runs`, {
+        method: 'POST',
+        body: JSON.stringify({ agentType }),
+      }),
+    get: (id) => authenticatedFetch(`/api/agent-runs/${id}`),
+    complete: (id) =>
+      authenticatedFetch(`/api/agent-runs/${id}/complete`, {
+        method: 'PUT',
+      }),
+    linkConversation: (id, conversationId) =>
+      authenticatedFetch(`/api/agent-runs/${id}/link-conversation`, {
+        method: 'PUT',
+        body: JSON.stringify({ conversationId }),
+      }),
+    delete: (id) =>
+      authenticatedFetch(`/api/agent-runs/${id}`, {
+        method: 'DELETE',
+      }),
+  },
+
   // Streaming sessions (for live indicator)
   streamingSessions: {
     getActive: () => authenticatedFetch('/api/streaming-sessions'),
