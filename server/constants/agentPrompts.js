@@ -14,20 +14,30 @@ export function generatePlanificationMessage(taskDocPath) {
 
 ## Your Process
 
-### 1. Ask Clarifying Questions First
-Before creating any plan, ask me all questions you need to fully understand:
-- The exact requirements and expected behavior
-- Edge cases and error handling
-- Any constraints or preferences
-- Integration points with existing code
-
-Do NOT proceed to planning until you have asked and received answers to your clarifying questions.
-
-### 2. Explore the Codebase
-Once you understand the requirements, explore the codebase to understand:
+### 1. Explore the Codebase
+Explore the codebase to understand:
 - Current implementation patterns
 - Relevant files and components
 - Testing patterns used in the project
+
+### 2. Ask Clarifying Questions (Major Decisions Only)
+Before creating any plan, ask me ONLY about significant decisions that would substantially impact the implementation.
+
+**Do ask about:**
+- Major architectural or design decisions with multiple valid approaches
+- Ambiguous requirements that could be interpreted in fundamentally different ways
+- Potential flaws or challenges in the requirements that need resolution
+- Trade-offs that require user input (e.g., performance vs. simplicity)
+
+**Do NOT ask about:**
+- Implementation details you can reasonably infer from the codebase
+- Edge cases that have standard solutions
+- Minor UI/UX details unless they're core to the feature
+- Technical choices where there's an obvious best practice
+
+Make reasonable assumptions for anything not in the "Do ask" list. If you have multiple questions, group them into a single, focused set (aim for 2-4 questions maximum).
+
+Do NOT proceed to planning until you have asked and received answers to your clarifying questions.
 
 ### 3. Create the Implementation Plan
 After gathering all information, update the task documentation file at:
@@ -94,11 +104,6 @@ export function generateImplementationMessage(taskDocPath, taskId) {
 
 ## Workflow Completion
 After implementing, check if ALL To-Do items (both Implementation and Testing sections) are now marked as complete [x].
-If the entire task is complete with no remaining work:
-\`\`\`bash
-node scripts/complete-workflow.js ${taskId}
-\`\`\`
-This signals that the automated agent loop should stop and await user review.
 
 Start implementing now.`;
 }
@@ -140,16 +145,39 @@ Follow the manual testing scenarios from the Testing Strategy section:
 - Verify each scenario works as expected
 - Document any failures or unexpected behavior
 
-### 5. Update Task Documentation
+### 5. Evaluate Completion Status
+
+> **⚠️ CRITICAL DECISION POINT**
+> This step determines whether the feature is ready for user review or needs more work.
+
+Based on your findings from steps 2-4, determine if the feature is **READY** or **NEEDS_WORK**:
+
+**READY** - All of the following must be true:
+- All unit tests pass
+- All manual testing scenarios pass
+- No implementation issues found
+- ALL To-Do items (Implementation and Testing) are marked complete [x]
+
+**NEEDS_WORK** - Any of the following:
+- Unit tests fail
+- Manual testing reveals issues
+- Implementation gaps or bugs found
+- To-Do items still unchecked
+
+### 6. Update Task Documentation
 Update the task documentation file at \`${taskDocPath}\`:
 
-#### If issues are found:
-1. **Update or create** a "Review Findings" section (replace any previous findings):
+**The "Review Findings" section must reflect ONLY the current state of testing.**
+- If a "Review Findings" section already exists, REPLACE it entirely with your new findings
+- Do NOT append to previous findings or keep history
+- Each review should completely overwrite the previous review
+
+#### If NEEDS_WORK:
+1. **REPLACE** the entire "Review Findings" section with:
 
 \`\`\`markdown
 ## Review Findings
 
-**Date:** [current date]
 **Status:** NEEDS_WORK
 
 ### Unit Tests
@@ -160,9 +188,6 @@ Update the task documentation file at \`${taskDocPath}\`:
 - [x] Scenario 1: [PASS - description]
 - [ ] Scenario 2: [FAIL - what went wrong]
 
-### Implementation Gaps
-- [List specific gaps between plan and implementation]
-
 ### Issues to Address
 - [List specific issues that need fixing]
 \`\`\`
@@ -171,42 +196,18 @@ Update the task documentation file at \`${taskDocPath}\`:
    - Change \`[x] Phase N: description\` back to \`[ ] Phase N: description\`
    - This allows the implementation agent to retry
 
-#### If no issues are found:
-1. Update "Review Findings" section with:
-\`\`\`markdown
-## Review Findings
-
-**Date:** [current date]
-**Status:** PASS
-
-### Unit Tests
-- Result: PASS
-
-### Manual Testing
-- All scenarios passed
-
-### Notes
-- [Any observations or minor suggestions]
+#### If READY:
+2. **Run the completion command** to signal the workflow is complete:
+\`\`\`bash
+node /home/ubuntu/claudecodeui/scripts/complete-workflow.js ${taskId}
 \`\`\`
+This stops the automated agent loop and awaits final user review.
 
 ## Important Constraints
 - Do NOT fix any code or specs - only document findings
 - Do NOT implement anything - only review and test
-- Always update (not append to) the Review Findings section
+- **ALWAYS REPLACE (never append to) the Review Findings section**
 - Mark items as unchecked if they need rework
-
-## Workflow Completion
-If ALL of the following conditions are met:
-1. All unit tests pass
-2. All manual testing scenarios pass
-3. No implementation issues found
-4. ALL To-Do items (Implementation and Testing) are marked complete [x]
-
-Then run this command to mark the workflow as complete:
-\`\`\`bash
-node scripts/complete-workflow.js ${taskId}
-\`\`\`
-This signals that the automated agent loop should stop and await final user review.
 
 Start reviewing now.`;
 }

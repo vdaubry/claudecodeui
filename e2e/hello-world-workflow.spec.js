@@ -7,8 +7,8 @@ import { fileURLToPath } from 'url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Test constants
-const TEST_TOKEN = 'claude-ui-test-token-2024';
+// Test constants - AUTH_TOKEN from environment (set in .env)
+const TEST_TOKEN = process.env.AUTH_TOKEN || '1f07cec67bcdd51e0fab5f2310169817f5e7abb7293ab1bcf9dfe7d26c50cf5c';
 const HELLO_WORLD_PATH = '/home/ubuntu/misc/hello_world';
 const DB_PATH = path.join(__dirname, '../server/database/auth.db');
 

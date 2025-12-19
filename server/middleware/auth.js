@@ -4,8 +4,8 @@ import { userDb } from '../database/db.js';
 // Get JWT secret from environment or use default (for development)
 const JWT_SECRET = process.env.JWT_SECRET || 'claude-ui-dev-secret-change-in-production';
 
-// Test token for URL-based authentication bypass (for testing purposes)
-const TEST_AUTH_TOKEN = 'claude-ui-test-token-2024';
+// Helper to get AUTH_TOKEN at runtime (allows tests to modify env)
+const getAuthToken = () => process.env.AUTH_TOKEN;
 
 // Optional API key middleware
 const validateApiKey = (req, res, next) => {
@@ -38,9 +38,10 @@ const authenticateToken = async (req, res, next) => {
     }
   }
 
-  // URL token authentication bypass (for testing)
-  const urlToken = req.query.token || req.headers['x-test-token'];
-  if (urlToken === TEST_AUTH_TOKEN) {
+  // URL token authentication bypass (for testing/agents)
+  const urlToken = req.query.token || req.headers['x-auth-token'];
+  const authToken = getAuthToken();
+  if (authToken && urlToken === authToken) {
     try {
       const user = userDb.getFirstUser();
       if (user) {
@@ -48,7 +49,7 @@ const authenticateToken = async (req, res, next) => {
         return next();
       }
     } catch (error) {
-      console.error('Test token auth error:', error);
+      console.error('Auth token error:', error);
     }
   }
 
@@ -60,8 +61,8 @@ const authenticateToken = async (req, res, next) => {
     return res.status(401).json({ error: 'Access denied. No token provided.' });
   }
 
-  // Check if Bearer token is the test token
-  if (token === TEST_AUTH_TOKEN) {
+  // Check if Bearer token is the auth token
+  if (authToken && token === authToken) {
     try {
       const user = userDb.getFirstUser();
       if (user) {
@@ -69,7 +70,7 @@ const authenticateToken = async (req, res, next) => {
         return next();
       }
     } catch (error) {
-      console.error('Test token auth error:', error);
+      console.error('Auth token error:', error);
     }
   }
 
@@ -118,15 +119,16 @@ const authenticateWebSocket = (token) => {
     }
   }
 
-  // Test token authentication bypass (for testing)
-  if (token === TEST_AUTH_TOKEN) {
+  // Auth token authentication bypass (for testing/agents)
+  const authToken = getAuthToken();
+  if (authToken && token === authToken) {
     try {
       const user = userDb.getFirstUser();
       if (user) {
         return { userId: user.id, username: user.username };
       }
     } catch (error) {
-      console.error('Test token WebSocket error:', error);
+      console.error('Auth token WebSocket error:', error);
     }
   }
 

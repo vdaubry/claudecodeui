@@ -231,6 +231,7 @@ function TaskDetailView({
             isLoading={isLoadingAgentRuns}
             onRunAgent={onRunAgent}
             onResumeAgent={handleResumeAgent}
+            workflowComplete={task.workflow_complete}
           />
         </div>
       </div>

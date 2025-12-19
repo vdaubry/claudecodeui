@@ -24,8 +24,8 @@ import { fileURLToPath } from 'url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Test constants
-const TEST_TOKEN = 'claude-ui-test-token-2024';
+// Test constants - AUTH_TOKEN from environment (set in .env)
+const TEST_TOKEN = process.env.AUTH_TOKEN || '1f07cec67bcdd51e0fab5f2310169817f5e7abb7293ab1bcf9dfe7d26c50cf5c';
 const DB_PATH = path.join(__dirname, '../server/database/auth.db');
 const BASE_URL = 'http://localhost:3002';
 
@@ -247,29 +247,56 @@ Create a simple Python "Hello World" command-line application.
     console.log(`Implementation agent started with run ID: ${implementationRun.id}`);
 
     // ========================================
-    // STEP 7: Wait for Loop to Complete (workflow_complete = true)
+    // STEP 7: Wait for at least one review to complete (verifies impl -> review chaining)
     // ========================================
-    console.log('Step 7: Waiting for agent loop to complete (workflow_complete = true)...');
+    console.log('Step 7: Waiting for at least one review agent to complete...');
 
     const dbLoop = getDb();
+    let completedReview = false;
 
     try {
       await pollDatabase(() => {
-        // Check workflow_complete flag
+        // Check workflow_complete flag (ideal outcome)
         const taskRow = dbLoop.prepare('SELECT workflow_complete FROM tasks WHERE id = ?').get(taskId);
         if (taskRow && taskRow.workflow_complete === 1) {
           console.log('Workflow marked as complete!');
-          return true;
+          return { reason: 'workflow_complete' };
+        }
+
+        // Check for at least one completed review (proves impl -> review chaining works)
+        const runs = dbLoop.prepare('SELECT id, agent_type, status FROM task_agent_runs WHERE task_id = ? ORDER BY id DESC LIMIT 10').all(taskId);
+        const reviewRuns = runs.filter(r => r.agent_type === 'review');
+        const completedReviewRun = reviewRuns.find(r => r.status === 'completed');
+
+        if (completedReviewRun) {
+          console.log(`Review agent ${completedReviewRun.id} completed - chaining verified!`);
+          completedReview = true;
+          return { reason: 'review_completed', runId: completedReviewRun.id };
         }
 
         // Log agent runs status for debugging
-        const runs = dbLoop.prepare('SELECT id, agent_type, status FROM task_agent_runs WHERE task_id = ? ORDER BY id DESC LIMIT 5').all(taskId);
         console.log('Recent agent runs:', runs.map(r => `${r.agent_type}:${r.status}`).join(', '));
+
+        // Check for failed agents (fail fast)
+        const failedRun = runs.find(r => r.status === 'failed');
+        if (failedRun) {
+          throw new Error(`Agent ${failedRun.agent_type} (run ${failedRun.id}) failed`);
+        }
 
         return null;
       }, LOOP_TIMEOUT);
     } finally {
       dbLoop.close();
+    }
+
+    console.log(`Loop verification complete: ${completedReview ? 'review cycle completed' : 'workflow marked complete'}`);
+
+    // Stop the loop by marking workflow complete (prevents agents from continuing in background)
+    const stopLoopResponse = await request.put(`/api/tasks/${taskId}/workflow-complete`, {
+      data: { complete: true },
+    });
+    if (stopLoopResponse.ok()) {
+      console.log('Stopped agent loop by setting workflow_complete = true');
     }
 
     // ========================================

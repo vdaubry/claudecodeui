@@ -149,10 +149,11 @@ Stops the implementation ↔ review loop when the task is finished, preventing i
 
 ### CLI Script
 ```bash
-node scripts/complete-workflow.js <taskId>
+node /home/ubuntu/claudecodeui/scripts/complete-workflow.js <taskId>
 ```
 - Sets workflow_complete = 1 for the specified task
 - Used by agents to signal completion
+- **Note:** Uses absolute path because agents run in user project directories, not the claudecodeui directory
 
 ### Recovery Mechanism
 

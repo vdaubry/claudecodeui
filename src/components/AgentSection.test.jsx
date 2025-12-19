@@ -10,6 +10,8 @@ vi.mock('lucide-react', () => ({
   FileText: () => <span data-testid="icon-file-text" />,
   Code: () => <span data-testid="icon-code" />,
   CheckCircle: () => <span data-testid="icon-check-circle" />,
+  MessageCircle: () => <span data-testid="icon-message-circle" />,
+  AlertCircle: () => <span data-testid="icon-alert-circle" />,
 }));
 
 // Mock UI components
@@ -106,18 +108,35 @@ describe('AgentSection', () => {
   });
 
   describe('Agent Status Display', () => {
-    it('should show Completed status for completed implementation agent', () => {
+    it('should show Completed status for implementation and review agents when workflow is complete', () => {
       render(
         <AgentSection
           {...defaultProps}
           agentRuns={[{ id: 1, agent_type: 'implementation', status: 'completed' }]}
+          workflowComplete={true}
         />
       );
 
-      expect(screen.getByText('Completed')).toBeInTheDocument();
+      // Both implementation and review show Completed when workflowComplete is true
+      const completedButtons = screen.getAllByText('Completed');
+      expect(completedButtons.length).toBe(2); // implementation + review
     });
 
-    it('should show In Progress status for running implementation agent', () => {
+    it('should show Run button for implementation agent when workflow is not complete', () => {
+      render(
+        <AgentSection
+          {...defaultProps}
+          agentRuns={[{ id: 1, agent_type: 'implementation', status: 'completed' }]}
+          workflowComplete={false}
+        />
+      );
+
+      // Implementation agent should show Run button (not Completed) when workflow is not complete
+      const runButtons = screen.getAllByText('Run');
+      expect(runButtons.length).toBeGreaterThanOrEqual(1);
+    });
+
+    it('should show Running status for running implementation agent', () => {
       render(
         <AgentSection
           {...defaultProps}
@@ -125,10 +144,10 @@ describe('AgentSection', () => {
         />
       );
 
-      expect(screen.getByText('In Progress')).toBeInTheDocument();
+      expect(screen.getByText('Running')).toBeInTheDocument();
     });
 
-    it('should show In Progress status for pending implementation agent', () => {
+    it('should show Running status for pending implementation agent', () => {
       render(
         <AgentSection
           {...defaultProps}
@@ -136,7 +155,18 @@ describe('AgentSection', () => {
         />
       );
 
-      expect(screen.getByText('In Progress')).toBeInTheDocument();
+      expect(screen.getByText('Running')).toBeInTheDocument();
+    });
+
+    it('should show Failed status for failed implementation agent', () => {
+      render(
+        <AgentSection
+          {...defaultProps}
+          agentRuns={[{ id: 1, agent_type: 'implementation', status: 'failed' }]}
+        />
+      );
+
+      expect(screen.getByText('Failed')).toBeInTheDocument();
     });
 
     it('should show Completed status for completed planification agent', () => {
@@ -150,18 +180,20 @@ describe('AgentSection', () => {
       expect(screen.getByText('Completed')).toBeInTheDocument();
     });
 
-    it('should show Completed status for completed review agent', () => {
+    it('should show Completed status for planification based on agent status (not workflow)', () => {
+      // Planification completion is based on agent run status, not workflowComplete
       render(
         <AgentSection
           {...defaultProps}
-          agentRuns={[{ id: 1, agent_type: 'review', status: 'completed' }]}
+          agentRuns={[{ id: 1, agent_type: 'planification', status: 'completed' }]}
+          workflowComplete={false}
         />
       );
 
       expect(screen.getByText('Completed')).toBeInTheDocument();
     });
 
-    it('should show In Progress status for running review agent', () => {
+    it('should show Running status for running review agent', () => {
       render(
         <AgentSection
           {...defaultProps}
@@ -169,12 +201,12 @@ describe('AgentSection', () => {
         />
       );
 
-      expect(screen.getByText('In Progress')).toBeInTheDocument();
+      expect(screen.getByText('Running')).toBeInTheDocument();
     });
   });
 
   describe('Resume Agent', () => {
-    it('should call onResumeAgent when clicking In Progress button', () => {
+    it('should call onResumeAgent when clicking conversation button', () => {
       const onResumeAgent = vi.fn();
       render(
         <AgentSection
@@ -184,12 +216,13 @@ describe('AgentSection', () => {
         />
       );
 
-      fireEvent.click(screen.getByText('In Progress'));
+      // Click the conversation (message) button
+      fireEvent.click(screen.getByTestId('icon-message-circle').closest('button'));
 
       expect(onResumeAgent).toHaveBeenCalledWith('conv-123');
     });
 
-    it('should call onResumeAgent when clicking Completed button', () => {
+    it('should call onResumeAgent when clicking conversation button for completed agent', () => {
       const onResumeAgent = vi.fn();
       render(
         <AgentSection
@@ -199,9 +232,84 @@ describe('AgentSection', () => {
         />
       );
 
-      fireEvent.click(screen.getByText('Completed'));
+      // Click the conversation (message) button
+      fireEvent.click(screen.getByTestId('icon-message-circle').closest('button'));
 
       expect(onResumeAgent).toHaveBeenCalledWith('conv-456');
+    });
+
+    it('should show conversation button when agent has conversation_id', () => {
+      render(
+        <AgentSection
+          {...defaultProps}
+          agentRuns={[{ id: 1, agent_type: 'implementation', status: 'completed', conversation_id: 'conv-123' }]}
+        />
+      );
+
+      expect(screen.getByTestId('icon-message-circle')).toBeInTheDocument();
+    });
+
+    it('should not show conversation button when agent has no conversation_id', () => {
+      render(
+        <AgentSection
+          {...defaultProps}
+          agentRuns={[{ id: 1, agent_type: 'implementation', status: 'completed' }]} // No conversation_id
+        />
+      );
+
+      expect(screen.queryByTestId('icon-message-circle')).not.toBeInTheDocument();
+    });
+
+    it('should not call onRunAgent when clicking Running button (disabled)', () => {
+      const onRunAgent = vi.fn();
+      render(
+        <AgentSection
+          {...defaultProps}
+          onRunAgent={onRunAgent}
+          agentRuns={[{ id: 1, agent_type: 'implementation', status: 'running', conversation_id: 'conv-123' }]}
+        />
+      );
+
+      // Running button should be disabled
+      fireEvent.click(screen.getByText('Running'));
+
+      expect(onRunAgent).not.toHaveBeenCalled();
+    });
+
+    it('should call onRunAgent when clicking Completed button (starts new run)', async () => {
+      const onRunAgent = vi.fn();
+      render(
+        <AgentSection
+          {...defaultProps}
+          onRunAgent={onRunAgent}
+          agentRuns={[{ id: 1, agent_type: 'planification', status: 'completed', conversation_id: 'conv-456' }]}
+        />
+      );
+
+      // Click Completed button - should start new agent run (use planification for single Completed)
+      fireEvent.click(screen.getByText('Completed'));
+
+      await waitFor(() => {
+        expect(onRunAgent).toHaveBeenCalledWith('planification');
+      });
+    });
+
+    it('should call onRunAgent when clicking Failed button (starts new run)', async () => {
+      const onRunAgent = vi.fn();
+      render(
+        <AgentSection
+          {...defaultProps}
+          onRunAgent={onRunAgent}
+          agentRuns={[{ id: 1, agent_type: 'implementation', status: 'failed', conversation_id: 'conv-789' }]}
+        />
+      );
+
+      // Click Failed button - should start new agent run
+      fireEvent.click(screen.getByText('Failed'));
+
+      await waitFor(() => {
+        expect(onRunAgent).toHaveBeenCalledWith('implementation');
+      });
     });
   });
 
@@ -306,8 +414,8 @@ describe('AgentSection', () => {
       // Should show Completed for planification
       expect(screen.getByText('Completed')).toBeInTheDocument();
 
-      // Should show In Progress for implementation
-      expect(screen.getByText('In Progress')).toBeInTheDocument();
+      // Should show Running for implementation
+      expect(screen.getByText('Running')).toBeInTheDocument();
 
       // Should show Run for review (no agent run exists)
       const runButtons = screen.getAllByText('Run');
@@ -316,12 +424,13 @@ describe('AgentSection', () => {
 
     it('should show most recent agent run status when multiple exist for same type', () => {
       // If there are multiple runs of the same type, should use first one found
+      // For planification agent, status is based on agent run status
       render(
         <AgentSection
           {...defaultProps}
           agentRuns={[
-            { id: 1, agent_type: 'implementation', status: 'completed', conversation_id: 'conv-1' },
-            { id: 2, agent_type: 'implementation', status: 'running', conversation_id: 'conv-2' },
+            { id: 1, agent_type: 'planification', status: 'completed', conversation_id: 'conv-1' },
+            { id: 2, agent_type: 'planification', status: 'running', conversation_id: 'conv-2' },
           ]}
         />
       );
@@ -332,22 +441,19 @@ describe('AgentSection', () => {
   });
 
   describe('Resume Agent with WebSocket Event Handling', () => {
-    it('should not call onResumeAgent when conversation_id is missing', () => {
-      const onResumeAgent = vi.fn();
+    it('should not show conversation button when conversation_id is missing', () => {
       render(
         <AgentSection
           {...defaultProps}
-          onResumeAgent={onResumeAgent}
           agentRuns={[{ id: 1, agent_type: 'implementation', status: 'running' }]} // No conversation_id
         />
       );
 
-      fireEvent.click(screen.getByText('In Progress'));
-
-      expect(onResumeAgent).not.toHaveBeenCalled();
+      // No conversation button should be shown
+      expect(screen.queryByTestId('icon-message-circle')).not.toBeInTheDocument();
     });
 
-    it('should not call onResumeAgent when onResumeAgent prop is not provided', () => {
+    it('should not throw when onResumeAgent prop is not provided', () => {
       render(
         <AgentSection
           {...defaultProps}
@@ -356,14 +462,15 @@ describe('AgentSection', () => {
         />
       );
 
-      // Should not throw when clicking
-      fireEvent.click(screen.getByText('In Progress'));
+      // Should not throw when clicking conversation button
+      const conversationButton = screen.getByTestId('icon-message-circle').closest('button');
+      fireEvent.click(conversationButton);
       // If we get here without error, the test passes
     });
   });
 
   describe('Agent Run Status Transitions', () => {
-    it('should show Run button for failed agent (allows retry)', () => {
+    it('should show Failed button for failed agent (allows retry)', () => {
       render(
         <AgentSection
           {...defaultProps}
@@ -371,23 +478,38 @@ describe('AgentSection', () => {
         />
       );
 
-      // Failed status means the agent run failed, so it shows Run button for retry
-      // (failed is not 'completed' or 'running'/'pending', so no special status display)
+      // Failed status shows Failed button which can be clicked to retry
+      expect(screen.getByText('Failed')).toBeInTheDocument();
+      // Planification and Review should still show Run buttons
       const runButtons = screen.getAllByText('Run');
-      // Planification, Implementation (failed shows Run), Review = 3 Run buttons
-      expect(runButtons.length).toBe(3);
+      expect(runButtons.length).toBe(2);
     });
 
-    it('should handle agent run with no conversation_id gracefully', () => {
+    it('should show conversation button for failed agent with conversation_id', () => {
       render(
         <AgentSection
           {...defaultProps}
-          agentRuns={[{ id: 1, agent_type: 'implementation', status: 'completed' }]} // No conversation_id
+          agentRuns={[{ id: 1, agent_type: 'implementation', status: 'failed', conversation_id: 'conv-123' }]}
+        />
+      );
+
+      // Should show conversation button to view what went wrong
+      expect(screen.getByTestId('icon-message-circle')).toBeInTheDocument();
+    });
+
+    it('should handle agent run with no conversation_id gracefully', () => {
+      // Use planification agent since its completion is based on status (not workflowComplete)
+      render(
+        <AgentSection
+          {...defaultProps}
+          agentRuns={[{ id: 1, agent_type: 'planification', status: 'completed' }]} // No conversation_id
         />
       );
 
       // Should still show Completed button
       expect(screen.getByText('Completed')).toBeInTheDocument();
+      // But no conversation button
+      expect(screen.queryByTestId('icon-message-circle')).not.toBeInTheDocument();
     });
   });
 });

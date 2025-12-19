@@ -6,7 +6,7 @@
  */
 
 import React, { useState } from 'react';
-import { Play, Check, Loader2, FileText, Code, CheckCircle } from 'lucide-react';
+import { Play, Check, Loader2, FileText, Code, CheckCircle, MessageCircle, AlertCircle } from 'lucide-react';
 import { Button } from './ui/button';
 import { cn } from '../lib/utils';
 
@@ -38,6 +38,7 @@ function AgentSection({
   isLoading = false,
   onRunAgent,
   onResumeAgent,
+  workflowComplete = false,
   className
 }) {
   const [runningType, setRunningType] = useState(null);
@@ -88,8 +89,17 @@ function AgentSection({
           const status = getAgentStatus(agent.type);
           const agentRun = getAgentRun(agent.type);
           const isRunning = runningType === agent.type;
-          const isCompleted = status === 'completed';
+
+          // Completion logic varies by agent type:
+          // - planification: completed when agent run status is 'completed' (user manually marks done)
+          // - implementation/review: completed only when workflow_complete is true
+          const isCompleted = agent.type === 'planification'
+            ? status === 'completed'
+            : workflowComplete;
+
+          const isFailed = status === 'failed';
           const isInProgress = status === 'running' || status === 'pending';
+          const hasConversation = agentRun?.conversation_id;
           const Icon = agent.icon;
 
           return (
@@ -99,6 +109,8 @@ function AgentSection({
                 'flex items-center justify-between p-3 rounded-lg border transition-colors',
                 isCompleted
                   ? 'border-green-200 bg-green-50 dark:border-green-800 dark:bg-green-900/20'
+                  : isFailed
+                  ? 'border-red-200 bg-red-50 dark:border-red-800 dark:bg-red-900/20'
                   : isInProgress
                   ? 'border-blue-200 bg-blue-50 dark:border-blue-800 dark:bg-blue-900/20'
                   : 'border-border hover:border-primary/50'
@@ -109,6 +121,8 @@ function AgentSection({
                   'w-8 h-8 rounded-lg flex items-center justify-center',
                   isCompleted
                     ? 'bg-green-100 dark:bg-green-800'
+                    : isFailed
+                    ? 'bg-red-100 dark:bg-red-800'
                     : isInProgress
                     ? 'bg-blue-100 dark:bg-blue-800'
                     : 'bg-muted'
@@ -117,6 +131,8 @@ function AgentSection({
                     'w-4 h-4',
                     isCompleted
                       ? 'text-green-600 dark:text-green-400'
+                      : isFailed
+                      ? 'text-red-600 dark:text-red-400'
                       : isInProgress
                       ? 'text-blue-600 dark:text-blue-400'
                       : 'text-muted-foreground'
@@ -128,44 +144,60 @@ function AgentSection({
                 </div>
               </div>
 
-              <Button
-                variant={isCompleted ? 'ghost' : 'outline'}
-                size="sm"
-                onClick={() => {
-                  if (isInProgress || isCompleted) {
-                    handleResumeAgent(agentRun);
-                  } else {
-                    handleRunAgent(agent);
-                  }
-                }}
-                disabled={isRunning}
-                className={cn(
-                  'gap-2',
-                  isCompleted && 'text-green-600 dark:text-green-400'
+              <div className="flex items-center gap-2">
+                {/* Conversation info button - only shown when there's a conversation */}
+                {hasConversation && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => handleResumeAgent(agentRun)}
+                    className="text-muted-foreground hover:text-foreground"
+                    title="View conversation"
+                  >
+                    <MessageCircle className="w-4 h-4" />
+                  </Button>
                 )}
-              >
-                {isRunning ? (
-                  <>
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    Starting...
-                  </>
-                ) : isCompleted ? (
-                  <>
-                    <Check className="w-4 h-4" />
-                    Completed
-                  </>
-                ) : isInProgress ? (
-                  <>
-                    <Play className="w-4 h-4" />
-                    In Progress
-                  </>
-                ) : (
-                  <>
-                    <Play className="w-4 h-4" />
-                    Run
-                  </>
-                )}
-              </Button>
+
+                {/* Main action button - always starts a new agent run */}
+                <Button
+                  variant={isCompleted ? 'ghost' : isFailed ? 'ghost' : 'outline'}
+                  size="sm"
+                  onClick={() => handleRunAgent(agent)}
+                  disabled={isRunning || isInProgress}
+                  className={cn(
+                    'gap-2',
+                    isCompleted && 'text-green-600 dark:text-green-400',
+                    isFailed && 'text-red-600 dark:text-red-400'
+                  )}
+                >
+                  {isRunning ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      Starting...
+                    </>
+                  ) : isCompleted ? (
+                    <>
+                      <Check className="w-4 h-4" />
+                      Completed
+                    </>
+                  ) : isFailed ? (
+                    <>
+                      <AlertCircle className="w-4 h-4" />
+                      Failed
+                    </>
+                  ) : isInProgress ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      Running
+                    </>
+                  ) : (
+                    <>
+                      <Play className="w-4 h-4" />
+                      Run
+                    </>
+                  )}
+                </Button>
+              </div>
             </div>
           );
         })}
