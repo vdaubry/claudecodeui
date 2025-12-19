@@ -25,9 +25,20 @@ vi.mock('../services/documentation.js', () => ({
   deleteTaskDoc: vi.fn()
 }));
 
+// Mock the notifications service
+vi.mock('../services/notifications.js', () => ({
+  notifyTaskStatusChange: vi.fn().mockResolvedValue(undefined)
+}));
+
+// Mock the agentRunner service
+vi.mock('../services/agentRunner.js', () => ({
+  forceCompleteRunningAgents: vi.fn()
+}));
+
 import tasksRoutes from './tasks.js';
 import { projectsDb, tasksDb } from '../database/db.js';
 import { readTaskDoc, writeTaskDoc, deleteTaskDoc } from '../services/documentation.js';
+import { forceCompleteRunningAgents } from '../services/agentRunner.js';
 
 describe('Tasks Routes - Phase 3', () => {
   let app;
@@ -401,6 +412,137 @@ describe('Tasks Routes - Phase 3', () => {
 
       expect(response.status).toBe(400);
       expect(response.body.error).toBe('Content is required');
+    });
+  });
+
+  describe('PUT /api/tasks/:id/workflow-complete', () => {
+    it('should set workflow_complete to true', async () => {
+      const mockTaskWithProject = { id: 1, project_id: 1, user_id: testUserId, workflow_complete: 0 };
+      tasksDb.getWithProject.mockReturnValue(mockTaskWithProject);
+      tasksDb.update.mockReturnValue({ ...mockTaskWithProject, workflow_complete: 1 });
+      forceCompleteRunningAgents.mockReturnValue(0);
+
+      const response = await request(app)
+        .put('/api/tasks/1/workflow-complete')
+        .send({ complete: true });
+
+      expect(response.status).toBe(200);
+      expect(response.body).toEqual({
+        success: true,
+        workflow_complete: true,
+        forceCompletedAgents: 0
+      });
+      expect(tasksDb.update).toHaveBeenCalledWith(1, { workflow_complete: 1 });
+    });
+
+    it('should set workflow_complete to false', async () => {
+      const mockTaskWithProject = { id: 1, project_id: 1, user_id: testUserId, workflow_complete: 1 };
+      tasksDb.getWithProject.mockReturnValue(mockTaskWithProject);
+      tasksDb.update.mockReturnValue({ ...mockTaskWithProject, workflow_complete: 0 });
+
+      const response = await request(app)
+        .put('/api/tasks/1/workflow-complete')
+        .send({ complete: false });
+
+      expect(response.status).toBe(200);
+      expect(response.body).toEqual({
+        success: true,
+        workflow_complete: false,
+        forceCompletedAgents: 0
+      });
+      expect(tasksDb.update).toHaveBeenCalledWith(1, { workflow_complete: 0 });
+      // Should not call forceCompleteRunningAgents when setting to false
+      expect(forceCompleteRunningAgents).not.toHaveBeenCalled();
+    });
+
+    it('should force-complete running agents when setting complete=true', async () => {
+      const mockTaskWithProject = { id: 1, project_id: 1, user_id: testUserId, workflow_complete: 0 };
+      tasksDb.getWithProject.mockReturnValue(mockTaskWithProject);
+      tasksDb.update.mockReturnValue({ ...mockTaskWithProject, workflow_complete: 1 });
+      forceCompleteRunningAgents.mockReturnValue(2); // 2 agents were force-completed
+
+      const response = await request(app)
+        .put('/api/tasks/1/workflow-complete')
+        .send({ complete: true });
+
+      expect(response.status).toBe(200);
+      expect(response.body.forceCompletedAgents).toBe(2);
+      expect(forceCompleteRunningAgents).toHaveBeenCalledWith(1);
+    });
+
+    it('should return 400 for invalid task ID', async () => {
+      const response = await request(app)
+        .put('/api/tasks/invalid/workflow-complete')
+        .send({ complete: true });
+
+      expect(response.status).toBe(400);
+      expect(response.body.error).toBe('Invalid task ID');
+    });
+
+    it('should return 400 if complete is missing', async () => {
+      const response = await request(app)
+        .put('/api/tasks/1/workflow-complete')
+        .send({});
+
+      expect(response.status).toBe(400);
+      expect(response.body.error).toBe('complete must be a boolean');
+    });
+
+    it('should return 400 if complete is not a boolean', async () => {
+      const response = await request(app)
+        .put('/api/tasks/1/workflow-complete')
+        .send({ complete: 'yes' });
+
+      expect(response.status).toBe(400);
+      expect(response.body.error).toBe('complete must be a boolean');
+    });
+
+    it('should return 400 if complete is a number', async () => {
+      const response = await request(app)
+        .put('/api/tasks/1/workflow-complete')
+        .send({ complete: 1 });
+
+      expect(response.status).toBe(400);
+      expect(response.body.error).toBe('complete must be a boolean');
+    });
+
+    it('should return 404 if task not found', async () => {
+      tasksDb.getWithProject.mockReturnValue(null);
+
+      const response = await request(app)
+        .put('/api/tasks/999/workflow-complete')
+        .send({ complete: true });
+
+      expect(response.status).toBe(404);
+      expect(response.body.error).toBe('Task not found');
+    });
+
+    it('should return 404 if task belongs to different user', async () => {
+      tasksDb.getWithProject.mockReturnValue({ id: 1, user_id: 999 });
+
+      const response = await request(app)
+        .put('/api/tasks/1/workflow-complete')
+        .send({ complete: true });
+
+      expect(response.status).toBe(404);
+      expect(response.body.error).toBe('Task not found');
+    });
+
+    it('should handle recovery scenario: stuck agent gets force-completed', async () => {
+      // Simulate a stuck agent scenario
+      const mockTaskWithProject = { id: 1, project_id: 1, user_id: testUserId, workflow_complete: 0 };
+      tasksDb.getWithProject.mockReturnValue(mockTaskWithProject);
+      tasksDb.update.mockReturnValue({ ...mockTaskWithProject, workflow_complete: 1 });
+      forceCompleteRunningAgents.mockReturnValue(1); // 1 stuck agent
+
+      const response = await request(app)
+        .put('/api/tasks/1/workflow-complete')
+        .send({ complete: true });
+
+      expect(response.status).toBe(200);
+      expect(response.body.success).toBe(true);
+      expect(response.body.workflow_complete).toBe(true);
+      expect(response.body.forceCompletedAgents).toBe(1);
     });
   });
 });

@@ -231,7 +231,6 @@ function TaskDetailView({
             isLoading={isLoadingAgentRuns}
             onRunAgent={onRunAgent}
             onResumeAgent={handleResumeAgent}
-            taskId={task.id}
           />
         </div>
       </div>

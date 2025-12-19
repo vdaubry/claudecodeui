@@ -2,42 +2,34 @@
  * AgentSection.jsx - Agent Workflow Section
  *
  * Displays automated agent workflows for a task.
- * Currently supports: Planification agent (creates a plan-mode conversation)
+ * Backend handles agent execution and auto-chaining (implementation <-> review loop).
  */
 
 import React, { useState } from 'react';
 import { Play, Check, Loader2, FileText, Code, CheckCircle } from 'lucide-react';
-import {
-  generatePlanificationMessage,
-  generateImplementationMessage,
-  generateReviewMessage
-} from '../constants/agentConfig';
 import { Button } from './ui/button';
 import { cn } from '../lib/utils';
 
 // Agent type configurations
-// Message generators are imported from ../constants/agentConfig.js
+// Message generation is now handled on the backend
 const AGENT_TYPES = [
   {
     type: 'planification',
     label: 'Planification',
     description: 'Create a detailed implementation plan',
-    icon: FileText,
-    getMessage: generatePlanificationMessage
+    icon: FileText
   },
   {
     type: 'implementation',
     label: 'Implementation',
     description: 'Implement the next phase from the plan',
-    icon: Code,
-    getMessage: generateImplementationMessage
+    icon: Code
   },
   {
     type: 'review',
     label: 'Review',
     description: 'Review implementation and run tests',
-    icon: CheckCircle,
-    getMessage: generateReviewMessage
+    icon: CheckCircle
   }
 ];
 
@@ -46,7 +38,6 @@ function AgentSection({
   isLoading = false,
   onRunAgent,
   onResumeAgent,
-  taskId,
   className
 }) {
   const [runningType, setRunningType] = useState(null);
@@ -56,13 +47,8 @@ function AgentSection({
 
     setRunningType(agentConfig.type);
     try {
-      // Generate task doc path based on task ID (stored in .claude-ui/tasks/)
-      const taskDocPath = `.claude-ui/tasks/task-${taskId}.md`;
-      // Generate the message with the task doc path and task ID
-      const message = agentConfig.getMessage
-        ? agentConfig.getMessage(taskDocPath, taskId)
-        : agentConfig.message;
-      await onRunAgent(agentConfig.type, message);
+      // Backend handles message generation and streaming
+      await onRunAgent(agentConfig.type);
     } finally {
       setRunningType(null);
     }

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import AgentSection from './AgentSection';
 
 // Mock lucide-react icons
@@ -31,7 +31,6 @@ describe('AgentSection', () => {
     isLoading: false,
     onRunAgent: vi.fn(),
     onResumeAgent: vi.fn(),
-    taskId: 'task-123',
   };
 
   beforeEach(() => {
@@ -73,25 +72,7 @@ describe('AgentSection', () => {
       fireEvent.click(runButtons[0]); // First Run button is for Planification
 
       await waitFor(() => {
-        expect(onRunAgent).toHaveBeenCalledWith(
-          'planification',
-          expect.stringContaining('@agent-Plan')
-        );
-      });
-    });
-
-    it('should include task doc path in planification message', async () => {
-      const onRunAgent = vi.fn();
-      render(<AgentSection {...defaultProps} onRunAgent={onRunAgent} taskId="test-task-id" />);
-
-      const runButtons = screen.getAllByText('Run');
-      fireEvent.click(runButtons[0]);
-
-      await waitFor(() => {
-        expect(onRunAgent).toHaveBeenCalledWith(
-          'planification',
-          expect.stringContaining('.claude-ui/tasks/task-test-task-id.md')
-        );
+        expect(onRunAgent).toHaveBeenCalledWith('planification');
       });
     });
   });
@@ -105,55 +86,7 @@ describe('AgentSection', () => {
       fireEvent.click(runButtons[1]); // Second Run button is for Implementation
 
       await waitFor(() => {
-        expect(onRunAgent).toHaveBeenCalledWith(
-          'implementation',
-          expect.stringContaining('@agent-Implement')
-        );
-      });
-    });
-
-    it('should include task doc path in implementation message', async () => {
-      const onRunAgent = vi.fn();
-      render(<AgentSection {...defaultProps} onRunAgent={onRunAgent} taskId="my-task" />);
-
-      const runButtons = screen.getAllByText('Run');
-      fireEvent.click(runButtons[1]);
-
-      await waitFor(() => {
-        expect(onRunAgent).toHaveBeenCalledWith(
-          'implementation',
-          expect.stringContaining('.claude-ui/tasks/task-my-task.md')
-        );
-      });
-    });
-
-    it('should include no-questions instruction in implementation message', async () => {
-      const onRunAgent = vi.fn();
-      render(<AgentSection {...defaultProps} onRunAgent={onRunAgent} />);
-
-      const runButtons = screen.getAllByText('Run');
-      fireEvent.click(runButtons[1]);
-
-      await waitFor(() => {
-        expect(onRunAgent).toHaveBeenCalledWith(
-          'implementation',
-          expect.stringContaining('Do NOT ask any questions')
-        );
-      });
-    });
-
-    it('should include Review Findings check in implementation message', async () => {
-      const onRunAgent = vi.fn();
-      render(<AgentSection {...defaultProps} onRunAgent={onRunAgent} />);
-
-      const runButtons = screen.getAllByText('Run');
-      fireEvent.click(runButtons[1]);
-
-      await waitFor(() => {
-        expect(onRunAgent).toHaveBeenCalledWith(
-          'implementation',
-          expect.stringContaining('Review Findings')
-        );
+        expect(onRunAgent).toHaveBeenCalledWith('implementation');
       });
     });
   });
@@ -167,70 +100,7 @@ describe('AgentSection', () => {
       fireEvent.click(runButtons[2]); // Third Run button is for Review
 
       await waitFor(() => {
-        expect(onRunAgent).toHaveBeenCalledWith(
-          'review',
-          expect.stringContaining('@agent-Review')
-        );
-      });
-    });
-
-    it('should include task doc path in review message', async () => {
-      const onRunAgent = vi.fn();
-      render(<AgentSection {...defaultProps} onRunAgent={onRunAgent} taskId="review-task" />);
-
-      const runButtons = screen.getAllByText('Run');
-      fireEvent.click(runButtons[2]);
-
-      await waitFor(() => {
-        expect(onRunAgent).toHaveBeenCalledWith(
-          'review',
-          expect.stringContaining('.claude-ui/tasks/task-review-task.md')
-        );
-      });
-    });
-
-    it('should include unit test instruction in review message', async () => {
-      const onRunAgent = vi.fn();
-      render(<AgentSection {...defaultProps} onRunAgent={onRunAgent} />);
-
-      const runButtons = screen.getAllByText('Run');
-      fireEvent.click(runButtons[2]);
-
-      await waitFor(() => {
-        expect(onRunAgent).toHaveBeenCalledWith(
-          'review',
-          expect.stringContaining('npm test')
-        );
-      });
-    });
-
-    it('should include Playwright MCP instruction in review message', async () => {
-      const onRunAgent = vi.fn();
-      render(<AgentSection {...defaultProps} onRunAgent={onRunAgent} />);
-
-      const runButtons = screen.getAllByText('Run');
-      fireEvent.click(runButtons[2]);
-
-      await waitFor(() => {
-        expect(onRunAgent).toHaveBeenCalledWith(
-          'review',
-          expect.stringContaining('Playwright MCP')
-        );
-      });
-    });
-
-    it('should include no-fix constraint in review message', async () => {
-      const onRunAgent = vi.fn();
-      render(<AgentSection {...defaultProps} onRunAgent={onRunAgent} />);
-
-      const runButtons = screen.getAllByText('Run');
-      fireEvent.click(runButtons[2]);
-
-      await waitFor(() => {
-        expect(onRunAgent).toHaveBeenCalledWith(
-          'review',
-          expect.stringContaining('Do NOT fix any code')
-        );
+        expect(onRunAgent).toHaveBeenCalledWith('review');
       });
     });
   });
@@ -359,6 +229,165 @@ describe('AgentSection', () => {
       await waitFor(() => {
         expect(screen.getByText('Starting...')).toBeInTheDocument();
       });
+    });
+  });
+
+  describe('Error Handling and Edge Cases', () => {
+    it('should prevent double-clicking run button', async () => {
+      let resolvePromise;
+      const slowPromise = new Promise(resolve => { resolvePromise = resolve; });
+      const onRunAgent = vi.fn(() => slowPromise);
+
+      render(<AgentSection {...defaultProps} onRunAgent={onRunAgent} />);
+
+      const runButtons = screen.getAllByText('Run');
+
+      // First click
+      fireEvent.click(runButtons[0]);
+
+      // Try to click again while first is still processing
+      fireEvent.click(runButtons[0]);
+      fireEvent.click(runButtons[0]);
+
+      // Should only have been called once due to internal guard
+      expect(onRunAgent).toHaveBeenCalledTimes(1);
+
+      // Cleanup: resolve the promise
+      resolvePromise();
+    });
+
+    it('should reset starting state after onRunAgent completes', async () => {
+      const onRunAgent = vi.fn(() => Promise.resolve());
+      render(<AgentSection {...defaultProps} onRunAgent={onRunAgent} />);
+
+      const runButtons = screen.getAllByText('Run');
+      fireEvent.click(runButtons[0]);
+
+      // Wait for the promise to resolve and state to reset
+      await waitFor(() => {
+        expect(screen.queryByText('Starting...')).not.toBeInTheDocument();
+      });
+
+      // Run button should be visible again
+      expect(screen.getAllByText('Run')).toHaveLength(3);
+    });
+
+    it('should pass correct agent type to onRunAgent for all agent types', async () => {
+      const onRunAgent = vi.fn(() => Promise.resolve());
+      render(<AgentSection {...defaultProps} onRunAgent={onRunAgent} />);
+
+      const runButtons = screen.getAllByText('Run');
+
+      // Click all three buttons in sequence
+      fireEvent.click(runButtons[0]); // Planification
+      await waitFor(() => expect(onRunAgent).toHaveBeenCalledWith('planification'));
+
+      fireEvent.click(runButtons[1]); // Implementation
+      await waitFor(() => expect(onRunAgent).toHaveBeenCalledWith('implementation'));
+
+      fireEvent.click(runButtons[2]); // Review
+      await waitFor(() => expect(onRunAgent).toHaveBeenCalledWith('review'));
+    });
+  });
+
+  describe('Multiple Agent Runs Display', () => {
+    it('should show status for multiple agents at different states', () => {
+      render(
+        <AgentSection
+          {...defaultProps}
+          agentRuns={[
+            { id: 1, agent_type: 'planification', status: 'completed', conversation_id: 'conv-1' },
+            { id: 2, agent_type: 'implementation', status: 'running', conversation_id: 'conv-2' },
+            // Review has no run yet
+          ]}
+        />
+      );
+
+      // Should show Completed for planification
+      expect(screen.getByText('Completed')).toBeInTheDocument();
+
+      // Should show In Progress for implementation
+      expect(screen.getByText('In Progress')).toBeInTheDocument();
+
+      // Should show Run for review (no agent run exists)
+      const runButtons = screen.getAllByText('Run');
+      expect(runButtons).toHaveLength(1); // Only review should have Run button
+    });
+
+    it('should show most recent agent run status when multiple exist for same type', () => {
+      // If there are multiple runs of the same type, should use first one found
+      render(
+        <AgentSection
+          {...defaultProps}
+          agentRuns={[
+            { id: 1, agent_type: 'implementation', status: 'completed', conversation_id: 'conv-1' },
+            { id: 2, agent_type: 'implementation', status: 'running', conversation_id: 'conv-2' },
+          ]}
+        />
+      );
+
+      // Should find the first matching agent run (completed)
+      expect(screen.getByText('Completed')).toBeInTheDocument();
+    });
+  });
+
+  describe('Resume Agent with WebSocket Event Handling', () => {
+    it('should not call onResumeAgent when conversation_id is missing', () => {
+      const onResumeAgent = vi.fn();
+      render(
+        <AgentSection
+          {...defaultProps}
+          onResumeAgent={onResumeAgent}
+          agentRuns={[{ id: 1, agent_type: 'implementation', status: 'running' }]} // No conversation_id
+        />
+      );
+
+      fireEvent.click(screen.getByText('In Progress'));
+
+      expect(onResumeAgent).not.toHaveBeenCalled();
+    });
+
+    it('should not call onResumeAgent when onResumeAgent prop is not provided', () => {
+      render(
+        <AgentSection
+          {...defaultProps}
+          onResumeAgent={undefined}
+          agentRuns={[{ id: 1, agent_type: 'implementation', status: 'running', conversation_id: 'conv-123' }]}
+        />
+      );
+
+      // Should not throw when clicking
+      fireEvent.click(screen.getByText('In Progress'));
+      // If we get here without error, the test passes
+    });
+  });
+
+  describe('Agent Run Status Transitions', () => {
+    it('should show Run button for failed agent (allows retry)', () => {
+      render(
+        <AgentSection
+          {...defaultProps}
+          agentRuns={[{ id: 1, agent_type: 'implementation', status: 'failed', conversation_id: 'conv-123' }]}
+        />
+      );
+
+      // Failed status means the agent run failed, so it shows Run button for retry
+      // (failed is not 'completed' or 'running'/'pending', so no special status display)
+      const runButtons = screen.getAllByText('Run');
+      // Planification, Implementation (failed shows Run), Review = 3 Run buttons
+      expect(runButtons.length).toBe(3);
+    });
+
+    it('should handle agent run with no conversation_id gracefully', () => {
+      render(
+        <AgentSection
+          {...defaultProps}
+          agentRuns={[{ id: 1, agent_type: 'implementation', status: 'completed' }]} // No conversation_id
+        />
+      );
+
+      // Should still show Completed button
+      expect(screen.getByText('Completed')).toBeInTheDocument();
     });
   });
 });

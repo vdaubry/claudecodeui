@@ -1,15 +1,16 @@
 /**
- * Agent Configuration Constants
+ * Agent Prompt Constants (Server-Side)
  *
- * Defines agent types and their message generators for use across components.
- * Used by AgentSection.jsx for UI and MainContent.jsx for auto-chaining.
+ * Agent message generators for the backend agent runner.
+ * Moved from src/constants/agentConfig.js as part of the server-side chaining refactor.
  */
 
 /**
  * Generate the planification agent message with task doc path
  * Uses @agent-Plan to direct Claude SDK to use the planification sub-agent
  */
-export const generatePlanificationMessage = (taskDocPath) => `@agent-Plan You are helping me plan the implementation of a task. Your goal is to create a comprehensive onboarding document that any developer can use to complete this task.
+export function generatePlanificationMessage(taskDocPath) {
+  return `@agent-Plan You are helping me plan the implementation of a task. Your goal is to create a comprehensive onboarding document that any developer can use to complete this task.
 
 ## Your Process
 
@@ -68,6 +69,7 @@ Track progress with checkboxes. Include ALL steps:
 The documentation must be complete enough that a developer who understands the codebase but knows nothing about this specific task can implement it independently. This allows pausing and resuming implementation while maintaining clear progress tracking.
 
 Please start by asking your clarifying questions.`;
+}
 
 /**
  * Generate the implementation agent message with task doc path
@@ -76,7 +78,8 @@ Please start by asking your clarifying questions.`;
  * @param {string} taskDocPath - Path to task documentation file
  * @param {number} taskId - Task ID for workflow completion command
  */
-export const generateImplementationMessage = (taskDocPath, taskId) => `@agent-Implement Read the task documentation at \`${taskDocPath}\` and implement the next unchecked phase from the To-Do List.
+export function generateImplementationMessage(taskDocPath, taskId) {
+  return `@agent-Implement Read the task documentation at \`${taskDocPath}\` and implement the next unchecked phase from the To-Do List.
 
 ## Instructions
 1. Read the task documentation file
@@ -98,6 +101,7 @@ node scripts/complete-workflow.js ${taskId}
 This signals that the automated agent loop should stop and await user review.
 
 Start implementing now.`;
+}
 
 /**
  * Generate the review agent message with task doc path
@@ -106,7 +110,8 @@ Start implementing now.`;
  * @param {string} taskDocPath - Path to task documentation file
  * @param {number} taskId - Task ID for workflow completion command
  */
-export const generateReviewMessage = (taskDocPath, taskId) => `@agent-Review You are a code reviewer for a task implementation. Your goal is to verify the implementation against the task documentation and update the docs with your findings.
+export function generateReviewMessage(taskDocPath, taskId) {
+  return `@agent-Review You are a code reviewer for a task implementation. Your goal is to verify the implementation against the task documentation and update the docs with your findings.
 
 ## Your Process
 
@@ -204,6 +209,7 @@ node scripts/complete-workflow.js ${taskId}
 This signals that the automated agent loop should stop and await final user review.
 
 Start reviewing now.`;
+}
 
 /**
  * Agent type identifiers

@@ -1,5 +1,7 @@
 import express from 'express';
+import { WebSocket } from 'ws';
 import { tasksDb, agentRunsDb } from '../database/db.js';
+import { startAgentRun, getRunningAgentForTask } from '../services/agentRunner.js';
 
 const router = express.Router();
 
@@ -32,10 +34,13 @@ router.get('/tasks/:taskId/agent-runs', (req, res) => {
 
 /**
  * POST /api/tasks/:taskId/agent-runs
- * Create a new agent run for a task
+ * Start a new agent run for a task
+ * Creates agent run, conversation, starts Claude streaming, returns immediately
+ * Streaming continues in background; auto-chains implementation <-> review
+ *
  * Body: { agentType: 'planification' | 'implementation' | 'review' }
  */
-router.post('/tasks/:taskId/agent-runs', (req, res) => {
+router.post('/tasks/:taskId/agent-runs', async (req, res) => {
   try {
     const userId = req.user.id;
     const taskId = parseInt(req.params.taskId, 10);
@@ -58,19 +63,37 @@ router.post('/tasks/:taskId/agent-runs', (req, res) => {
       return res.status(404).json({ error: 'Task not found' });
     }
 
-    // Check if an agent run of this type already exists and is not completed/failed
-    const existing = agentRunsDb.getByTaskAndType(taskId, agentType);
-    if (existing && (existing.status === 'running' || existing.status === 'pending')) {
-      // Return existing running/pending agent run
-      return res.json(existing);
+    // Check for any running agent on this task (prevent concurrent runs)
+    const runningRun = getRunningAgentForTask(taskId);
+    if (runningRun) {
+      return res.status(409).json({
+        error: 'An agent is already running for this task',
+        runningAgent: runningRun
+      });
     }
 
-    // Create new agent run
-    const agentRun = agentRunsDb.create(taskId, agentType, null);
+    // Helper to broadcast to all WebSocket clients
+    const broadcastFn = (convId, msg) => {
+      const wss = req.app.locals.wss;
+      if (wss) {
+        wss.clients.forEach(client => {
+          if (client.readyState === WebSocket.OPEN) {
+            client.send(JSON.stringify(msg));
+          }
+        });
+      }
+    };
+
+    // Start the agent run (creates conversation, starts streaming, handles chaining)
+    const { agentRun } = await startAgentRun(taskId, agentType, {
+      broadcastFn,
+      userId
+    });
+
     res.status(201).json(agentRun);
   } catch (error) {
-    console.error('Error creating agent run:', error);
-    res.status(500).json({ error: 'Failed to create agent run' });
+    console.error('Error starting agent run:', error);
+    res.status(500).json({ error: 'Failed to start agent run' });
   }
 });
 

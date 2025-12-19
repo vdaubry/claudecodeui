@@ -13,9 +13,8 @@ import ClaudeStatus from './ClaudeStatus.jsx';
 import MessageInput from './MessageInput.jsx';
 import MessageComponent from './MessageComponent.jsx';
 import CommandMenu from './CommandMenu';
-import { api, authenticatedFetch } from '../utils/api';
+import { api } from '../utils/api';
 import { useWebSocket } from '../contexts/WebSocketContext';
-import { useTaskContext } from '../contexts/TaskContext';
 import { useSlashCommands } from '../hooks/useSlashCommands';
 import { useSessionStreaming } from '../hooks/useSessionStreaming';
 
@@ -91,37 +90,12 @@ function ChatInterface({
   onShowSettings,
   autoExpandTools,
   showRawParameters,
-  showThinking,
-  onCompletePlan
+  showThinking
 }) {
   const [sessionMessages, setSessionMessages] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
   const [input, setInput] = useState('');
 
-  // Get agent runs from context to check if current conversation is linked to one
-  const { agentRuns } = useTaskContext();
-
-  // Find agent run linked to current conversation (by conversation_id or __agentRunId)
-  // Show "Complete Plan" button only if the agent run is NOT completed
-  const linkedAgentRun = useMemo(() => {
-    if (!activeConversation) return null;
-
-    // First check the ephemeral __agentRunId (set when conversation is first created)
-    const ephemeralId = activeConversation.__agentRunId;
-    if (ephemeralId) {
-      const run = agentRuns.find(r => r.id === ephemeralId);
-      if (run && run.status !== 'completed') return run;
-    }
-
-    // Then check by conversation_id (works for resumed conversations)
-    const runByConvId = agentRuns.find(r => r.conversation_id === activeConversation.id);
-    if (runByConvId && runByConvId.status !== 'completed') return runByConvId;
-
-    return null;
-  }, [activeConversation, agentRuns]);
-
-  // Only pass agentRunId if agent run is not completed
-  const agentRunId = linkedAgentRun?.id || null;
   const initialPermissionMode = activeConversation?.__permissionMode;
 
   // Permission mode state - initialize from conversation if it's an agent run
@@ -344,47 +318,6 @@ function ChatInterface({
     }
     return historyMessages;
   }, [sessionMessages, streamingMessages]);
-
-  // Auto-complete for implementation and review agents
-  // Track if we've auto-completed this agent run to prevent double-triggering
-  const hasAutoCompletedRef = useRef(false);
-  const prevIsStreamingRef = useRef(false);
-
-  // Reset auto-complete flag when agent run changes
-  useEffect(() => {
-    hasAutoCompletedRef.current = false;
-  }, [agentRunId]);
-
-  // Auto-complete implementation/review agent when streaming finishes
-  useEffect(() => {
-    const wasStreaming = prevIsStreamingRef.current;
-    const justFinishedStreaming = wasStreaming && !isStreaming;
-    prevIsStreamingRef.current = isStreaming;
-
-    // Agent types that auto-complete when streaming finishes
-    const shouldAutoComplete =
-      linkedAgentRun?.agent_type === 'implementation' ||
-      linkedAgentRun?.agent_type === 'review';
-
-    // Auto-complete when:
-    // 1. Streaming just finished
-    // 2. This is an implementation or review agent
-    // 3. Haven't auto-completed yet for this agent run
-    // 4. There are messages (not an empty response)
-    if (
-      justFinishedStreaming &&
-      shouldAutoComplete &&
-      !hasAutoCompletedRef.current &&
-      agentRunId &&
-      displayMessages.length > 0
-    ) {
-      hasAutoCompletedRef.current = true;
-      // Small delay to ensure UI updates before navigation
-      setTimeout(() => {
-        onCompletePlan?.(agentRunId);
-      }, 500);
-    }
-  }, [isStreaming, linkedAgentRun?.agent_type, agentRunId, displayMessages.length, onCompletePlan]);
 
   // Load messages when conversation changes
   useEffect(() => {
@@ -759,10 +692,6 @@ function ChatInterface({
         onCommandSelect={handleCommandSelect}
         onCloseCommandMenu={handleCloseCommandMenu}
         isScrolling={isScrolling}
-        // Plan completion props
-        agentRunId={agentRunId}
-        agentType={linkedAgentRun?.agent_type}
-        onCompletePlan={onCompletePlan}
       />
 
       {/* Command Menu - positioned above input */}

@@ -369,56 +369,6 @@ export function TaskContextProvider({ children }) {
     }
   }, []);
 
-  const createAgentRun = useCallback(async (taskId, agentType) => {
-    try {
-      const response = await api.agentRuns.create(taskId, agentType);
-      if (response.ok) {
-        const agentRun = await response.json();
-        setAgentRuns(prev => [agentRun, ...prev.filter(r => r.agent_type !== agentType)]);
-        return { success: true, agentRun };
-      } else {
-        const error = await response.json();
-        return { success: false, error: error.error || 'Failed to create agent run' };
-      }
-    } catch (error) {
-      console.error('Error creating agent run:', error);
-      return { success: false, error: error.message };
-    }
-  }, []);
-
-  const completeAgentRun = useCallback(async (agentRunId) => {
-    try {
-      const response = await api.agentRuns.complete(agentRunId);
-      if (response.ok) {
-        const updated = await response.json();
-        setAgentRuns(prev => prev.map(r => r.id === agentRunId ? updated : r));
-        return { success: true, agentRun: updated };
-      } else {
-        const error = await response.json();
-        return { success: false, error: error.error || 'Failed to complete agent run' };
-      }
-    } catch (error) {
-      console.error('Error completing agent run:', error);
-      return { success: false, error: error.message };
-    }
-  }, []);
-
-  const linkAgentRunConversation = useCallback(async (agentRunId, conversationId) => {
-    try {
-      const response = await api.agentRuns.linkConversation(agentRunId, conversationId);
-      if (response.ok) {
-        const updated = await response.json();
-        setAgentRuns(prev => prev.map(r => r.id === agentRunId ? updated : r));
-        return { success: true };
-      } else {
-        return { success: false };
-      }
-    } catch (error) {
-      console.error('Error linking conversation to agent run:', error);
-      return { success: false, error: error.message };
-    }
-  }, []);
-
   // ========== Conversations API ==========
 
   const loadConversations = useCallback(async (taskId) => {
@@ -704,9 +654,6 @@ export function TaskContextProvider({ children }) {
     agentRuns,
     isLoadingAgentRuns,
     loadAgentRuns,
-    createAgentRun,
-    completeAgentRun,
-    linkAgentRunConversation,
 
     // Conversations
     conversations,
