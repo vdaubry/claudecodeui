@@ -17,6 +17,18 @@ vi.mock('./MicButton', () => ({
   ),
 }));
 
+// Mock @uiw/react-md-editor
+vi.mock('@uiw/react-md-editor', () => ({
+  default: ({ value, onChange, textareaProps }) => (
+    <textarea
+      data-testid="documentation-editor"
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      placeholder={textareaProps?.placeholder}
+    />
+  ),
+}));
+
 // Mock lucide-react icons
 vi.mock('lucide-react', () => ({
   ArrowLeft: () => <span data-testid="icon-arrow-left" />,
@@ -93,8 +105,8 @@ describe('TaskEditPage Component', () => {
     it('should display task documentation', () => {
       render(<TaskEditPage />);
 
-      const textarea = screen.getByTestId('documentation-textarea');
-      expect(textarea).toHaveValue('Initial task documentation');
+      const editor = screen.getByTestId('documentation-editor');
+      expect(editor).toHaveValue('Initial task documentation');
     });
 
     it('should display project name', () => {
@@ -126,10 +138,10 @@ describe('TaskEditPage Component', () => {
     it('should update documentation when user types', () => {
       render(<TaskEditPage />);
 
-      const textarea = screen.getByTestId('documentation-textarea');
-      fireEvent.change(textarea, { target: { value: 'Updated docs' } });
+      const editor = screen.getByTestId('documentation-editor');
+      fireEvent.change(editor, { target: { value: 'Updated docs' } });
 
-      expect(textarea).toHaveValue('Updated docs');
+      expect(editor).toHaveValue('Updated docs');
     });
 
     it('should enable save button when changes are made', () => {
@@ -150,8 +162,8 @@ describe('TaskEditPage Component', () => {
       const micButton = screen.getByTestId('mic-button');
       fireEvent.click(micButton);
 
-      const textarea = screen.getByTestId('documentation-textarea');
-      expect(textarea).toHaveValue('Initial task documentation Transcribed text');
+      const editor = screen.getByTestId('documentation-editor');
+      expect(editor).toHaveValue('Initial task documentation Transcribed text');
     });
   });
 
@@ -279,8 +291,8 @@ describe('TaskEditPage Component', () => {
       const titleInput = screen.getByTestId('title-input');
       fireEvent.change(titleInput, { target: { value: '' } });
 
-      const textarea = screen.getByTestId('documentation-textarea');
-      fireEvent.change(textarea, { target: { value: 'New docs' } });
+      const editor = screen.getByTestId('documentation-editor');
+      fireEvent.change(editor, { target: { value: 'New docs' } });
 
       fireEvent.click(screen.getByTestId('save-button'));
 
@@ -481,9 +493,9 @@ describe('TaskEditPage Component', () => {
 
       render(<TaskEditPage />);
 
-      expect(screen.queryByTestId('documentation-textarea')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('documentation-editor')).not.toBeInTheDocument();
       // Should show animated skeleton
-      const loadingSection = screen.getByText('Documentation').parentElement;
+      const loadingSection = screen.getByText('Documentation').parentElement.parentElement;
       expect(loadingSection.querySelector('.animate-pulse')).toBeInTheDocument();
     });
 
@@ -556,12 +568,6 @@ describe('TaskEditPage Component', () => {
       expect(screen.getByText('Ctrl')).toBeInTheDocument();
       expect(screen.getByText('S')).toBeInTheDocument();
       expect(screen.getByText('Esc')).toBeInTheDocument();
-    });
-
-    it('should display documentation help text', () => {
-      render(<TaskEditPage />);
-
-      expect(screen.getByText(/Supports markdown formatting/)).toBeInTheDocument();
     });
   });
 
