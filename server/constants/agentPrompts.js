@@ -78,6 +78,22 @@ Track progress with checkboxes. Include ALL steps:
 
 The documentation must be complete enough that a developer who understands the codebase but knows nothing about this specific task can implement it independently. This allows pausing and resuming implementation while maintaining clear progress tracking.
 
+### 4. Add Project Documentation Update Step
+Inspect the main project documentation located at '.claude-ui/project.md'.
+
+**Evaluate:** Does this feature introduce major changes in the application architecture or UX?
+
+Based on your evaluation, add a **"Project Documentation Update"** phase to the Implementation Plan with brief instructions for the coding agent:
+
+**If NOT a major change:**
+- Instruct the coding agent to review the project docs and verify they're up to date
+
+**If YES, a major change:**
+- Instruct the coding agent to update the project docs to reflect the new feature
+- Provide brief guidance on what sections need updating
+- Keep the plan step concise - do NOT list all actual changes (could be hundreds of lines)
+- Remind the agent: no code blocks, use file/method/line references, stay synthetic
+
 Please start by asking your clarifying questions.`;
 }
 
