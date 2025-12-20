@@ -385,6 +385,61 @@ describe('conversationAdapter', () => {
       });
     });
 
+    it('should default to bypassPermissions when permissionMode not specified', async () => {
+      const mockMessages = [
+        { session_id: 'session-123', type: 'message' },
+        { type: 'result', modelUsage: {} }
+      ];
+      const mockIterator = {
+        [Symbol.asyncIterator]: () => ({
+          next: vi.fn()
+            .mockResolvedValueOnce({ value: mockMessages[0], done: false })
+            .mockResolvedValueOnce({ value: mockMessages[1], done: false })
+            .mockResolvedValueOnce({ done: true })
+        })
+      };
+      query.mockReturnValue(mockIterator);
+
+      // Call without permissionMode
+      await startConversation(1, 'Hello', { broadcastFn: vi.fn() });
+
+      // Should default to bypassPermissions
+      expect(query).toHaveBeenCalledWith({
+        prompt: 'Hello',
+        options: expect.objectContaining({
+          permissionMode: 'bypassPermissions'
+        })
+      });
+    });
+
+    it('should log warning when permissionMode is missing', async () => {
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+      const mockMessages = [
+        { session_id: 'session-123', type: 'message' },
+        { type: 'result', modelUsage: {} }
+      ];
+      const mockIterator = {
+        [Symbol.asyncIterator]: () => ({
+          next: vi.fn()
+            .mockResolvedValueOnce({ value: mockMessages[0], done: false })
+            .mockResolvedValueOnce({ value: mockMessages[1], done: false })
+            .mockResolvedValueOnce({ done: true })
+        })
+      };
+      query.mockReturnValue(mockIterator);
+
+      // Call without permissionMode
+      await startConversation(1, 'Hello', { broadcastFn: vi.fn() });
+
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('[ConversationAdapter] Options validation (startConversation):'),
+        expect.stringContaining('Missing permissionMode')
+      );
+
+      warnSpy.mockRestore();
+    });
+
     it('should send push notification on completion', async () => {
       const mockMessages = [
         { session_id: 'session-123', type: 'message' },
@@ -584,6 +639,61 @@ describe('conversationAdapter', () => {
           resume: 'existing-session-123'
         })
       });
+    });
+
+    it('should default to bypassPermissions when permissionMode not specified', async () => {
+      const mockMessages = [
+        { session_id: 'existing-session-123', type: 'message' },
+        { type: 'result', modelUsage: {} }
+      ];
+      const mockIterator = {
+        [Symbol.asyncIterator]: () => ({
+          next: vi.fn()
+            .mockResolvedValueOnce({ value: mockMessages[0], done: false })
+            .mockResolvedValueOnce({ value: mockMessages[1], done: false })
+            .mockResolvedValueOnce({ done: true })
+        })
+      };
+      query.mockReturnValue(mockIterator);
+
+      // Call without permissionMode
+      await sendMessage(1, 'Hello', { broadcastFn: vi.fn() });
+
+      // Should default to bypassPermissions
+      expect(query).toHaveBeenCalledWith({
+        prompt: 'Hello',
+        options: expect.objectContaining({
+          permissionMode: 'bypassPermissions'
+        })
+      });
+    });
+
+    it('should log warning when permissionMode is missing', async () => {
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+      const mockMessages = [
+        { session_id: 'existing-session-123', type: 'message' },
+        { type: 'result', modelUsage: {} }
+      ];
+      const mockIterator = {
+        [Symbol.asyncIterator]: () => ({
+          next: vi.fn()
+            .mockResolvedValueOnce({ value: mockMessages[0], done: false })
+            .mockResolvedValueOnce({ value: mockMessages[1], done: false })
+            .mockResolvedValueOnce({ done: true })
+        })
+      };
+      query.mockReturnValue(mockIterator);
+
+      // Call without permissionMode
+      await sendMessage(1, 'Hello', { broadcastFn: vi.fn() });
+
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('[ConversationAdapter] Options validation (sendMessage):'),
+        expect.stringContaining('Missing permissionMode')
+      );
+
+      warnSpy.mockRestore();
     });
 
     it('should broadcast streaming-started event', async () => {

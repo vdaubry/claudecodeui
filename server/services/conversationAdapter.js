@@ -22,6 +22,41 @@ const activeSessions = new Map();
 // Active streaming sessions: Map of Claude session ID to {taskId, conversationId}
 const activeStreamingSessions = new Map();
 
+// Default permission mode - bypassPermissions allows Claude to write files without prompting
+const DEFAULT_PERMISSION_MODE = 'bypassPermissions';
+
+/**
+ * Validates and normalizes options for conversation functions.
+ * Logs warnings for missing options and applies safe defaults.
+ *
+ * @param {Object} options - Options object to validate
+ * @param {string} source - Source identifier for logging (e.g., 'startConversation', 'sendMessage')
+ * @returns {Object} Normalized options with defaults applied
+ */
+function validateAndNormalizeOptions(options = {}, source) {
+  const warnings = [];
+
+  // Validate required options
+  if (!options.broadcastFn) {
+    warnings.push('Missing broadcastFn - WebSocket broadcasts will not work');
+  }
+
+  // Normalize permission mode with warning
+  if (!options.permissionMode) {
+    warnings.push(`Missing permissionMode, defaulting to '${DEFAULT_PERMISSION_MODE}'`);
+  }
+
+  // Log warnings if any
+  if (warnings.length > 0) {
+    console.warn(`[ConversationAdapter] Options validation (${source}):`, warnings.join('; '));
+  }
+
+  return {
+    ...options,
+    permissionMode: options.permissionMode || DEFAULT_PERMISSION_MODE
+  };
+}
+
 /**
  * Maps options to SDK-compatible format
  */
@@ -334,13 +369,15 @@ async function handleAgentChaining(taskId, agentType, context) {
  * @param {Function} options.broadcastFn - WebSocket broadcast function
  * @param {number} options.userId - User ID for notifications
  * @param {string} options.customSystemPrompt - Custom system prompt
- * @param {string} options.permissionMode - Permission mode (default: 'default')
+ * @param {string} options.permissionMode - Permission mode (default: 'bypassPermissions')
  * @param {number} options.conversationId - Existing conversation ID (optional)
  * @param {Array} options.images - Images to include (optional)
  * @returns {Promise<{conversationId: number, claudeSessionId: string}>}
  */
 export async function startConversation(taskId, message, options = {}) {
-  const { broadcastFn, userId, customSystemPrompt, permissionMode, images } = options;
+  // Validate and normalize options
+  const normalizedOptions = validateAndNormalizeOptions(options, 'startConversation');
+  const { broadcastFn, userId, customSystemPrompt, permissionMode, images } = normalizedOptions;
 
   // Get task and project info
   const taskWithProject = tasksDb.getWithProject(taskId);
@@ -358,10 +395,10 @@ export async function startConversation(taskId, message, options = {}) {
     console.log(`[ConversationAdapter] Created conversation ${conversationId} for task ${taskId}`);
   }
 
-  // Build SDK options
+  // Build SDK options (permissionMode already validated/normalized)
   const sdkOptions = mapOptionsToSDK({
     cwd: projectPath,
-    permissionMode: permissionMode || 'default',
+    permissionMode,
     customSystemPrompt
   });
 
@@ -527,10 +564,13 @@ export async function startConversation(taskId, message, options = {}) {
  * @param {Function} options.broadcastFn - WebSocket broadcast function
  * @param {number} options.userId - User ID for notifications
  * @param {Array} options.images - Images to include (optional)
+ * @param {string} options.permissionMode - Permission mode (default: 'bypassPermissions')
  * @returns {Promise<void>}
  */
 export async function sendMessage(conversationId, message, options = {}) {
-  const { broadcastFn, userId, images } = options;
+  // Validate and normalize options
+  const normalizedOptions = validateAndNormalizeOptions(options, 'sendMessage');
+  const { broadcastFn, userId, images, permissionMode } = normalizedOptions;
 
   // Get conversation
   const conversation = conversationsDb.getById(conversationId);
@@ -553,10 +593,11 @@ export async function sendMessage(conversationId, message, options = {}) {
 
   const projectPath = taskWithProject.repo_folder_path;
 
-  // Build SDK options for resume
+  // Build SDK options for resume (permissionMode already validated/normalized)
   const sdkOptions = mapOptionsToSDK({
     cwd: projectPath,
-    sessionId: claudeSessionId
+    sessionId: claudeSessionId,
+    permissionMode
   });
 
   // Load MCP configuration
