@@ -20,6 +20,7 @@ import BoardView from './Dashboard/BoardView';
 import NewConversationModal from './NewConversationModal';
 import ProjectEditPage from './ProjectEditPage';
 import TaskEditPage from './TaskEditPage';
+import DocEditPage from './DocEditPage';
 import { useTaskContext } from '../contexts/TaskContext';
 import { useToast } from '../contexts/ToastContext';
 import { api } from '../utils/api';
@@ -62,7 +63,8 @@ function MainContent({
     updateTask,
     deleteConversation,
     saveTaskDoc,
-    loadAgentRuns
+    loadAgentRuns,
+    navigateToDocEdit
   } = useTaskContext();
 
   // Toast notifications
@@ -81,6 +83,13 @@ function MainContent({
   const handleStatusChange = useCallback(async (taskId, newStatus) => {
     return await updateTask(taskId, { status: newStatus });
   }, [updateTask]);
+
+  // Handle edit documentation - navigate to full-page editor
+  const handleEditDocumentation = useCallback(() => {
+    if (selectedTask) {
+      navigateToDocEdit(selectedTask);
+    }
+  }, [selectedTask, navigateToDocEdit]);
 
   // Handle workflow_complete toggle
   const handleWorkflowCompleteChange = useCallback(async (taskId, value) => {
@@ -192,6 +201,11 @@ function MainContent({
     return <TaskEditPage />;
   }
 
+  // Documentation edit page
+  if (currentView === 'doc-edit') {
+    return <DocEditPage />;
+  }
+
   // Task detail view
   if (currentView === 'task-detail') {
     return (
@@ -212,6 +226,7 @@ function MainContent({
           onProjectClick={handleProjectClick}
           onHomeClick={handleHomeClick}
           onSaveTaskDoc={handleSaveTaskDoc}
+          onEditDocumentation={handleEditDocumentation}
           onStatusChange={handleStatusChange}
           onWorkflowCompleteChange={handleWorkflowCompleteChange}
           onNewConversation={handleNewConversation}

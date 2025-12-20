@@ -57,6 +57,7 @@ export function TaskContextProvider({ children }) {
   // Edit mode state (for dedicated edit pages)
   const [editingProject, setEditingProject] = useState(null);
   const [editingTask, setEditingTask] = useState(null);
+  const [editingDocTask, setEditingDocTask] = useState(null);
 
   // Documentation state
   const [projectDoc, setProjectDoc] = useState('');
@@ -69,15 +70,16 @@ export function TaskContextProvider({ children }) {
   const [isLoadingAgentRuns, setIsLoadingAgentRuns] = useState(false);
 
   // Current view state - derived from selection and edit mode
-  // Possible values: 'empty', 'board', 'task-detail', 'chat', 'project-edit', 'task-edit'
+  // Possible values: 'empty', 'board', 'task-detail', 'chat', 'project-edit', 'task-edit', 'doc-edit'
   const getCurrentView = useCallback(() => {
     if (activeConversation) return 'chat';
+    if (editingDocTask) return 'doc-edit';
     if (editingTask) return 'task-edit';
     if (editingProject) return 'project-edit';
     if (selectedTask) return 'task-detail';
     if (selectedProject) return 'board';
     return 'empty';
-  }, [activeConversation, selectedTask, selectedProject, editingTask, editingProject]);
+  }, [activeConversation, selectedTask, selectedProject, editingTask, editingProject, editingDocTask]);
 
   // ========== Projects API ==========
 
@@ -494,6 +496,7 @@ export function TaskContextProvider({ children }) {
     setActiveConversation(null);
     setEditingProject(null);
     setEditingTask(null);
+    setEditingDocTask(null);
     setTasks([]);
     setConversations([]);
     setProjectDoc('');
@@ -547,6 +550,22 @@ export function TaskContextProvider({ children }) {
   const exitEditMode = useCallback(() => {
     setEditingProject(null);
     setEditingTask(null);
+  }, []);
+
+  // Navigate to documentation edit page
+  const navigateToDocEdit = useCallback(async (task) => {
+    setEditingDocTask(task);
+    setEditingProject(null);
+    setEditingTask(null);
+    // Load task documentation if not already loaded
+    if (task && (!selectedTask || selectedTask.id !== task.id)) {
+      await loadTaskDoc(task.id);
+    }
+  }, [selectedTask, loadTaskDoc]);
+
+  // Exit documentation edit mode
+  const exitDocEditMode = useCallback(() => {
+    setEditingDocTask(null);
   }, []);
 
   // ========== Effects ==========
@@ -679,9 +698,14 @@ export function TaskContextProvider({ children }) {
     navigateToTaskEdit,
     exitEditMode,
 
+    // Documentation edit navigation
+    navigateToDocEdit,
+    exitDocEditMode,
+
     // Edit mode state
     editingProject,
     editingTask,
+    editingDocTask,
 
     // View state
     currentView: getCurrentView(),

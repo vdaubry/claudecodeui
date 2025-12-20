@@ -41,6 +41,7 @@ function TaskDetailView({
   onProjectClick,
   onHomeClick,
   onSaveTaskDoc,
+  onEditDocumentation,
   onStatusChange,
   onWorkflowCompleteChange,
   onNewConversation,
@@ -222,6 +223,7 @@ function TaskDetailView({
           <MarkdownEditor
             content={taskDoc}
             onSave={onSaveTaskDoc}
+            onEditClick={onEditDocumentation}
             isLoading={isLoadingDoc}
             placeholder="No task documentation yet. Click Edit to describe what needs to be done."
             className="flex-1 min-h-0"
