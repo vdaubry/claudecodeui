@@ -20,6 +20,7 @@ import {
   Loader2,
   CheckCircle2
 } from 'lucide-react';
+import MDEditor from '@uiw/react-md-editor';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { MicButton } from './MicButton';
@@ -70,7 +71,6 @@ function TaskEditPage() {
   const [error, setError] = useState(null);
   const [hasChanges, setHasChanges] = useState(false);
 
-  const textareaRef = useRef(null);
   const titleInputRef = useRef(null);
 
   // Initialize form with task data
@@ -214,26 +214,6 @@ function TaskEditPage() {
             <span className="font-semibold truncate">Edit Task</span>
           </div>
 
-          <div className="flex items-center gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleCancel}
-              disabled={isSaving || isDeleting}
-            >
-              Cancel
-            </Button>
-            <Button
-              variant="default"
-              size="sm"
-              onClick={handleSave}
-              disabled={isSaving || isDeleting || !hasChanges}
-              data-testid="save-button"
-            >
-              <Save className="w-4 h-4 mr-1.5" />
-              {isSaving ? 'Saving...' : 'Save'}
-            </Button>
-          </div>
         </div>
       </div>
 
@@ -335,12 +315,22 @@ function TaskEditPage() {
 
           {/* Documentation */}
           <div className="space-y-2">
-            <label
-              htmlFor="task-documentation"
-              className="text-sm font-medium text-foreground"
-            >
-              Documentation
-            </label>
+            <div className="flex items-center justify-between">
+              <label
+                htmlFor="task-documentation"
+                className="text-sm font-medium text-foreground"
+              >
+                Documentation
+              </label>
+              <MicButton
+                onTranscript={(transcript) => {
+                  setDocumentation((prev) => {
+                    if (!prev.trim()) return transcript;
+                    return prev.trimEnd() + ' ' + transcript;
+                  });
+                }}
+              />
+            </div>
             {isLoadingTaskDoc ? (
               <div className="animate-pulse space-y-2 p-4 border border-border rounded-md">
                 <div className="h-4 bg-muted rounded w-3/4" />
@@ -348,38 +338,41 @@ function TaskEditPage() {
                 <div className="h-4 bg-muted rounded w-5/6" />
               </div>
             ) : (
-              <div className="flex gap-2 items-start">
-                <textarea
-                  id="task-documentation"
-                  ref={textareaRef}
+              <div data-color-mode="auto">
+                <MDEditor
                   value={documentation}
-                  onChange={(e) => setDocumentation(e.target.value)}
-                  placeholder="Add task documentation in markdown format..."
-                  className={cn(
-                    'flex-1 min-h-[300px] p-3',
-                    'bg-background border border-input rounded-md',
-                    'resize-y font-mono text-sm',
-                    'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
-                    'placeholder:text-muted-foreground'
-                  )}
-                  data-testid="documentation-textarea"
-                />
-                <MicButton
-                  onTranscript={(transcript) => {
-                    setDocumentation((prev) => {
-                      if (!prev.trim()) return transcript;
-                      return prev.trimEnd() + ' ' + transcript;
-                    });
-                    requestAnimationFrame(() => {
-                      textareaRef.current?.focus();
-                    });
+                  onChange={(val) => setDocumentation(val || '')}
+                  preview="edit"
+                  height={300}
+                  visibleDragbar={true}
+                  hideToolbar={false}
+                  data-testid="documentation-editor"
+                  textareaProps={{
+                    placeholder: 'Add task documentation in markdown format...'
                   }}
                 />
               </div>
             )}
-            <p className="text-xs text-muted-foreground">
-              Supports markdown formatting. Use headers, lists, and code blocks.
-            </p>
+          </div>
+
+          {/* Action buttons */}
+          <div className="flex items-center gap-3 pt-4">
+            <Button
+              variant="default"
+              onClick={handleSave}
+              disabled={isSaving || isDeleting || !hasChanges}
+              data-testid="save-button"
+            >
+              <Save className="w-4 h-4 mr-1.5" />
+              {isSaving ? 'Saving...' : 'Save Changes'}
+            </Button>
+            <Button
+              variant="outline"
+              onClick={handleCancel}
+              disabled={isSaving || isDeleting}
+            >
+              Cancel
+            </Button>
           </div>
 
           {/* Danger zone */}

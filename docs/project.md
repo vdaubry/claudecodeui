@@ -38,11 +38,15 @@ The frontend uses a **Trello-style Board UX** with a 4-screen navigation flow:
 +-------------------------------------------------------------+
 |                        Backend                               |
 |  Node.js + Express - Port 3002                              |
-|  +--------------+  +----------------+  +------------------+ |
-|  | index.js     |  | claude-sdk.js  |  | documentation.js | |
-|  | WebSocket    |  | SDK wrapper    |  | .claude-ui/ I/O  | |
-|  | routing      |  | context inject |  |                  | |
-|  +--------------+  +----------------+  +------------------+ |
+|  +--------------+  +------------------------+               |
+|  | index.js     |  | conversationAdapter.js |               |
+|  | WebSocket    |  | Unified conversation   |               |
+|  | routing      |  | lifecycle manager      |               |
+|  +--------------+  +------------------------+               |
+|  +------------------+  +------------------+                  |
+|  | documentation.js |  | agentRunner.js   |                  |
+|  | .claude-ui/ I/O  |  | Agent workflows  |                  |
+|  +------------------+  +------------------+                  |
 +-------------------------------------------------------------+
                           |
                           v
@@ -109,50 +113,107 @@ The frontend uses a **Trello-style Board UX** with a 4-screen navigation flow:
 | File | Purpose |
 |------|---------|
 | `server/index.js` | Express server, WebSocket handlers, route registration |
-| `server/claude-sdk.js` | Claude Agent SDK integration, custom system prompt support |
+| `server/services/conversationAdapter.js` | **Unified conversation lifecycle manager** - single entry point for all Claude SDK interactions |
+| `server/services/agentRunner.js` | Agent workflow orchestration (implementation, review, planification) |
 | `server/services/documentation.js` | Read/write `.claude-ui/` files, build context prompts |
 | `server/services/sessions.js` | JSONL message reading for conversation history |
-| `server/database/db.js` | Database operations: `projectsDb`, `tasksDb`, `conversationsDb` |
+| `server/services/notifications.js` | Push notifications for conversation completion |
+| `server/database/db.js` | Database operations: `projectsDb`, `tasksDb`, `conversationsDb`, `agentRunsDb` |
 | `server/routes/projects.js` | Project CRUD + documentation endpoints |
 | `server/routes/tasks.js` | Task CRUD + documentation endpoints |
 | `server/routes/conversations.js` | Conversation CRUD + messages endpoints |
+| `server/routes/agents.js` | Agent run endpoints (start, stop, status) |
 
 ## Database Schema
 
-Three tables manage the task-driven workflow:
+Four tables manage the task-driven workflow:
 
 **`projects`** - User-created projects pointing to repo folders
 - `id`, `user_id`, `name`, `repo_folder_path`, `created_at`, `updated_at`
 
 **`tasks`** - Work items belonging to projects
-- `id`, `project_id` (FK), `title`, `created_at`, `updated_at`
+- `id`, `project_id` (FK), `title`, `status`, `workflow_complete`, `created_at`, `updated_at`
 - Documentation at `.claude-ui/tasks/task-{id}.md` (convention, not stored)
 
 **`conversations`** - Links Claude sessions to tasks
 - `id`, `task_id` (FK), `claude_conversation_id`, `created_at`
 
+**`agent_runs`** - Tracks agent workflow executions
+- `id`, `task_id` (FK), `conversation_id` (FK), `agent_type` (implementation/review/planification), `status` (pending/running/completed/failed), `created_at`, `updated_at`
+
 ## Conversation Management
+
+### Unified Conversation Adapter
+
+All conversation lifecycle is managed through a single entry point: `conversationAdapter.js`. This unified adapter handles:
+- Starting new conversations and resuming existing ones
+- WebSocket event broadcasting (`streaming-started`, `streaming-ended`)
+- Agent run status updates (when conversation is linked to an agent run)
+- Push notifications on completion
+- Session tracking and cleanup
+
+```
+Frontend (WebSocket or REST)
+         │
+         ├── Build context prompt (caller responsibility)
+         │
+         v
+┌─────────────────────────────────────────┐
+│       Conversation Adapter              │
+│       (Single unified entry point)      │
+│                                         │
+│  - startConversation(taskId, msg, opts) │
+│  - sendMessage(conversationId, msg)     │
+│  - abortSession(sessionId)              │
+│  - Forwards to Claude Agent SDK         │
+│  - Manages entire lifecycle             │
+└─────────────────────────────────────────┘
+         │
+         v
+┌─────────────────────────────────────────┐
+│     Lifecycle Event Handlers            │
+│     (Centralized side effects)          │
+│                                         │
+│  - handleStreamingStarted()             │
+│  - handleStreamingComplete()            │
+│    → Update agent run status            │
+│    → Broadcast WebSocket events         │
+│    → Send push notifications            │
+│    → Trigger agent chaining             │
+└─────────────────────────────────────────┘
+```
 
 ### Data Flow: Starting a New Conversation
 
 1. **User clicks "New Conversation"** on TaskDetailView
 2. **Frontend sends WebSocket** → `claude-command` with `taskId`, `isNewConversation: true`
-3. **Backend looks up** → Task → Project → `repo_folder_path`
-4. **Backend creates** → Conversation record in DB
-5. **Backend reads** → `{repo}/.claude-ui/project.md` + `task-{id}.md`
-6. **Backend builds** → Combined system prompt with project/task context
-7. **Calls Claude SDK** → With `customSystemPrompt` option
+3. **Backend builds context** → Reads `{repo}/.claude-ui/project.md` + `task-{id}.md`
+4. **Calls ConversationAdapter** → `startConversation(taskId, message, { customSystemPrompt, broadcastFn, userId })`
+5. **Adapter creates** → Conversation record in DB
+6. **Adapter calls Claude SDK** → With combined system prompt
+7. **Lifecycle handler** → Broadcasts `streaming-started` via WebSocket
 8. **SDK streams responses** → Each sent via WebSocket as `claude-response`
-9. **On first message** → Backend captures `session_id`, updates conversation record
-10. **Stream ends** → Backend sends `claude-complete`
+9. **On first message** → Adapter captures `session_id`, updates conversation record
+10. **Stream ends** → Lifecycle handler broadcasts `streaming-ended`, sends push notification
 
 ### Data Flow: Resuming a Conversation
 
 1. **User clicks "Resume"** on existing conversation
 2. **Frontend sends WebSocket** → `claude-command` with `conversationId`, `isNewConversation: false`
-3. **Backend looks up** → Conversation → `claude_conversation_id`
-4. **Calls Claude SDK** → With `resume: claude_conversation_id`
-5. **Streaming proceeds** normally (no context injection needed)
+3. **Calls ConversationAdapter** → `sendMessage(conversationId, message, { broadcastFn, userId })`
+4. **Adapter looks up** → Conversation → `claude_conversation_id`
+5. **Calls Claude SDK** → With `resume: claude_conversation_id`
+6. **Lifecycle handler** → Broadcasts `streaming-started`, then `streaming-ended` on completion
+
+### Data Flow: Agent-Initiated Conversation
+
+1. **User starts agent run** (implementation/review/planification)
+2. **AgentRunner calls** → `conversationAdapter.startConversation()` with agent context
+3. **Adapter creates** → Conversation + links to agent run
+4. **On stream complete** → Lifecycle handler:
+   - Updates agent run status to `completed` or `failed`
+   - For implementation/review: triggers agent chaining (next step in loop)
+   - Sends push notification with agent type context
 
 ### File Structure Convention
 
@@ -251,6 +312,10 @@ The `TaskContext` manages all navigation and data state:
 | `claude-complete` | Stream finished |
 | `claude-error` | Error occurred |
 | `session-created` | New conversation ID generated |
+| `conversation-created` | New conversation record created |
+| `streaming-started` | Claude has started streaming |
+| `streaming-ended` | Claude streaming completed |
+| `token-budget` | Token usage update (used/total) |
 
 ## REST API Endpoints
 
@@ -265,6 +330,9 @@ The `TaskContext` manages all navigation and data state:
 | `/api/tasks/:taskId/conversations` | GET, POST | List/create conversations |
 | `/api/conversations/:id` | GET, DELETE | Get/delete conversation |
 | `/api/conversations/:id/messages` | GET | Get conversation messages |
+| `/api/tasks/:taskId/agent-runs` | GET, POST | List/start agent runs |
+| `/api/tasks/:taskId/agent-runs/stop` | POST | Stop running agent |
+| `/api/tasks/:taskId/workflow/stop` | POST | Stop workflow and mark complete |
 
 ## UI Navigation Flow
 
@@ -346,14 +414,27 @@ Dashboard ─────► Board View ─────► Task Detail ───
 ### Context Injection
 
 - `server/services/documentation.js:buildContextPrompt()` - Combines project + task docs
-- `server/claude-sdk.js:mapCliOptionsToSDK()` - Handles `customSystemPrompt` option
+- `server/services/conversationAdapter.js:mapOptionsToSDK()` - Maps options to SDK format
+
+### Conversation Lifecycle (ConversationAdapter)
+
+- `conversationAdapter.startConversation()` - Start new conversation for a task
+- `conversationAdapter.sendMessage()` - Send message to existing conversation (resume)
+- `conversationAdapter.abortSession()` - Abort active session
+- `conversationAdapter.isSessionActive()` - Check if session is currently streaming
+- `conversationAdapter.getAllActiveStreamingSessions()` - Get all active streams
 
 ### Message Handling
 
 - `ChatInterface.jsx:handleSubmit()` - Sends via WebSocket with taskId/conversationId
-- `server/index.js` - WebSocket handler for `claude-command`
-- `server/claude-sdk.js:queryClaudeSDK()` - SDK integration with context injection
-- `server/services/sessions.js:getSessionMessages()` - Reads JSONL files
+- `server/index.js` - WebSocket handler for `claude-command`, delegates to ConversationAdapter
+- `server/services/sessions.js:getSessionMessages()` - Reads JSONL files for history
+
+### Agent Workflow
+
+- `agentRunner.js:startAgentRun()` - Start implementation/review/planification agent
+- `agentRunner.js:stopAgentRun()` - Stop running agent for a task
+- `conversationAdapter.js:handleAgentChaining()` - Automatic implementation ↔ review loop
 
 ### Dashboard & Board Components
 
