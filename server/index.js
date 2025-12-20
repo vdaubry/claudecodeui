@@ -257,10 +257,9 @@ function handleChatConnection(ws, request) {
                 const userId = request?.user?.id;
 
                 // Create broadcast function that sends to all WebSocket clients
+                // Note: broadcastToAll already includes ws (the originating client) in wss.clients
                 const broadcastFn = (convId, msg) => {
                     broadcastToAll(wss, msg);
-                    // Also send to the originating client
-                    ws.send(JSON.stringify(msg));
                 };
 
                 try {

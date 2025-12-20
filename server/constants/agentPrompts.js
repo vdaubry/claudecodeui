@@ -116,7 +116,7 @@ Start implementing now.`;
  * @param {number} taskId - Task ID for workflow completion command
  */
 export function generateReviewMessage(taskDocPath, taskId) {
-  return `@agent-Review You are a code reviewer for a task implementation. Your goal is to verify the implementation against the task documentation and update the docs with your findings.
+  return `@agent-Review You are a code reviewer for a task implementation. Your goal is to verify the implementation of completed items against the task documentation and update the docs with your findings.
 
 ## Your Process
 
@@ -150,7 +150,9 @@ Follow the manual testing scenarios from the Testing Strategy section:
 > **⚠️ CRITICAL DECISION POINT**
 > This step determines whether the feature is ready for user review or needs more work.
 
-Based on your findings from steps 2-4, determine if the feature is **READY** or **NEEDS_WORK**:
+Check if the feature is still in progress (some items marked as not done, [ ], etc): 
+- If so, you can stop here : complete your report with your findings regarding completed tasks and mention that some tasks are not completed yet. Instruct the implementation agent to implement them (do not list them all).
+- If all items are marked as done, then based on your findings from steps 2-4, determine if the feature is **READY** or **NEEDS_WORK**:
 
 **READY** - All of the following must be true:
 - All unit tests pass
@@ -206,6 +208,7 @@ This stops the automated agent loop and awaits final user review.
 ## Important Constraints
 - Do NOT fix any code or specs - only document findings
 - Do NOT implement anything - only review and test
+- You are only allowed to restart processes such as web servers when necessary, especially for playwright tests.
 - **ALWAYS REPLACE (never append to) the Review Findings section**
 - Mark items as unchecked if they need rework
 

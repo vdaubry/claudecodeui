@@ -388,7 +388,9 @@ function ChatInterface({
     subscribedSessionRef.current = claudeSessionId;
 
     // Clear streaming state only when actually switching sessions, not on reconnect
-    if (isSessionChange) {
+    // But preserve streaming messages if this is a new conversation with an initial message
+    // (the __initialMessage effect has already set the user's message)
+    if (isSessionChange && !activeConversation?.__initialMessage) {
       setStreamingMessages([]);
       setIsStreaming(false);
     }
