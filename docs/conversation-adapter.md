@@ -57,11 +57,26 @@ Frontend (REST or WebSocket)
 // - onStreamingComplete(conversationId, taskId, sessionId, isError)
 
 // Options include:
-// - broadcastFn - WebSocket broadcast function
-// - userId - for notifications
+// - broadcastFn - WebSocket broadcast function (required for WebSocket broadcasts)
+// - userId - for push notifications
 // - customSystemPrompt - for context injection
-// - agentRunId - if this is an agent-initiated conversation
+// - permissionMode - 'default' | 'acceptEdits' | 'bypassPermissions' | 'plan' (default: 'bypassPermissions')
+// - images - array of image data for multimodal messages
+// - conversationId - existing conversation ID (optional, for startConversation)
 ```
+
+### Options Reference
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `broadcastFn` | Function | - | WebSocket broadcast function `(convId, msg) => void`. Required for real-time updates. |
+| `userId` | number | - | User ID for push notifications on completion. |
+| `customSystemPrompt` | string | - | Additional system prompt to append to claude_code preset. |
+| `permissionMode` | string | `'bypassPermissions'` | Claude SDK permission mode. Options: `'default'`, `'acceptEdits'`, `'bypassPermissions'`, `'plan'`. |
+| `images` | Array | - | Images to include in the message (for multimodal). |
+| `conversationId` | number | - | Existing conversation ID (for `startConversation` only). |
+
+**Important**: Options are validated at entry points. Missing `permissionMode` will log a warning and default to `'bypassPermissions'`.
 
 ### Step 2: Implement lifecycle event handling
 

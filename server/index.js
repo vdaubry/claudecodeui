@@ -253,7 +253,7 @@ function handleChatConnection(ws, request) {
                 console.log('[DEBUG] User message:', data.command || '[Continue/Resume]');
 
                 // Check for task-based conversation flow
-                const { taskId, conversationId, isNewConversation, images } = data.options || {};
+                const { taskId, conversationId, isNewConversation, images, permissionMode } = data.options || {};
                 const userId = request?.user?.id;
 
                 // Create broadcast function that sends to all WebSocket clients
@@ -286,7 +286,8 @@ function handleChatConnection(ws, request) {
                             userId,
                             customSystemPrompt: contextPrompt,
                             conversationId, // Use existing if provided
-                            images
+                            images,
+                            permissionMode: permissionMode || 'bypassPermissions'
                         });
 
                     } else if (conversationId && !isNewConversation) {
@@ -297,7 +298,8 @@ function handleChatConnection(ws, request) {
                         await sendMessage(conversationId, data.command, {
                             broadcastFn,
                             userId,
-                            images
+                            images,
+                            permissionMode: permissionMode || 'bypassPermissions'
                         });
 
                     } else {
