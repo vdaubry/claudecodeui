@@ -494,7 +494,6 @@ export function TaskContextProvider({ children }) {
     setActiveConversation(null);
     setEditingProject(null);
     setEditingTask(null);
-    setEditingDocTask(null);
     setTasks([]);
     setConversations([]);
     setProjectDoc('');
