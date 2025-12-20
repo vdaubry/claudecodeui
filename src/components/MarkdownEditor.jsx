@@ -11,9 +11,13 @@ import { Button } from './ui/button';
 import { MicButton } from './MicButton';
 import { cn } from '../lib/utils';
 
+// Character limit for collapsed preview on mobile
+const PREVIEW_LIMIT = 200;
+
 function MarkdownEditor({
   content,
   onSave,
+  onEditClick,
   isLoading = false,
   placeholder = 'No documentation yet. Click Edit to add content.',
   className,
@@ -23,7 +27,11 @@ function MarkdownEditor({
   const [editContent, setEditContent] = useState(content);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState(null);
+  const [isExpanded, setIsExpanded] = useState(false);
   const textareaRef = useRef(null);
+
+  // Check if content is long enough to need collapsing
+  const isLongContent = content && content.length > PREVIEW_LIMIT;
 
   // Sync edit content when external content changes
   useEffect(() => {
@@ -31,10 +39,16 @@ function MarkdownEditor({
   }, [content]);
 
   const handleEdit = useCallback(() => {
+    // If onEditClick is provided, use external navigation (full-page editor)
+    if (onEditClick) {
+      onEditClick();
+      return;
+    }
+    // Otherwise use inline editing
     setEditContent(content);
     setIsEditing(true);
     setError(null);
-  }, [content]);
+  }, [content, onEditClick]);
 
   const handleCancel = useCallback(() => {
     setEditContent(content);
@@ -330,8 +344,30 @@ function MarkdownEditor({
             />
           </div>
         ) : content ? (
-          <div className="prose prose-sm dark:prose-invert max-w-none">
-            {renderMarkdown(content)}
+          <div className="prose prose-sm dark:prose-invert max-w-none break-words [overflow-wrap:anywhere]">
+            {isLongContent && !isExpanded ? (
+              <>
+                {renderMarkdown(content.slice(0, PREVIEW_LIMIT) + '...')}
+                <button
+                  onClick={() => setIsExpanded(true)}
+                  className="text-primary text-sm hover:underline mt-2 block font-medium"
+                >
+                  Show more
+                </button>
+              </>
+            ) : (
+              <>
+                {renderMarkdown(content)}
+                {isLongContent && (
+                  <button
+                    onClick={() => setIsExpanded(false)}
+                    className="text-primary text-sm hover:underline mt-2 block font-medium"
+                  >
+                    Show less
+                  </button>
+                )}
+              </>
+            )}
           </div>
         ) : (
           <div className="text-center text-muted-foreground py-8">
