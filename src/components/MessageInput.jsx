@@ -539,6 +539,7 @@ const MessageInput = memo(function MessageInput({
               type="submit"
               disabled={!input.trim() || !isConnected || isSending || isStreaming}
               className={`bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 ${isCollapsed ? 'px-3 py-1.5 text-sm' : 'px-4 py-2'}`}
+              data-testid="message-submit-button"
             >
               {isSending || isStreaming ? submitLabelLoading : submitLabel}
             </button>

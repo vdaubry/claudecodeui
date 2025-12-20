@@ -176,6 +176,10 @@ async function handleAgentComplete(taskId, agentRunId, agentType, isError, optio
   // Fetch fresh task data to check workflow_complete flag
   // (agent may have set this via CLI script during execution)
   const task = tasksDb.getById(taskId);
+  if (!task) {
+    console.log(`[AgentRunner] Task ${taskId} no longer exists, stopping loop`);
+    return;
+  }
   if (task.workflow_complete) {
     console.log(`[AgentRunner] Task ${taskId} workflow complete, stopping loop`);
     // TODO: Could send a special "workflow complete" push notification here
