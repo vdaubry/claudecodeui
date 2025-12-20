@@ -203,8 +203,10 @@ test.describe('Hello World Workflow', () => {
     await expect(modalInput).toBeVisible({ timeout: UI_TIMEOUT });
     await modalInput.fill('What is 1+1?');
 
-    // Submit the message (press Enter or click Start Conversation)
-    await modalInput.press('Enter');
+    // Wait for submit button to be enabled (WebSocket connected) and click it
+    const submitButton = page.locator('[data-testid="message-submit-button"]');
+    await expect(submitButton).toBeEnabled({ timeout: BACKEND_TIMEOUT });
+    await submitButton.click();
     console.log('Message submitted.');
 
     // Wait for modal to close and chat to appear with streaming
@@ -278,8 +280,10 @@ test.describe('Hello World Workflow', () => {
     await expect(modalInput).toBeVisible({ timeout: UI_TIMEOUT });
     await modalInput.fill('Run the command: sleep 15 && echo "done"');
 
-    // Submit the message
-    await modalInput.press('Enter');
+    // Wait for submit button to be enabled (WebSocket connected) and click it
+    const submitButton = page.locator('[data-testid="message-submit-button"]');
+    await expect(submitButton).toBeEnabled({ timeout: BACKEND_TIMEOUT });
+    await submitButton.click();
     console.log('Message submitted via modal.');
 
     // Wait for modal to close and chat to appear
