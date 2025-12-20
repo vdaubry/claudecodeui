@@ -236,6 +236,98 @@ describe('conversationAdapter', () => {
       );
     });
 
+    it('should broadcast streaming-ended event when streaming completes', async () => {
+      const mockMessages = [
+        { session_id: 'session-ended-test', type: 'message' },
+        { type: 'result', modelUsage: {} }
+      ];
+      const mockIterator = {
+        [Symbol.asyncIterator]: () => ({
+          next: vi.fn()
+            .mockResolvedValueOnce({ value: mockMessages[0], done: false })
+            .mockResolvedValueOnce({ value: mockMessages[1], done: false })
+            .mockResolvedValueOnce({ done: true })
+        })
+      };
+      query.mockReturnValue(mockIterator);
+
+      const broadcastFn = vi.fn();
+      await startConversation(1, 'Hello', { broadcastFn });
+
+      // Wait for streaming to complete
+      await new Promise(resolve => setTimeout(resolve, 50));
+
+      expect(broadcastFn).toHaveBeenCalledWith(
+        1,
+        expect.objectContaining({
+          type: 'streaming-ended',
+          taskId: 1,
+          conversationId: 1
+        })
+      );
+    });
+
+    it('should broadcast conversation-created event', async () => {
+      const mockMessages = [
+        { session_id: 'conv-created-test', type: 'message' },
+        { type: 'result', modelUsage: {} }
+      ];
+      const mockIterator = {
+        [Symbol.asyncIterator]: () => ({
+          next: vi.fn()
+            .mockResolvedValueOnce({ value: mockMessages[0], done: false })
+            .mockResolvedValueOnce({ value: mockMessages[1], done: false })
+            .mockResolvedValueOnce({ done: true })
+        })
+      };
+      query.mockReturnValue(mockIterator);
+
+      const broadcastFn = vi.fn();
+      await startConversation(1, 'Hello', { broadcastFn });
+
+      // Wait for streaming to complete
+      await new Promise(resolve => setTimeout(resolve, 50));
+
+      expect(broadcastFn).toHaveBeenCalledWith(
+        1,
+        expect.objectContaining({
+          type: 'conversation-created',
+          conversationId: 1,
+          claudeSessionId: 'conv-created-test'
+        })
+      );
+    });
+
+    it('should broadcast session-created event', async () => {
+      const mockMessages = [
+        { session_id: 'session-created-test', type: 'message' },
+        { type: 'result', modelUsage: {} }
+      ];
+      const mockIterator = {
+        [Symbol.asyncIterator]: () => ({
+          next: vi.fn()
+            .mockResolvedValueOnce({ value: mockMessages[0], done: false })
+            .mockResolvedValueOnce({ value: mockMessages[1], done: false })
+            .mockResolvedValueOnce({ done: true })
+        })
+      };
+      query.mockReturnValue(mockIterator);
+
+      const broadcastFn = vi.fn();
+      await startConversation(1, 'Hello', { broadcastFn });
+
+      // Wait for streaming to complete
+      await new Promise(resolve => setTimeout(resolve, 50));
+
+      expect(broadcastFn).toHaveBeenCalledWith(
+        1,
+        expect.objectContaining({
+          type: 'session-created',
+          sessionId: 'session-created-test'
+        })
+      );
+    });
+
     it('should call query with correct SDK options', async () => {
       const mockMessages = [
         { session_id: 'session-123', type: 'message' },
@@ -640,6 +732,13 @@ describe('conversationAdapter', () => {
   });
 
   describe('session tracking', () => {
+    beforeEach(() => {
+      tasksDb.getWithProject.mockReturnValue(mockTaskWithProject);
+      conversationsDb.create.mockReturnValue(mockConversation);
+      agentRunsDb.getByTask.mockReturnValue([]);
+      tasksDb.getById.mockReturnValue(mockTaskWithProject);
+    });
+
     it('isSessionActive should return falsy for non-existent session', () => {
       expect(isSessionActive('non-existent')).toBeFalsy();
     });
@@ -654,6 +753,120 @@ describe('conversationAdapter', () => {
 
     it('getAllActiveStreamingSessions should return empty array when no sessions', () => {
       expect(getAllActiveStreamingSessions()).toEqual([]);
+    });
+
+    it('getActiveStreamingByConversation should return session when streaming is active', async () => {
+      // Start a conversation to create an active streaming session
+      let messageIndex = 0;
+      const mockMessages = [
+        { session_id: 'streaming-session-123', type: 'message' }
+      ];
+      const mockIterator = {
+        [Symbol.asyncIterator]: () => ({
+          next: () => {
+            if (messageIndex < mockMessages.length) {
+              return Promise.resolve({ value: mockMessages[messageIndex++], done: false });
+            }
+            // Keep the streaming open
+            return new Promise(() => {});
+          }
+        })
+      };
+      query.mockReturnValue(mockIterator);
+
+      // Start conversation (don't await)
+      startConversation(1, 'Hello');
+
+      // Wait for session to be tracked
+      await new Promise(resolve => setTimeout(resolve, 100));
+
+      // Now check getActiveStreamingByConversation
+      const result = getActiveStreamingByConversation(1);
+      expect(result).not.toBeNull();
+      expect(result.sessionId).toBe('streaming-session-123');
+      expect(result.taskId).toBe(1);
+      expect(result.conversationId).toBe(1);
+    });
+
+    it('getAllActiveStreamingSessions should return all active sessions', async () => {
+      // Start a conversation to create an active streaming session
+      let messageIndex = 0;
+      const mockMessages = [
+        { session_id: 'all-sessions-test-123', type: 'message' }
+      ];
+      const mockIterator = {
+        [Symbol.asyncIterator]: () => ({
+          next: () => {
+            if (messageIndex < mockMessages.length) {
+              return Promise.resolve({ value: mockMessages[messageIndex++], done: false });
+            }
+            // Keep the streaming open
+            return new Promise(() => {});
+          }
+        })
+      };
+      query.mockReturnValue(mockIterator);
+
+      // Start conversation (don't await)
+      startConversation(1, 'Hello');
+
+      // Wait for session to be tracked
+      await new Promise(resolve => setTimeout(resolve, 100));
+
+      // Now check getAllActiveStreamingSessions
+      const sessions = getAllActiveStreamingSessions();
+      expect(sessions.length).toBeGreaterThan(0);
+      const session = sessions.find(s => s.sessionId === 'all-sessions-test-123');
+      expect(session).toBeDefined();
+      expect(session.taskId).toBe(1);
+      expect(session.conversationId).toBe(1);
+    });
+
+    it('isSessionActive should return true for active session', async () => {
+      let messageIndex = 0;
+      const mockMessages = [
+        { session_id: 'active-check-session', type: 'message' }
+      ];
+      const mockIterator = {
+        [Symbol.asyncIterator]: () => ({
+          next: () => {
+            if (messageIndex < mockMessages.length) {
+              return Promise.resolve({ value: mockMessages[messageIndex++], done: false });
+            }
+            return new Promise(() => {});
+          }
+        })
+      };
+      query.mockReturnValue(mockIterator);
+
+      startConversation(1, 'Hello');
+      await new Promise(resolve => setTimeout(resolve, 100));
+
+      expect(isSessionActive('active-check-session')).toBe(true);
+    });
+
+    it('getActiveSessions should return session IDs', async () => {
+      let messageIndex = 0;
+      const mockMessages = [
+        { session_id: 'get-active-session-id', type: 'message' }
+      ];
+      const mockIterator = {
+        [Symbol.asyncIterator]: () => ({
+          next: () => {
+            if (messageIndex < mockMessages.length) {
+              return Promise.resolve({ value: mockMessages[messageIndex++], done: false });
+            }
+            return new Promise(() => {});
+          }
+        })
+      };
+      query.mockReturnValue(mockIterator);
+
+      startConversation(1, 'Hello');
+      await new Promise(resolve => setTimeout(resolve, 100));
+
+      const sessions = getActiveSessions();
+      expect(sessions).toContain('get-active-session-id');
     });
   });
 
