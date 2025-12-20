@@ -344,7 +344,7 @@ function MarkdownEditor({
             />
           </div>
         ) : content ? (
-          <div className="prose prose-sm dark:prose-invert max-w-none">
+          <div className="prose prose-sm dark:prose-invert max-w-none break-words [overflow-wrap:anywhere]">
             {isLongContent && !isExpanded ? (
               <>
                 {renderMarkdown(content.slice(0, PREVIEW_LIMIT) + '...')}

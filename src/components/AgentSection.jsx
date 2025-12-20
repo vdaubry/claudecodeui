@@ -82,7 +82,7 @@ function AgentSection({
   }
 
   return (
-    <div className={cn('p-4 border-t border-border', className)}>
+    <div className={cn('p-4 border-t border-border min-w-0', className)}>
       <h3 className="text-sm font-medium text-foreground mb-3">Agents</h3>
       <div className="space-y-2">
         {AGENT_TYPES.map((agent) => {
@@ -106,7 +106,7 @@ function AgentSection({
             <div
               key={agent.type}
               className={cn(
-                'flex items-center justify-between p-3 rounded-lg border transition-colors',
+                'flex items-center justify-between p-3 rounded-lg border transition-colors min-w-0',
                 isCompleted
                   ? 'border-green-200 bg-green-50 dark:border-green-800 dark:bg-green-900/20'
                   : isFailed
@@ -116,7 +116,7 @@ function AgentSection({
                   : 'border-border hover:border-primary/50'
               )}
             >
-              <div className="flex items-center gap-3">
+              <div className="flex items-center gap-3 min-w-0 flex-1">
                 <div className={cn(
                   'w-8 h-8 rounded-lg flex items-center justify-center',
                   isCompleted
@@ -144,7 +144,7 @@ function AgentSection({
                 </div>
               </div>
 
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-shrink-0">
                 {/* Conversation info button - only shown when there's a conversation */}
                 {hasConversation && (
                   <Button
