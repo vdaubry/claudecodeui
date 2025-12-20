@@ -13,25 +13,27 @@
  */
 
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, Plus, Columns } from 'lucide-react';
 import { Button } from '../ui/button';
 import { cn } from '../../lib/utils';
 import { useTaskContext } from '../../contexts/TaskContext';
+import { useAuthToken } from '../../hooks/useAuthToken';
 import { api } from '../../utils/api';
 import BoardColumn from './BoardColumn';
 import TaskForm from '../TaskForm';
 
-function BoardView({ className }) {
+function BoardView({ className, project }) {
+  const navigate = useNavigate();
+  const { getTokenParam } = useAuthToken();
   const {
-    selectedProject,
     tasks,
     isLoadingTasks,
     createTask,
-    selectTask,
-    clearSelection,
-    navigateToTaskEdit,
     isTaskLive
   } = useTaskContext();
+
+  // Use project from props (passed by BoardPage)
 
   // Task form modal state
   const [showTaskForm, setShowTaskForm] = useState(false);
@@ -111,21 +113,21 @@ function BoardView({ className }) {
 
   // Handle task click - navigate to task detail view
   const handleTaskClick = useCallback((task) => {
-    selectTask(task);
-  }, [selectTask]);
+    navigate(`/projects/${project.id}/tasks/${task.id}${getTokenParam()}`);
+  }, [navigate, project, getTokenParam]);
 
   // Handle task edit click
   const handleTaskEdit = useCallback((task) => {
-    navigateToTaskEdit(task);
-  }, [navigateToTaskEdit]);
+    navigate(`/projects/${project.id}/tasks/${task.id}/edit${getTokenParam()}`);
+  }, [navigate, project, getTokenParam]);
 
   // Handle task creation
   const handleCreateTask = useCallback(async ({ title, documentation }) => {
-    if (!selectedProject) return { success: false, error: 'No project selected' };
+    if (!project) return { success: false, error: 'No project selected' };
 
     setIsCreatingTask(true);
     try {
-      const result = await createTask(selectedProject.id, title, documentation);
+      const result = await createTask(project.id, title, documentation);
       if (result.success) {
         setShowTaskForm(false);
       }
@@ -133,14 +135,14 @@ function BoardView({ className }) {
     } finally {
       setIsCreatingTask(false);
     }
-  }, [selectedProject, createTask]);
+  }, [project, createTask]);
 
   // Handle back navigation
   const handleBack = useCallback(() => {
-    clearSelection();
-  }, [clearSelection]);
+    navigate(`/${getTokenParam()}`);
+  }, [navigate, getTokenParam]);
 
-  if (!selectedProject) {
+  if (!project) {
     return null;
   }
 
@@ -162,7 +164,7 @@ function BoardView({ className }) {
             <div className="flex items-center gap-2 min-w-0">
               <Columns className="w-5 h-5 text-primary flex-shrink-0" />
               <h1 className="font-semibold text-lg truncate">
-                {selectedProject.name}
+                {project.name}
               </h1>
             </div>
           </div>
@@ -181,7 +183,7 @@ function BoardView({ className }) {
 
         {/* Project path */}
         <p className="text-xs text-muted-foreground ml-11 mt-1 truncate">
-          {selectedProject.repo_folder_path}
+          {project.repo_folder_path}
         </p>
       </div>
 
@@ -244,7 +246,7 @@ function BoardView({ className }) {
         isOpen={showTaskForm}
         onClose={() => setShowTaskForm(false)}
         onSubmit={handleCreateTask}
-        projectName={selectedProject?.name}
+        projectName={project?.name}
         isSubmitting={isCreatingTask}
       />
     </div>

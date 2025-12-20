@@ -8,10 +8,12 @@
  */
 
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { FolderPlus, Settings, MessageSquare } from 'lucide-react';
 import { Button } from '../ui/button';
 import { ScrollArea } from '../ui/scroll-area';
 import { useTaskContext } from '../../contexts/TaskContext';
+import { useAuthToken } from '../../hooks/useAuthToken';
 import { api } from '../../utils/api';
 import ViewToggle from './ViewToggle';
 import ProjectCardGrid from './ProjectCardGrid';
@@ -26,22 +28,19 @@ function Dashboard({
   onTaskClick,
   isMobile
 }) {
+  const navigate = useNavigate();
+  const { getTokenParam } = useAuthToken();
   const {
     projects,
     tasks,
     isLoadingProjects,
     isLoadingTasks,
-    selectedProject,
-    selectProject,
-    selectTask,
-    selectConversation,
     deleteProject,
     deleteTask,
     updateTask,
     createTask,
     loadProjects,
-    navigateToBoard,
-    navigateToProjectEdit,
+    loadTasks,
     isTaskLive,
     liveTaskIds
   } = useTaskContext();
@@ -185,14 +184,9 @@ function Dashboard({
 
   // Handle task click - optionally navigate directly to latest conversation
   const handleTaskClick = async (task, navigateToLatestConversation = false) => {
-    // Make sure the project is selected first
-    const project = projects.find(p => p.id === task.project_id) || task.project;
-    if (project && (!selectedProject || selectedProject.id !== project.id)) {
-      await selectProject(project);
-    }
-    await selectTask(task);
+    const projectId = task.project_id;
 
-    // If navigating to latest conversation, fetch and select it
+    // If navigating to latest conversation, fetch and navigate to it
     if (navigateToLatestConversation) {
       try {
         const response = await api.conversations.list(task.id);
@@ -200,9 +194,8 @@ function Dashboard({
           const data = await response.json();
           const conversations = data.conversations || data || [];
           if (conversations.length > 0) {
-            // Select the first conversation (latest, since ordered by created_at DESC)
-            selectConversation(conversations[0]);
-            // Don't call onTaskClick since we're navigating to conversation, not task detail
+            // Navigate to the first conversation (latest, since ordered by created_at DESC)
+            navigate(`/projects/${projectId}/tasks/${task.id}/chat/${conversations[0].id}${getTokenParam()}`);
             return;
           }
         }
@@ -211,6 +204,8 @@ function Dashboard({
       }
     }
 
+    // Navigate to task detail
+    navigate(`/projects/${projectId}/tasks/${task.id}${getTokenParam()}`);
     onTaskClick?.(task);
   };
 
@@ -226,22 +221,18 @@ function Dashboard({
 
     setIsCreatingTask(true);
     try {
-      // Make sure the project is selected
-      if (!selectedProject || selectedProject.id !== taskFormProject.id) {
-        await selectProject(taskFormProject);
-      }
-
       const result = await createTask(taskFormProject.id, title, documentation);
       if (result.success) {
         setShowTaskForm(false);
         setTaskFormProject(null);
-        // Tasks are automatically synced via the useEffect that watches `tasks`
+        // Reload tasks for the project
+        await loadTasks(taskFormProject.id);
       }
       return result;
     } finally {
       setIsCreatingTask(false);
     }
-  }, [taskFormProject, selectedProject, selectProject, createTask]);
+  }, [taskFormProject, createTask, loadTasks]);
 
   // Handle marking task as completed
   const handleCompleteTask = useCallback(async (taskId) => {
@@ -255,13 +246,13 @@ function Dashboard({
 
   // Handle project card click - navigate to board view
   const handleProjectCardClick = useCallback((project) => {
-    navigateToBoard(project);
-  }, [navigateToBoard]);
+    navigate(`/projects/${project.id}${getTokenParam()}`);
+  }, [navigate, getTokenParam]);
 
   // Handle status badge click - navigate to board view (badge status could be used for filtering in the future)
   const handleStatusBadgeClick = useCallback((project, status) => {
-    navigateToBoard(project);
-  }, [navigateToBoard]);
+    navigate(`/projects/${project.id}${getTokenParam()}`);
+  }, [navigate, getTokenParam]);
 
   // Handle project edit click
   const handleEditProjectClick = useCallback((project) => {

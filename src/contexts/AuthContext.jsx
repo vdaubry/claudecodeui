@@ -84,8 +84,12 @@ export const AuthProvider = ({ children }) => {
         return;
       }
 
+      // Read token from localStorage directly (not from state) to avoid race condition
+      // when token is set from URL params and checkAuthStatus is called immediately
+      const currentToken = localStorage.getItem('auth-token');
+
       // If we have a token, verify it
-      if (token) {
+      if (currentToken) {
         try {
           const userResponse = await api.auth.user();
 
