@@ -1,17 +1,12 @@
 import express from 'express';
 import { WebSocket } from 'ws';
-import { tasksDb, conversationsDb, projectsDb, agentRunsDb } from '../database/db.js';
+import { tasksDb, conversationsDb, projectsDb } from '../database/db.js';
 import { getSessionMessages } from '../services/sessions.js';
-import { updateUserBadge, notifyClaudeComplete } from '../services/notifications.js';
-import { createSessionWithFirstMessage } from '../claude-sdk.js';
+import { updateUserBadge } from '../services/notifications.js';
+import { startConversation } from '../services/conversationAdapter.js';
 import { buildContextPrompt } from '../services/documentation.js';
 
 const router = express.Router();
-
-// Track active streaming sessions (shared with main index.js via app.locals)
-function getActiveStreamingSessions(req) {
-  return req.app.locals.activeStreamingSessions || new Map();
-}
 
 // Broadcast message to all WebSocket clients
 function broadcastToAll(req, message) {
@@ -111,21 +106,16 @@ router.post('/tasks/:taskId/conversations', async (req, res) => {
       return res.status(201).json(conversation);
     }
 
-    // Message provided - create session synchronously
+    // Message provided - create session synchronously via adapter
     console.log('[REST] Creating conversation with first message for task:', taskId);
 
     try {
       // Build context prompt from project.md and task markdown
       const contextPrompt = buildContextPrompt(taskWithProject.repo_folder_path, taskId);
-      const effectiveProjectPath = projectPath || taskWithProject.repo_folder_path;
 
-      // Capture references that persist beyond the request lifecycle
-      // (callbacks fire after REST response is sent, so req might be stale)
+      // Create broadcast function for WebSocket
       const wss = req.app.locals.wss;
-      const activeStreamingSessions = req.app.locals.activeStreamingSessions || new Map();
-
-      // Function to broadcast messages to WebSocket clients (uses captured wss)
-      const broadcast = (msg) => {
+      const broadcastFn = (convId, msg) => {
         if (!wss) return;
         wss.clients.forEach(client => {
           if (client.readyState === WebSocket.OPEN) {
@@ -134,80 +124,19 @@ router.post('/tasks/:taskId/conversations', async (req, res) => {
         });
       };
 
-      // Wrapper for SDK callback
-      const broadcastToConversation = (convId, msg) => {
-        broadcast(msg);
-      };
-
-      // Start SDK query and wait for session ID
-      const sessionId = await createSessionWithFirstMessage({
-        conversationId: conversation.id,
-        taskId,
-        message: message.trim(),
-        projectPath: effectiveProjectPath,
-        permissionMode: permissionMode || 'bypassPermissions',
+      // Use adapter to start conversation (handles all lifecycle events)
+      const { conversationId: convId, claudeSessionId } = await startConversation(taskId, message.trim(), {
+        broadcastFn,
+        userId,
         customSystemPrompt: contextPrompt,
-        broadcastToConversation,
-        onSessionCreated: (claudeSessionId) => {
-          // Update conversation with real session ID
-          conversationsDb.updateClaudeId(conversation.id, claudeSessionId);
-          console.log('[REST] Updated conversation', conversation.id, 'with Claude session:', claudeSessionId);
-
-          // Track active streaming session
-          activeStreamingSessions.set(claudeSessionId, {
-            taskId: taskId,
-            conversationId: conversation.id
-          });
-
-          // Broadcast streaming-started
-          broadcast({
-            type: 'streaming-started',
-            taskId: taskId,
-            conversationId: conversation.id,
-            claudeSessionId
-          });
-          console.log('[REST] Broadcast streaming-started for task:', taskId);
-        },
-        onStreamingComplete: (claudeSessionId, isError) => {
-          // Clean up active streaming session
-          activeStreamingSessions.delete(claudeSessionId);
-
-          // Broadcast streaming-ended
-          broadcast({
-            type: 'streaming-ended',
-            taskId: taskId,
-            conversationId: conversation.id
-          });
-          console.log('[REST] Broadcast streaming-ended for task:', taskId);
-
-          // Send push notification on successful completion
-          if (!isError) {
-            const taskInfo = tasksDb.getById(taskId);
-            const taskTitle = taskInfo?.title || null;
-            const workflowComplete = !!taskInfo?.workflow_complete;
-
-            // Look up agent run by conversation_id to get agent type
-            const agentRuns = agentRunsDb.getByTask(taskId);
-            const linkedAgentRun = agentRuns.find(r => r.conversation_id === conversation.id);
-            const agentType = linkedAgentRun?.agent_type || null;
-
-            notifyClaudeComplete(
-              userId,
-              taskTitle,
-              taskId,
-              conversation.id,
-              { agentType, workflowComplete }
-            ).catch(err => {
-              console.error('[Notifications] Failed to send claude-complete notification:', err);
-            });
-          }
-        }
+        permissionMode: permissionMode || 'bypassPermissions',
+        conversationId: conversation.id
       });
 
       // Return complete conversation with real session ID
       return res.status(201).json({
         ...conversation,
-        claude_conversation_id: sessionId
+        claude_conversation_id: claudeSessionId
       });
 
     } catch (sessionError) {

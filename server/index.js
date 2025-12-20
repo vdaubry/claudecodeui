@@ -56,7 +56,14 @@ import { spawn } from 'child_process';
 import fetch from 'node-fetch';
 import mime from 'mime-types';
 
-import { queryClaudeSDK, abortClaudeSDKSession, isClaudeSDKSessionActive, getActiveClaudeSDKSessions } from './claude-sdk.js';
+import {
+  startConversation,
+  sendMessage,
+  abortSession,
+  isSessionActive,
+  getActiveSessions,
+  getAllActiveStreamingSessions
+} from './services/conversationAdapter.js';
 import authRoutes from './routes/auth.js';
 import commandsRoutes from './routes/commands.js';
 import userRoutes from './routes/user.js';
@@ -68,14 +75,9 @@ import { initializeDatabase, projectsDb, tasksDb, conversationsDb, agentRunsDb }
 import { buildContextPrompt } from './services/documentation.js';
 import { transcribeAudio } from './services/transcription.js';
 import { validateApiKey, authenticateToken, authenticateWebSocket } from './middleware/auth.js';
-import { notifyClaudeComplete } from './services/notifications.js';
 
 // Track which session each client is subscribed to for targeted message delivery
 const clientSubscriptions = new Map(); // Map<WebSocket, { sessionId: string | null, provider: string }>
-
-// Track active streaming sessions with their task IDs
-// Shared with routes via app.locals.activeStreamingSessions
-const activeStreamingSessions = new Map(); // Map<sessionId, { taskId, conversationId }>
 
 // Broadcast message to all connected WebSocket clients
 function broadcastToAll(wss, message) {
@@ -147,9 +149,8 @@ wss.on('close', () => {
     clearInterval(heartbeatInterval);
 });
 
-// Make WebSocket server and active streaming sessions available to routes
+// Make WebSocket server available to routes
 app.locals.wss = wss;
-app.locals.activeStreamingSessions = activeStreamingSessions;
 
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
@@ -183,14 +184,7 @@ app.use('/api', authenticateToken, agentRunsRoutes);
 
 // Get active streaming sessions (for Dashboard live indicator)
 app.get('/api/streaming-sessions', authenticateToken, (req, res) => {
-    const sessions = [];
-    for (const [sessionId, data] of activeStreamingSessions.entries()) {
-        sessions.push({
-            sessionId,
-            taskId: data.taskId,
-            conversationId: data.conversationId
-        });
-    }
+    const sessions = getAllActiveStreamingSessions();
     res.json({ sessions });
 });
 
@@ -257,209 +251,73 @@ function handleChatConnection(ws, request) {
 
             if (data.type === 'claude-command') {
                 console.log('[DEBUG] User message:', data.command || '[Continue/Resume]');
-                console.log('📁 Project:', data.options?.projectPath || 'Unknown');
-                console.log('🔄 Session:', data.options?.sessionId ? 'Resume' : 'New');
 
                 // Check for task-based conversation flow
-                const { taskId, conversationId, isNewConversation } = data.options || {};
-                let sdkOptions = { ...data.options };
-                let dbConversationId = null;
+                const { taskId, conversationId, isNewConversation, images } = data.options || {};
+                const userId = request?.user?.id;
 
-                if (taskId && isNewConversation) {
-                    // NEW CONVERSATION FLOW
-                    // 1. Look up task → get project → get repo_folder_path
-                    console.log('[DEBUG] Starting new task-based conversation for taskId:', taskId);
-                    const taskWithProject = tasksDb.getWithProject(taskId);
-
-                    if (!taskWithProject) {
-                        ws.send(JSON.stringify({
-                            type: 'claude-error',
-                            error: `Task ${taskId} not found`
-                        }));
-                        return;
-                    }
-
-                    // 2. Use existing conversation if provided, otherwise create new one
-                    if (conversationId) {
-                        // Frontend already created the conversation, use it
-                        dbConversationId = conversationId;
-                        console.log('[DEBUG] Using existing conversation record:', dbConversationId);
-                    } else {
-                        // Create conversation record in DB
-                        const conversation = conversationsDb.create(taskId);
-                        dbConversationId = conversation.id;
-                        console.log('[DEBUG] Created conversation record:', dbConversationId);
-                    }
-
-                    // 3. Build context prompt from project.md and task markdown
-                    const contextPrompt = buildContextPrompt(taskWithProject.repo_folder_path, taskId);
-
-                    // 4. Set up SDK options with custom system prompt and cwd
-                    sdkOptions.cwd = taskWithProject.repo_folder_path;
-                    if (contextPrompt) {
-                        sdkOptions.customSystemPrompt = contextPrompt;
-                        console.log('[DEBUG] Injected context prompt length:', contextPrompt.length);
-                    }
-
-                    // 5. Store dbConversationId for session-created callback
-                    sdkOptions._dbConversationId = dbConversationId;
-
-                } else if (conversationId && !isNewConversation) {
-                    // RESUME CONVERSATION FLOW
-                    console.log('[DEBUG] Resuming conversation:', conversationId);
-                    const conversation = conversationsDb.getById(conversationId);
-
-                    if (!conversation) {
-                        ws.send(JSON.stringify({
-                            type: 'claude-error',
-                            error: `Conversation ${conversationId} not found`
-                        }));
-                        return;
-                    }
-
-                    if (!conversation.claude_conversation_id) {
-                        ws.send(JSON.stringify({
-                            type: 'claude-error',
-                            error: `Conversation ${conversationId} has no Claude session ID yet`
-                        }));
-                        return;
-                    }
-
-                    // Get the task and project for cwd
-                    const taskWithProject = tasksDb.getWithProject(conversation.task_id);
-                    if (taskWithProject) {
-                        sdkOptions.cwd = taskWithProject.repo_folder_path;
-                        // Track task ID for resume case
-                        sdkOptions._taskId = conversation.task_id;
-                    }
-
-                    // Resume using Claude's session ID
-                    sdkOptions.sessionId = conversation.claude_conversation_id;
-                    dbConversationId = conversationId;
-
-                    // Track and broadcast streaming-started for resumed conversations
-                    activeStreamingSessions.set(conversation.claude_conversation_id, {
-                        taskId: conversation.task_id,
-                        conversationId: conversationId
-                    });
-                    broadcastToAll(wss, {
-                        type: 'streaming-started',
-                        taskId: conversation.task_id,
-                        conversationId: conversationId,
-                        claudeSessionId: conversation.claude_conversation_id
-                    });
-                    console.log('[DEBUG] Broadcast streaming-started (resume) for task:', conversation.task_id);
-
-                    console.log('[DEBUG] Resuming Claude session:', conversation.claude_conversation_id);
-                }
-
-                // Create a wrapper around ws to capture session ID for new task-based conversations
-                const wsWrapper = {
-                    send: (msgStr) => {
-                        ws.send(msgStr);
-                        // Check for completion/error events to broadcast streaming-ended
-                        try {
-                            const msg = JSON.parse(msgStr);
-                            if (msg.type === 'claude-complete' || msg.type === 'claude-error') {
-                                // Find and remove from active sessions
-                                for (const [sessionId, sessionData] of activeStreamingSessions.entries()) {
-                                    if (sessionData.conversationId === dbConversationId) {
-                                        activeStreamingSessions.delete(sessionId);
-                                        // Broadcast streaming-ended to all clients
-                                        broadcastToAll(wss, {
-                                            type: 'streaming-ended',
-                                            taskId: sessionData.taskId,
-                                            conversationId: sessionData.conversationId
-                                        });
-                                        console.log('[DEBUG] Broadcast streaming-ended for task:', sessionData.taskId);
-
-                                        // Send push notification for claude-complete (not errors)
-                                        console.log('[DEBUG] Checking notification trigger:', {
-                                            msgType: msg.type,
-                                            hasUser: !!request?.user,
-                                            userId: request?.user?.id
-                                        });
-
-                                        if (msg.type === 'claude-complete' && request?.user?.id) {
-                                            const userId = request.user.id;
-                                            // Get task info for notification context
-                                            const taskInfo = tasksDb.getById(sessionData.taskId);
-                                            const taskTitle = taskInfo?.title || null;
-                                            const workflowComplete = !!taskInfo?.workflow_complete;
-
-                                            // Look up agent run by conversation_id to get agent type
-                                            const agentRuns = agentRunsDb.getByTask(sessionData.taskId);
-                                            const linkedAgentRun = agentRuns.find(r => r.conversation_id === sessionData.conversationId);
-                                            const agentType = linkedAgentRun?.agent_type || null;
-
-                                            console.log('[DEBUG] Sending claude-complete notification:', {
-                                                userId,
-                                                taskTitle,
-                                                taskId: sessionData.taskId,
-                                                conversationId: sessionData.conversationId,
-                                                agentType,
-                                                workflowComplete
-                                            });
-
-                                            // Fire and forget notification
-                                            notifyClaudeComplete(
-                                                userId,
-                                                taskTitle,
-                                                sessionData.taskId,
-                                                sessionData.conversationId,
-                                                { agentType, workflowComplete }
-                                            ).catch(err => {
-                                                console.error('[Notifications] Failed to send claude-complete notification:', err);
-                                            });
-                                        } else {
-                                            console.log('[DEBUG] Skipping notification - conditions not met');
-                                        }
-
-                                        break;
-                                    }
-                                }
-                            }
-                        } catch (e) {
-                            // Ignore parse errors
-                        }
-                    },
-                    setSessionId: (claudeSessionId) => {
-                        // Update the conversation record with Claude's session ID
-                        if (sdkOptions._dbConversationId && claudeSessionId) {
-                            conversationsDb.updateClaudeId(sdkOptions._dbConversationId, claudeSessionId);
-                            console.log('[DEBUG] Updated conversation', sdkOptions._dbConversationId, 'with Claude session:', claudeSessionId);
-
-                            // Track active streaming session
-                            if (taskId) {
-                                activeStreamingSessions.set(claudeSessionId, {
-                                    taskId: taskId,
-                                    conversationId: sdkOptions._dbConversationId
-                                });
-                                // Broadcast streaming-started to all clients
-                                broadcastToAll(wss, {
-                                    type: 'streaming-started',
-                                    taskId: taskId,
-                                    conversationId: sdkOptions._dbConversationId,
-                                    claudeSessionId
-                                });
-                                console.log('[DEBUG] Broadcast streaming-started for task:', taskId);
-                            }
-
-                            // Also send the dbConversationId to frontend
-                            ws.send(JSON.stringify({
-                                type: 'conversation-created',
-                                conversationId: sdkOptions._dbConversationId,
-                                claudeSessionId
-                            }));
-                        }
-                    }
+                // Create broadcast function that sends to all WebSocket clients
+                const broadcastFn = (convId, msg) => {
+                    broadcastToAll(wss, msg);
+                    // Also send to the originating client
+                    ws.send(JSON.stringify(msg));
                 };
 
-                // Use Claude Agents SDK
-                await queryClaudeSDK(data.command, sdkOptions, wsWrapper);
+                try {
+                    if (taskId && isNewConversation) {
+                        // NEW CONVERSATION FLOW
+                        console.log('[DEBUG] Starting new conversation for taskId:', taskId);
+
+                        // Build context prompt
+                        const taskWithProject = tasksDb.getWithProject(taskId);
+                        if (!taskWithProject) {
+                            ws.send(JSON.stringify({
+                                type: 'claude-error',
+                                error: `Task ${taskId} not found`
+                            }));
+                            return;
+                        }
+
+                        const contextPrompt = buildContextPrompt(taskWithProject.repo_folder_path, taskId);
+
+                        // Use adapter to start conversation
+                        await startConversation(taskId, data.command, {
+                            broadcastFn,
+                            userId,
+                            customSystemPrompt: contextPrompt,
+                            conversationId, // Use existing if provided
+                            images
+                        });
+
+                    } else if (conversationId && !isNewConversation) {
+                        // RESUME CONVERSATION FLOW
+                        console.log('[DEBUG] Resuming conversation:', conversationId);
+
+                        // Use adapter to send message
+                        await sendMessage(conversationId, data.command, {
+                            broadcastFn,
+                            userId,
+                            images
+                        });
+
+                    } else {
+                        // Legacy flow (no task context) - error
+                        ws.send(JSON.stringify({
+                            type: 'claude-error',
+                            error: 'Task-based conversation required. Please provide taskId.'
+                        }));
+                    }
+                } catch (error) {
+                    console.error('[WebSocket] Conversation error:', error);
+                    ws.send(JSON.stringify({
+                        type: 'claude-error',
+                        error: error.message
+                    }));
+                }
+
             } else if (data.type === 'abort-session') {
                 console.log('[DEBUG] Abort session request:', data.sessionId);
-                const success = await abortClaudeSDKSession(data.sessionId);
+                const success = await abortSession(data.sessionId);
 
                 ws.send(JSON.stringify({
                     type: 'session-aborted',
@@ -469,7 +327,7 @@ function handleChatConnection(ws, request) {
             } else if (data.type === 'check-session-status') {
                 // Check if a specific session is currently processing
                 const sessionId = data.sessionId;
-                const isActive = isClaudeSDKSessionActive(sessionId);
+                const isActive = isSessionActive(sessionId);
 
                 ws.send(JSON.stringify({
                     type: 'session-status',
@@ -479,7 +337,7 @@ function handleChatConnection(ws, request) {
             } else if (data.type === 'get-active-sessions') {
                 // Get all currently active sessions
                 const activeSessions = {
-                    claude: getActiveClaudeSDKSessions()
+                    claude: getActiveSessions()
                 };
                 ws.send(JSON.stringify({
                     type: 'active-sessions',
