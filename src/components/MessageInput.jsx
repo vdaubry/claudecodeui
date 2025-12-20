@@ -78,6 +78,7 @@ const MessageInput = memo(function MessageInput({
   const collapseTimeoutRef = useRef(null);
   const justCollapsedByScrollRef = useRef(false); // Prevents auto-expand after scroll collapse
   const justFocusedRef = useRef(false); // Prevents re-collapse when browser scrolls on focus
+  const interactionLockRef = useRef(false); // Prevents collapse during active button interaction
   const [fileList, setFileList] = useState([]);
   const [filteredFiles, setFilteredFiles] = useState([]);
   const [selectedFileIndex, setSelectedFileIndex] = useState(-1);
@@ -86,6 +87,16 @@ const MessageInput = memo(function MessageInput({
 
   const internalTextareaRef = useRef(null);
   const textareaRef = externalTextareaRef || internalTextareaRef;
+  const containerRef = useRef(null); // Ref for the entire MessageInput container
+
+  // Lock collapse during button interactions (prevents collapse when focus shifts to dialogs, etc.)
+  const lockInteraction = useCallback(() => {
+    interactionLockRef.current = true;
+    // Clear the lock after a reasonable time to allow any dialogs/interactions to complete
+    setTimeout(() => {
+      interactionLockRef.current = false;
+    }, 500);
+  }, []);
 
   // Handle collapse on scroll
   useEffect(() => {
@@ -97,6 +108,17 @@ const MessageInput = memo(function MessageInput({
     if (isScrolling && !isCollapsed) {
       // Don't collapse if we just focused (browser may scroll to show textarea)
       if (justFocusedRef.current) {
+        return;
+      }
+
+      // Don't collapse if user is actively interacting with any element in the MessageInput
+      // This prevents collapse when clicking permission button, mic button, etc.
+      if (containerRef.current?.contains(document.activeElement)) {
+        return;
+      }
+
+      // Don't collapse during active button interaction (e.g., permission dialogs, mic access)
+      if (interactionLockRef.current) {
         return;
       }
 
@@ -147,13 +169,31 @@ const MessageInput = memo(function MessageInput({
   }, []);
 
   // Handle blur - don't collapse immediately, allow time for button clicks
-  const handleBlur = useCallback(() => {
+  const handleBlur = useCallback((e) => {
     setIsFocused(false);
+
+    // Check if focus is moving to another element within the MessageInput container
+    // relatedTarget is the element receiving focus (if any)
+    const relatedTarget = e?.relatedTarget;
+    if (relatedTarget && containerRef.current?.contains(relatedTarget)) {
+      // Focus is staying within the MessageInput component, don't collapse
+      return;
+    }
+
+    // Don't collapse during active button interaction (e.g., permission dialogs)
+    if (interactionLockRef.current) {
+      return;
+    }
+
     // Only auto-collapse after a delay if there's no input
     if (!input.trim()) {
       collapseTimeoutRef.current = setTimeout(() => {
-        // Don't collapse if still focused on any element within the form
-        if (document.activeElement?.closest('form')) {
+        // Don't collapse if still focused on any element within the container
+        if (containerRef.current?.contains(document.activeElement)) {
+          return;
+        }
+        // Recheck interaction lock in case it was set during the timeout
+        if (interactionLockRef.current) {
           return;
         }
         setIsCollapsed(true);
@@ -375,16 +415,21 @@ const MessageInput = memo(function MessageInput({
   }, [showFileDropdown, filteredFiles, selectedFileIndex, selectFile, permissionMode, onModeChange, showCommandMenu, filteredCommands, selectedCommandIndex, onCommandSelect, onCloseCommandMenu]);
 
   return (
-    <div className={
-      variant === 'modal'
-        ? ''
-        : `flex-shrink-0 border-t border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 transition-all duration-200 ease-in-out ${isCollapsed ? 'p-2' : 'p-4'}`
-    }>
+    <div
+      ref={containerRef}
+      className={
+        variant === 'modal'
+          ? ''
+          : `flex-shrink-0 border-t border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 transition-all duration-200 ease-in-out ${isCollapsed ? 'p-2' : 'p-4'}`
+      }
+    >
       {/* Control bar - positioned above input, hidden when collapsed */}
       <div className={`flex items-center justify-center gap-3 transition-all duration-200 ease-in-out overflow-hidden ${isCollapsed ? 'max-h-0 opacity-0 mb-0' : 'max-h-20 opacity-100 mb-3'}`}>
         {/* Permission Mode Button */}
         <button
           type="button"
+          onMouseDown={lockInteraction}
+          onTouchStart={lockInteraction}
           onClick={() => {
             const modes = ['default', 'acceptEdits', 'bypassPermissions', 'plan'];
             const currentIndex = modes.indexOf(permissionMode);
@@ -429,6 +474,8 @@ const MessageInput = memo(function MessageInput({
         {/* Slash Commands Button */}
         <button
           type="button"
+          onMouseDown={lockInteraction}
+          onTouchStart={lockInteraction}
           onClick={onToggleCommandMenu}
           className="relative w-8 h-8 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 rounded-full flex items-center justify-center transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500"
           title="Show commands"
@@ -447,6 +494,8 @@ const MessageInput = memo(function MessageInput({
         {input.trim() && (
           <button
             type="button"
+            onMouseDown={lockInteraction}
+            onTouchStart={lockInteraction}
             onClick={() => setInput('')}
             className="w-8 h-8 bg-white dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-full flex items-center justify-center transition-all shadow-sm"
             title="Clear input"
@@ -461,6 +510,8 @@ const MessageInput = memo(function MessageInput({
         {isUserScrolledUp && (
           <button
             type="button"
+            onMouseDown={lockInteraction}
+            onTouchStart={lockInteraction}
             onClick={onScrollToBottom}
             className="w-8 h-8 bg-blue-600 hover:bg-blue-700 text-white rounded-full shadow-lg flex items-center justify-center transition-all"
             title="Scroll to bottom"
@@ -518,7 +569,11 @@ const MessageInput = memo(function MessageInput({
           />
           <div className={`flex items-center gap-3 justify-end transition-all duration-200 ${isCollapsed ? 'gap-2' : 'gap-3'}`}>
             {/* Hide MicButton when collapsed */}
-            <div className={`transition-all duration-200 ${isCollapsed ? 'w-0 opacity-0 overflow-hidden' : 'w-auto opacity-100'}`}>
+            <div
+              className={`transition-all duration-200 ${isCollapsed ? 'w-0 opacity-0 overflow-hidden' : 'w-auto opacity-100'}`}
+              onMouseDown={lockInteraction}
+              onTouchStart={lockInteraction}
+            >
               <MicButton
                 onTranscript={(transcript) => {
                   // Append transcript to existing input (with space if needed)
