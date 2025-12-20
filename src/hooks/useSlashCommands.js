@@ -64,7 +64,9 @@ export function useSlashCommands(projectPath) {
     // Insert command into input
     const beforeSlash = slashPosition >= 0 ? input.slice(0, slashPosition) : input;
     const afterCursor = slashPosition >= 0 ? input.slice(slashPosition + 1 + commandQuery.length) : '';
-    const newInput = beforeSlash + '/' + command.name + ' ' + afterCursor.trim();
+    // Ensure command name includes slash but avoid double-slash if it already has one
+    const commandText = command.name.startsWith('/') ? command.name : '/' + command.name;
+    const newInput = beforeSlash + commandText + ' ' + afterCursor.trim();
     setInput(newInput.trim() + ' ');
     setShowCommandMenu(false);
     setSlashPosition(-1);
