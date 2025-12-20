@@ -208,6 +208,7 @@ This stops the automated agent loop and awaits final user review.
 ## Important Constraints
 - Do NOT fix any code or specs - only document findings
 - Do NOT implement anything - only review and test
+- You are only allowed to restart processes such as web servers when necessary, especially for playwright tests.
 - **ALWAYS REPLACE (never append to) the Review Findings section**
 - Mark items as unchecked if they need rework
 
