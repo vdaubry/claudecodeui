@@ -304,7 +304,35 @@ Agent prompts are stored as markdown files following the same pattern as tasks:
 | `/api/projects/:projectId/agents` | GET, POST | List/create agents |
 | `/api/agents/:id` | GET, PUT, DELETE | Agent CRUD |
 | `/api/agents/:id/prompt` | GET, PUT | Agent prompt markdown |
+| `/api/agents/:id/attachments` | GET, POST | List/upload agent attachments |
+| `/api/agents/:id/attachments/:filename` | DELETE | Delete agent attachment |
 | `/api/agents/:agentId/conversations` | GET, POST | Agent conversations |
+
+### Agent Attachments
+
+Users can upload files to agents that Claude automatically reads at conversation start.
+
+**Storage**: `.claude-ui/agents/agent-{id}/input_files/`
+**Constraints**: Max 5 MB, common formats (text, images, PDFs, code files)
+
+**Backend**
+
+| File | Key Methods |
+|------|-------------|
+| `server/services/documentation.js` | `getAgentInputFilesPath()`, `ensureAgentInputFilesFolder()`, `listAgentInputFiles()`, `saveAgentInputFile()`, `deleteAgentInputFile()`, `ATTACHMENT_CONFIG` |
+| `server/routes/agents.js` | `GET/POST/DELETE /api/agents/:id/attachments` |
+
+**Frontend**
+
+| File | Key Methods/State |
+|------|-------------------|
+| `src/utils/api.js` | `agents.listAttachments()`, `agents.uploadAttachment()`, `agents.deleteAttachment()` |
+| `src/contexts/AgentContext.jsx` | `agentAttachments`, `loadAgentAttachments()`, `uploadAgentAttachment()`, `deleteAgentAttachment()` |
+| `src/components/AgentAttachments.jsx` | Attachment list UI with upload/delete |
+| `src/components/AgentDetailView.jsx` | Integrates AgentAttachments component |
+| `src/pages/AgentDetailPage.jsx` | Wires context to AgentDetailView |
+
+**Context Injection**: `buildAgentContextPrompt()` appends input_files instructions when attachments exist, instructing Claude to read all files at conversation start.
 
 ### File Structure Convention
 
@@ -318,6 +346,8 @@ Agent prompts are stored as markdown files following the same pattern as tasks:
     agents/                      # Created when first agent added
       agent-1/                   # Agent folder (created when agent added)
         prompt.md                # Agent prompt (markdown)
+        input_files/             # Agent attachments folder
+          data.json              # Uploaded files read by Claude
 ```
 
 ## State Management

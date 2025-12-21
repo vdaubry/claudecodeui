@@ -32,6 +32,11 @@ function AgentDetailPage() {
     loadAgentPrompt,
     saveAgentPrompt,
     deleteAgentConversation,
+    agentAttachments,
+    isLoadingAttachments,
+    loadAgentAttachments,
+    uploadAgentAttachment,
+    deleteAgentAttachment,
     isLoadingAgents,
     isLoadingAgentConversations,
     isLoadingAgentPrompt
@@ -80,12 +85,13 @@ function AgentDetailPage() {
         // Load agent-related data
         loadAgentConversations(foundAgent.id);
         loadAgentPrompt(foundAgent.id);
+        loadAgentAttachments(foundAgent.id);
       } else {
         // Agent not found, redirect to board agents tab
         navigate(`/projects/${projectId}?tab=agents${getTokenParam() ? '&' + getTokenParam().slice(1) : ''}`, { replace: true });
       }
     }
-  }, [agents, agentId, project, projectId, loadAgentConversations, loadAgentPrompt, navigate, getTokenParam]);
+  }, [agents, agentId, project, projectId, loadAgentConversations, loadAgentPrompt, loadAgentAttachments, navigate, getTokenParam]);
 
   // Navigation handlers
   const handleBack = useCallback(() => {
@@ -134,6 +140,17 @@ function AgentDetailPage() {
     return await deleteAgentConversation(conversationId);
   }, [deleteAgentConversation]);
 
+  // Attachment handlers
+  const handleUploadAttachment = useCallback(async (file) => {
+    if (!agent) return { success: false, error: 'No agent selected' };
+    return await uploadAgentAttachment(agent.id, file);
+  }, [agent, uploadAgentAttachment]);
+
+  const handleDeleteAttachment = useCallback(async (filename) => {
+    if (!agent) return { success: false, error: 'No agent selected' };
+    return await deleteAgentAttachment(agent.id, filename);
+  }, [agent, deleteAgentAttachment]);
+
   // Loading state
   if (isLoading || isLoadingProjects || isLoadingAgents || !project || !agent) {
     return (
@@ -157,6 +174,10 @@ function AgentDetailPage() {
         conversations={agentConversations}
         isLoadingPrompt={isLoadingAgentPrompt}
         isLoadingConversations={isLoadingAgentConversations}
+        agentAttachments={agentAttachments}
+        isLoadingAttachments={isLoadingAttachments}
+        onUploadAttachment={handleUploadAttachment}
+        onDeleteAttachment={handleDeleteAttachment}
         onBack={handleBack}
         onProjectClick={handleProjectClick}
         onHomeClick={handleHomeClick}

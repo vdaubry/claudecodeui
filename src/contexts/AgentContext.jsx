@@ -44,6 +44,10 @@ export function AgentContextProvider({ children }) {
   const [agentPrompt, setAgentPrompt] = useState('');
   const [isLoadingAgentPrompt, setIsLoadingAgentPrompt] = useState(false);
 
+  // Agent attachments state
+  const [agentAttachments, setAgentAttachments] = useState([]);
+  const [isLoadingAttachments, setIsLoadingAttachments] = useState(false);
+
   // ========== Agents API ==========
 
   const loadAgents = useCallback(async (projectId) => {
@@ -169,6 +173,64 @@ export function AgentContextProvider({ children }) {
     }
   }, []);
 
+  // ========== Agent Attachments API ==========
+
+  const loadAgentAttachments = useCallback(async (agentId) => {
+    if (!agentId) {
+      setAgentAttachments([]);
+      return;
+    }
+
+    setIsLoadingAttachments(true);
+    try {
+      const response = await api.agents.listAttachments(agentId);
+      if (response.ok) {
+        const data = await response.json();
+        setAgentAttachments(data || []);
+      } else {
+        setAgentAttachments([]);
+      }
+    } catch (error) {
+      console.error('Error loading agent attachments:', error);
+      setAgentAttachments([]);
+    } finally {
+      setIsLoadingAttachments(false);
+    }
+  }, []);
+
+  const uploadAgentAttachment = useCallback(async (agentId, file) => {
+    try {
+      const response = await api.agents.uploadAttachment(agentId, file);
+      if (response.ok) {
+        const data = await response.json();
+        setAgentAttachments(prev => [...prev, data.file]);
+        return { success: true, file: data.file };
+      } else {
+        const error = await response.json();
+        return { success: false, error: error.error || 'Upload failed' };
+      }
+    } catch (error) {
+      console.error('Error uploading attachment:', error);
+      return { success: false, error: error.message };
+    }
+  }, []);
+
+  const deleteAgentAttachment = useCallback(async (agentId, filename) => {
+    try {
+      const response = await api.agents.deleteAttachment(agentId, filename);
+      if (response.ok) {
+        setAgentAttachments(prev => prev.filter(f => f.name !== filename));
+        return { success: true };
+      } else {
+        const error = await response.json();
+        return { success: false, error: error.error || 'Delete failed' };
+      }
+    } catch (error) {
+      console.error('Error deleting attachment:', error);
+      return { success: false, error: error.message };
+    }
+  }, []);
+
   // ========== Agent Conversations API ==========
 
   const loadAgentConversations = useCallback(async (agentId) => {
@@ -237,16 +299,18 @@ export function AgentContextProvider({ children }) {
     setActiveAgentConversation(null);
 
     if (agent) {
-      // Load conversations and prompt for this agent
+      // Load conversations, prompt, and attachments for this agent
       await Promise.all([
         loadAgentConversations(agent.id),
-        loadAgentPrompt(agent.id)
+        loadAgentPrompt(agent.id),
+        loadAgentAttachments(agent.id)
       ]);
     } else {
       setAgentConversations([]);
       setAgentPrompt('');
+      setAgentAttachments([]);
     }
-  }, [loadAgentConversations, loadAgentPrompt]);
+  }, [loadAgentConversations, loadAgentPrompt, loadAgentAttachments]);
 
   const selectAgentConversation = useCallback((conversation) => {
     setActiveAgentConversation(conversation);
@@ -257,6 +321,7 @@ export function AgentContextProvider({ children }) {
     setAgentConversations([]);
     setActiveAgentConversation(null);
     setAgentPrompt('');
+    setAgentAttachments([]);
   }, []);
 
   // ========== Context Value ==========
@@ -277,6 +342,10 @@ export function AgentContextProvider({ children }) {
     agentPrompt,
     isLoadingAgentPrompt,
 
+    // Agent attachments state
+    agentAttachments,
+    isLoadingAttachments,
+
     // Agents API
     loadAgents,
     createAgent,
@@ -286,6 +355,11 @@ export function AgentContextProvider({ children }) {
     // Agent prompt API
     loadAgentPrompt,
     saveAgentPrompt,
+
+    // Agent attachments API
+    loadAgentAttachments,
+    uploadAgentAttachment,
+    deleteAgentAttachment,
 
     // Agent conversations API
     loadAgentConversations,

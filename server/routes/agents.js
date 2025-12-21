@@ -1,12 +1,34 @@
 import express from 'express';
+import multer from 'multer';
+import path from 'path';
 import { projectsDb, agentsDb, conversationsDb } from '../database/db.js';
 import {
   readAgentPrompt,
   writeAgentPrompt,
-  deleteAgentPrompt
+  deleteAgentPrompt,
+  listAgentInputFiles,
+  saveAgentInputFile,
+  deleteAgentInputFile,
+  ATTACHMENT_CONFIG
 } from '../services/documentation.js';
 
 const router = express.Router();
+
+// Configure multer for file uploads (memory storage)
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: ATTACHMENT_CONFIG.maxSizeBytes
+  },
+  fileFilter: (req, file, cb) => {
+    const ext = path.extname(file.originalname).toLowerCase();
+    if (ATTACHMENT_CONFIG.allowedExtensions.includes(ext)) {
+      cb(null, true);
+    } else {
+      cb(new Error(`File type ${ext} not allowed. Allowed types: ${ATTACHMENT_CONFIG.allowedExtensions.join(', ')}`), false);
+    }
+  }
+});
 
 /**
  * GET /api/projects/:projectId/agents
@@ -334,6 +356,137 @@ router.post('/agents/:agentId/conversations', (req, res) => {
   } catch (error) {
     console.error('Error creating agent conversation:', error);
     res.status(500).json({ error: 'Failed to create conversation' });
+  }
+});
+
+/**
+ * GET /api/agents/:id/attachments
+ * List all attachments for an agent
+ */
+router.get('/agents/:id/attachments', (req, res) => {
+  try {
+    const userId = req.user.id;
+    const agentId = parseInt(req.params.id, 10);
+
+    if (isNaN(agentId)) {
+      return res.status(400).json({ error: 'Invalid agent ID' });
+    }
+
+    // Get agent with project info to verify ownership
+    const agentWithProject = agentsDb.getWithProject(agentId);
+
+    if (!agentWithProject) {
+      return res.status(404).json({ error: 'Agent not found' });
+    }
+
+    // Verify the project belongs to the user
+    if (agentWithProject.user_id !== userId) {
+      return res.status(404).json({ error: 'Agent not found' });
+    }
+
+    const files = listAgentInputFiles(agentWithProject.repo_folder_path, agentId);
+    res.json(files);
+  } catch (error) {
+    console.error('Error listing agent attachments:', error);
+    res.status(500).json({ error: 'Failed to list attachments' });
+  }
+});
+
+/**
+ * POST /api/agents/:id/attachments
+ * Upload a new attachment for an agent
+ */
+router.post('/agents/:id/attachments', (req, res) => {
+  const userId = req.user.id;
+  const agentId = parseInt(req.params.id, 10);
+
+  if (isNaN(agentId)) {
+    return res.status(400).json({ error: 'Invalid agent ID' });
+  }
+
+  // Get agent with project info to verify ownership
+  const agentWithProject = agentsDb.getWithProject(agentId);
+
+  if (!agentWithProject) {
+    return res.status(404).json({ error: 'Agent not found' });
+  }
+
+  // Verify the project belongs to the user
+  if (agentWithProject.user_id !== userId) {
+    return res.status(404).json({ error: 'Agent not found' });
+  }
+
+  // Handle file upload with multer
+  upload.single('file')(req, res, (err) => {
+    if (err) {
+      if (err instanceof multer.MulterError) {
+        if (err.code === 'LIMIT_FILE_SIZE') {
+          return res.status(400).json({ error: `File size exceeds ${ATTACHMENT_CONFIG.maxSizeBytes / (1024 * 1024)} MB limit` });
+        }
+        return res.status(400).json({ error: err.message });
+      }
+      return res.status(400).json({ error: err.message });
+    }
+
+    if (!req.file) {
+      return res.status(400).json({ error: 'No file provided' });
+    }
+
+    try {
+      const fileInfo = saveAgentInputFile(
+        agentWithProject.repo_folder_path,
+        agentId,
+        req.file.originalname,
+        req.file.buffer
+      );
+      res.status(201).json({ success: true, file: fileInfo });
+    } catch (saveError) {
+      console.error('Error saving attachment:', saveError);
+      res.status(500).json({ error: 'Failed to save attachment' });
+    }
+  });
+});
+
+/**
+ * DELETE /api/agents/:id/attachments/:filename
+ * Delete an attachment from an agent
+ */
+router.delete('/agents/:id/attachments/:filename', (req, res) => {
+  try {
+    const userId = req.user.id;
+    const agentId = parseInt(req.params.id, 10);
+    const filename = req.params.filename;
+
+    if (isNaN(agentId)) {
+      return res.status(400).json({ error: 'Invalid agent ID' });
+    }
+
+    if (!filename) {
+      return res.status(400).json({ error: 'Filename is required' });
+    }
+
+    // Get agent with project info to verify ownership
+    const agentWithProject = agentsDb.getWithProject(agentId);
+
+    if (!agentWithProject) {
+      return res.status(404).json({ error: 'Agent not found' });
+    }
+
+    // Verify the project belongs to the user
+    if (agentWithProject.user_id !== userId) {
+      return res.status(404).json({ error: 'Agent not found' });
+    }
+
+    const deleted = deleteAgentInputFile(agentWithProject.repo_folder_path, agentId, filename);
+
+    if (!deleted) {
+      return res.status(404).json({ error: 'Attachment not found' });
+    }
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error deleting agent attachment:', error);
+    res.status(500).json({ error: 'Failed to delete attachment' });
   }
 });
 

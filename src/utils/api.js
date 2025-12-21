@@ -190,6 +190,21 @@ export const api = {
       authenticatedFetch(`/api/agents/${agentId}/conversations`, {
         method: 'POST',
       }),
+    // Agent attachments
+    listAttachments: (agentId) => authenticatedFetch(`/api/agents/${agentId}/attachments`),
+    uploadAttachment: (agentId, file) => {
+      const formData = new FormData();
+      formData.append('file', file);
+      return authenticatedFetch(`/api/agents/${agentId}/attachments`, {
+        method: 'POST',
+        body: formData,
+        headers: {}, // Let browser set Content-Type for FormData
+      });
+    },
+    deleteAttachment: (agentId, filename) =>
+      authenticatedFetch(`/api/agents/${agentId}/attachments/${encodeURIComponent(filename)}`, {
+        method: 'DELETE',
+      }),
   },
 
   // Streaming sessions (for live indicator)

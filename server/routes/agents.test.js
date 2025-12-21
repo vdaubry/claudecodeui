@@ -25,7 +25,14 @@ vi.mock('../database/db.js', () => ({
 vi.mock('../services/documentation.js', () => ({
   readAgentPrompt: vi.fn(),
   writeAgentPrompt: vi.fn(),
-  deleteAgentPrompt: vi.fn()
+  deleteAgentPrompt: vi.fn(),
+  listAgentInputFiles: vi.fn().mockReturnValue([]),
+  saveAgentInputFile: vi.fn(),
+  deleteAgentInputFile: vi.fn(),
+  ATTACHMENT_CONFIG: {
+    maxSizeBytes: 5 * 1024 * 1024,
+    allowedExtensions: ['.txt', '.md', '.json', '.yaml', '.yml', '.csv', '.png', '.jpg', '.jpeg', '.gif', '.pdf', '.js', '.ts', '.jsx', '.tsx', '.py', '.rb', '.go', '.rs', '.java', '.c', '.cpp', '.h', '.hpp', '.css', '.scss', '.html', '.xml', '.sh', '.bash', '.sql']
+  }
 }));
 
 import agentsRoutes from './agents.js';

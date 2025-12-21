@@ -5,6 +5,7 @@
  * - Breadcrumb navigation
  * - Agent name
  * - Agent prompt (editable markdown - used as system prompt)
+ * - File attachments (auto-read by Claude at conversation start)
  * - Conversation history with New/Resume buttons
  */
 
@@ -14,6 +15,7 @@ import { Button } from './ui/button';
 import Breadcrumb from './Breadcrumb';
 import MarkdownEditor from './MarkdownEditor';
 import ConversationList from './ConversationList';
+import AgentAttachments from './AgentAttachments';
 import { cn } from '../lib/utils';
 
 function AgentDetailView({
@@ -23,6 +25,11 @@ function AgentDetailView({
   conversations = [],
   isLoadingPrompt = false,
   isLoadingConversations = false,
+  // Attachments
+  agentAttachments = [],
+  isLoadingAttachments = false,
+  onUploadAttachment,
+  onDeleteAttachment,
   // Callbacks
   onBack,
   onProjectClick,
@@ -88,8 +95,9 @@ function AgentDetailView({
           />
         </div>
 
-        {/* Right panel - Agent Prompt */}
+        {/* Right panel - Agent Prompt + Attachments */}
         <div className="flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden">
+          {/* Agent Prompt Section */}
           <div className="flex flex-col flex-1 min-h-0">
             <div className="px-4 pt-4 pb-2 border-b border-border">
               <h3 className="text-sm font-medium text-foreground">Agent System Prompt</h3>
@@ -104,6 +112,17 @@ function AgentDetailView({
               isLoading={isLoadingPrompt}
               placeholder="No agent prompt configured yet. Click Edit to add a system prompt that will be used when chatting with this agent."
               className="flex-1 min-h-0"
+            />
+          </div>
+
+          {/* Attachments Section */}
+          <div className="border-t border-border flex-shrink-0">
+            <AgentAttachments
+              attachments={agentAttachments}
+              isLoading={isLoadingAttachments}
+              onUpload={onUploadAttachment}
+              onDelete={onDeleteAttachment}
+              className="max-h-64 overflow-auto"
             />
           </div>
         </div>
