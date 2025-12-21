@@ -136,7 +136,7 @@ export const api = {
     },
   },
 
-  // Agent Runs API (for automated agent workflows)
+  // Agent Runs API (for automated agent workflows on tasks)
   agentRuns: {
     list: (taskId) => authenticatedFetch(`/api/tasks/${taskId}/agent-runs`),
     create: (taskId, agentType) =>
@@ -156,6 +156,61 @@ export const api = {
       }),
     delete: (id) =>
       authenticatedFetch(`/api/agent-runs/${id}`, {
+        method: 'DELETE',
+      }),
+  },
+
+  // Custom Agents API (reusable agent configurations with prompts)
+  agents: {
+    list: (projectId) => authenticatedFetch(`/api/projects/${projectId}/agents`),
+    create: (projectId, name) =>
+      authenticatedFetch(`/api/projects/${projectId}/agents`, {
+        method: 'POST',
+        body: JSON.stringify({ name }),
+      }),
+    get: (id) => authenticatedFetch(`/api/agents/${id}`),
+    update: (id, data) =>
+      authenticatedFetch(`/api/agents/${id}`, {
+        method: 'PUT',
+        body: JSON.stringify(data),
+      }),
+    delete: (id) =>
+      authenticatedFetch(`/api/agents/${id}`, {
+        method: 'DELETE',
+      }),
+    getPrompt: (id) => authenticatedFetch(`/api/agents/${id}/prompt`),
+    savePrompt: (id, content) =>
+      authenticatedFetch(`/api/agents/${id}/prompt`, {
+        method: 'PUT',
+        body: JSON.stringify({ content }),
+      }),
+    // Agent conversations
+    listConversations: (agentId) => authenticatedFetch(`/api/agents/${agentId}/conversations`),
+    createConversation: (agentId) =>
+      authenticatedFetch(`/api/agents/${agentId}/conversations`, {
+        method: 'POST',
+      }),
+    // Agent attachments
+    listAttachments: (agentId) => authenticatedFetch(`/api/agents/${agentId}/attachments`),
+    uploadAttachment: (agentId, file) => {
+      const formData = new FormData();
+      formData.append('file', file);
+      return authenticatedFetch(`/api/agents/${agentId}/attachments`, {
+        method: 'POST',
+        body: formData,
+        headers: {}, // Let browser set Content-Type for FormData
+      });
+    },
+    deleteAttachment: (agentId, filename) =>
+      authenticatedFetch(`/api/agents/${agentId}/attachments/${encodeURIComponent(filename)}`, {
+        method: 'DELETE',
+      }),
+    // Agent output files
+    listOutputFiles: (agentId) => authenticatedFetch(`/api/agents/${agentId}/output-files`),
+    downloadOutputFile: (agentId, filename) =>
+      authenticatedFetch(`/api/agents/${agentId}/output-files/${encodeURIComponent(filename)}`),
+    deleteOutputFile: (agentId, filename) =>
+      authenticatedFetch(`/api/agents/${agentId}/output-files/${encodeURIComponent(filename)}`, {
         method: 'DELETE',
       }),
   },

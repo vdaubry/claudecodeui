@@ -6,34 +6,69 @@
  * - In Progress
  * - Completed
  *
+ * Also includes Custom Agents tab for managing agent configurations.
+ *
  * Features:
  * - Responsive layout: horizontal scroll-snap on mobile, 3-column grid on desktop
  * - Header with breadcrumb navigation and "New Task" button
  * - Loads task documentation and conversation counts
+ * - Tab navigation between Development and Custom Agents
  */
 
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { ArrowLeft, Plus, Columns, Settings } from 'lucide-react';
 import { Button } from '../ui/button';
 import { cn } from '../../lib/utils';
 import { useTaskContext } from '../../contexts/TaskContext';
+import { useAgentContext } from '../../contexts/AgentContext';
 import { useAuthToken } from '../../hooks/useAuthToken';
 import { api } from '../../utils/api';
 import BoardColumn from './BoardColumn';
+import BoardTabBar from './BoardTabBar';
+import AgentsGrid from './AgentsGrid';
 import TaskForm from '../TaskForm';
 
 function BoardView({ className, project }) {
   const navigate = useNavigate();
-  const { getTokenParam } = useAuthToken();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const { getTokenParam, token } = useAuthToken();
   const {
     tasks,
     isLoadingTasks,
     createTask,
     isTaskLive
   } = useTaskContext();
+  const {
+    agents,
+    isLoadingAgents,
+    loadAgents
+  } = useAgentContext();
 
-  // Use project from props (passed by BoardPage)
+  // Tab state from URL query param
+  const activeTab = searchParams.get('tab') || 'development';
+
+  // Load agents when switching to agents tab or when project changes
+  useEffect(() => {
+    if (project && activeTab === 'agents') {
+      loadAgents(project.id);
+    }
+  }, [project, activeTab, loadAgents]);
+
+  // Handle tab change
+  const handleTabChange = useCallback((tab) => {
+    const newParams = new URLSearchParams(searchParams);
+    if (tab === 'development') {
+      newParams.delete('tab');
+    } else {
+      newParams.set('tab', tab);
+    }
+    // Preserve token if present
+    if (token) {
+      newParams.set('token', token);
+    }
+    setSearchParams(newParams, { replace: true });
+  }, [searchParams, setSearchParams, token]);
 
   // Task form modal state
   const [showTaskForm, setShowTaskForm] = useState(false);
@@ -174,7 +209,7 @@ function BoardView({ className, project }) {
             </div>
           </div>
 
-          {/* Right: Edit + New Task buttons */}
+          {/* Right: Edit + New Task/Agent buttons */}
           <div className="flex items-center gap-2">
             <Button
               variant="ghost"
@@ -185,74 +220,116 @@ function BoardView({ className, project }) {
             >
               <Settings className="w-4 h-4" />
             </Button>
-            <Button
-              variant="default"
-              size="sm"
-              onClick={() => setShowTaskForm(true)}
-              className="flex-shrink-0"
-            >
-              <Plus className="w-4 h-4 mr-1.5" />
-              New Task
-            </Button>
+            {activeTab === 'development' ? (
+              <Button
+                variant="default"
+                size="sm"
+                onClick={() => setShowTaskForm(true)}
+                className="flex-shrink-0"
+              >
+                <Plus className="w-4 h-4 mr-1.5" />
+                New Task
+              </Button>
+            ) : (
+              <Button
+                variant="default"
+                size="sm"
+                onClick={() => {/* handled by AgentsGrid */}}
+                className="flex-shrink-0"
+                id="new-agent-trigger"
+              >
+                <Plus className="w-4 h-4 mr-1.5" />
+                New Agent
+              </Button>
+            )}
           </div>
         </div>
 
-        {/* Project path */}
-        <p className="text-xs text-muted-foreground ml-11 mt-1 truncate">
-          {project.repo_folder_path}
-        </p>
+        {/* Tab bar */}
+        <div className="flex items-center justify-between mt-3">
+          <BoardTabBar
+            activeTab={activeTab}
+            onTabChange={handleTabChange}
+            agentsCount={agents.length}
+          />
+          {/* Project path */}
+          <p className="text-xs text-muted-foreground truncate max-w-[200px] md:max-w-none">
+            {project.repo_folder_path}
+          </p>
+        </div>
       </div>
 
-      {/* Board columns */}
-      <div
-        className={cn(
-          // Mobile: horizontal scroll-snap
-          'flex gap-4 p-4 overflow-x-auto flex-1',
-          '[scroll-snap-type:x_mandatory]',
-          '[-webkit-overflow-scrolling:touch]',
-          'scrollbar-hide',
-          // Desktop: 3-column grid
-          'md:grid md:grid-cols-3 md:overflow-visible',
-          'md:[scroll-snap-type:none]',
-          // Improved padding on larger screens
-          'lg:gap-6 lg:p-6'
-        )}
-      >
-        <BoardColumn
-          status="pending"
-          tasks={tasksByStatus.pending}
-          taskDocs={taskDocs}
-          taskConversationCounts={taskConversationCounts}
-          isTaskLive={isTaskLive}
-          onTaskClick={handleTaskClick}
-          onTaskEdit={handleTaskEdit}
-        />
-        <BoardColumn
-          status="in_progress"
-          tasks={tasksByStatus.in_progress}
-          taskDocs={taskDocs}
-          taskConversationCounts={taskConversationCounts}
-          isTaskLive={isTaskLive}
-          onTaskClick={handleTaskClick}
-          onTaskEdit={handleTaskEdit}
-        />
-        <BoardColumn
-          status="completed"
-          tasks={tasksByStatus.completed}
-          taskDocs={taskDocs}
-          taskConversationCounts={taskConversationCounts}
-          isTaskLive={isTaskLive}
-          onTaskClick={handleTaskClick}
-          onTaskEdit={handleTaskEdit}
-        />
-      </div>
+      {/* Content area - conditional based on active tab */}
+      {activeTab === 'development' ? (
+        <>
+          {/* Board columns */}
+          <div
+            className={cn(
+              // Mobile: horizontal scroll-snap
+              'flex gap-4 p-4 overflow-x-auto flex-1',
+              '[scroll-snap-type:x_mandatory]',
+              '[-webkit-overflow-scrolling:touch]',
+              'scrollbar-hide',
+              // Desktop: 3-column grid
+              'md:grid md:grid-cols-3 md:overflow-visible',
+              'md:[scroll-snap-type:none]',
+              // Improved padding on larger screens
+              'lg:gap-6 lg:p-6'
+            )}
+          >
+            <BoardColumn
+              status="pending"
+              tasks={tasksByStatus.pending}
+              taskDocs={taskDocs}
+              taskConversationCounts={taskConversationCounts}
+              isTaskLive={isTaskLive}
+              onTaskClick={handleTaskClick}
+              onTaskEdit={handleTaskEdit}
+            />
+            <BoardColumn
+              status="in_progress"
+              tasks={tasksByStatus.in_progress}
+              taskDocs={taskDocs}
+              taskConversationCounts={taskConversationCounts}
+              isTaskLive={isTaskLive}
+              onTaskClick={handleTaskClick}
+              onTaskEdit={handleTaskEdit}
+            />
+            <BoardColumn
+              status="completed"
+              tasks={tasksByStatus.completed}
+              taskDocs={taskDocs}
+              taskConversationCounts={taskConversationCounts}
+              isTaskLive={isTaskLive}
+              onTaskClick={handleTaskClick}
+              onTaskEdit={handleTaskEdit}
+            />
+          </div>
 
-      {/* Loading overlay */}
-      {(isLoadingTasks || isLoadingTaskData) && (
+          {/* Loading overlay for tasks */}
+          {(isLoadingTasks || isLoadingTaskData) && (
+            <div className="absolute inset-0 bg-background/50 flex items-center justify-center pointer-events-none">
+              <div className="flex items-center gap-2 text-muted-foreground">
+                <div className="w-5 h-5 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+                <span className="text-sm">Loading tasks...</span>
+              </div>
+            </div>
+          )}
+        </>
+      ) : (
+        /* Agents grid */
+        <AgentsGrid
+          project={project}
+          triggerButtonId="new-agent-trigger"
+        />
+      )}
+
+      {/* Loading overlay for agents */}
+      {activeTab === 'agents' && isLoadingAgents && (
         <div className="absolute inset-0 bg-background/50 flex items-center justify-center pointer-events-none">
           <div className="flex items-center gap-2 text-muted-foreground">
             <div className="w-5 h-5 border-2 border-primary border-t-transparent rounded-full animate-spin" />
-            <span className="text-sm">Loading tasks...</span>
+            <span className="text-sm">Loading agents...</span>
           </div>
         </div>
       )}

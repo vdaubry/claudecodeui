@@ -23,7 +23,11 @@ When done, run: \`node /home/ubuntu/claudecodeui/scripts/complete-plan.js ${task
 
 1. **Explore** - Understand the codebase (patterns, relevant files, testing approach)
 
-2. **Clarify** - Ask ONLY about major architectural decisions or ambiguous requirements (2-4 questions max). Skip minor details you can infer.
+2. **Clarify** - Ask questions ONLY if there's genuine ambiguity that could lead to wasted work. Make reasonable assumptions for everything else.
+
+   **ASK**: "Should auth use JWT or sessions?" (architectural choice with real tradeoffs)
+   **DON'T ASK**: "Should I remove password confirmation from both UI and model?" (obviously yes - just do it)
+
 
 3. **Plan** - Update the task doc with:
    - **Overview**: Task summary, context, key decisions

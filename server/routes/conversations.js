@@ -1,6 +1,6 @@
 import express from 'express';
 import { WebSocket } from 'ws';
-import { tasksDb, conversationsDb, projectsDb } from '../database/db.js';
+import { tasksDb, conversationsDb, projectsDb, agentsDb } from '../database/db.js';
 import { getSessionMessages, getSessionTokenUsage } from '../services/sessions.js';
 import { updateUserBadge } from '../services/notifications.js';
 import { startConversation } from '../services/conversationAdapter.js';
@@ -171,18 +171,35 @@ router.get('/conversations/:id', async (req, res) => {
       return res.status(404).json({ error: 'Conversation not found' });
     }
 
-    // Get task with project info to verify ownership
-    const taskWithProject = tasksDb.getWithProject(conversation.task_id);
+    // Determine if this is a task or agent conversation and verify ownership
+    let projectId = null;
+    let repoPath = null;
 
-    if (!taskWithProject || taskWithProject.user_id !== userId) {
+    if (conversation.task_id) {
+      // Task conversation - verify via task ownership
+      const taskWithProject = tasksDb.getWithProject(conversation.task_id);
+      if (!taskWithProject || taskWithProject.user_id !== userId) {
+        return res.status(404).json({ error: 'Conversation not found' });
+      }
+      projectId = taskWithProject.project_id;
+    } else if (conversation.agent_id) {
+      // Agent conversation - verify via agent ownership
+      const agentWithProject = agentsDb.getWithProject(conversation.agent_id);
+      if (!agentWithProject || agentWithProject.user_id !== userId) {
+        return res.status(404).json({ error: 'Conversation not found' });
+      }
+      projectId = agentWithProject.project_id;
+    } else {
+      // Neither task nor agent - orphan conversation
       return res.status(404).json({ error: 'Conversation not found' });
     }
 
     // Extract token usage metadata if conversation has a Claude session
     let metadata = null;
-    if (conversation.claude_conversation_id) {
-      const project = projectsDb.getById(taskWithProject.project_id, userId);
+    if (conversation.claude_conversation_id && projectId) {
+      const project = projectsDb.getById(projectId, userId);
       if (project) {
+        repoPath = project.repo_folder_path;
         const tokenUsage = await getSessionTokenUsage(
           conversation.claude_conversation_id,
           project.repo_folder_path
@@ -220,10 +237,18 @@ router.delete('/conversations/:id', (req, res) => {
       return res.status(404).json({ error: 'Conversation not found' });
     }
 
-    // Get task with project info to verify ownership
-    const taskWithProject = tasksDb.getWithProject(conversation.task_id);
-
-    if (!taskWithProject || taskWithProject.user_id !== userId) {
+    // Verify ownership based on conversation type (task or agent)
+    if (conversation.task_id) {
+      const taskWithProject = tasksDb.getWithProject(conversation.task_id);
+      if (!taskWithProject || taskWithProject.user_id !== userId) {
+        return res.status(404).json({ error: 'Conversation not found' });
+      }
+    } else if (conversation.agent_id) {
+      const agentWithProject = agentsDb.getWithProject(conversation.agent_id);
+      if (!agentWithProject || agentWithProject.user_id !== userId) {
+        return res.status(404).json({ error: 'Conversation not found' });
+      }
+    } else {
       return res.status(404).json({ error: 'Conversation not found' });
     }
 
@@ -268,10 +293,18 @@ router.patch('/conversations/:id/claude-id', (req, res) => {
       return res.status(404).json({ error: 'Conversation not found' });
     }
 
-    // Get task with project info to verify ownership
-    const taskWithProject = tasksDb.getWithProject(conversation.task_id);
-
-    if (!taskWithProject || taskWithProject.user_id !== userId) {
+    // Verify ownership based on conversation type (task or agent)
+    if (conversation.task_id) {
+      const taskWithProject = tasksDb.getWithProject(conversation.task_id);
+      if (!taskWithProject || taskWithProject.user_id !== userId) {
+        return res.status(404).json({ error: 'Conversation not found' });
+      }
+    } else if (conversation.agent_id) {
+      const agentWithProject = agentsDb.getWithProject(conversation.agent_id);
+      if (!agentWithProject || agentWithProject.user_id !== userId) {
+        return res.status(404).json({ error: 'Conversation not found' });
+      }
+    } else {
       return res.status(404).json({ error: 'Conversation not found' });
     }
 
@@ -309,10 +342,21 @@ router.get('/conversations/:id/messages', async (req, res) => {
       return res.status(404).json({ error: 'Conversation not found' });
     }
 
-    // Get task with project info to verify ownership
-    const taskWithProject = tasksDb.getWithProject(conversation.task_id);
-
-    if (!taskWithProject || taskWithProject.user_id !== userId) {
+    // Verify ownership and get project ID based on conversation type
+    let projectId = null;
+    if (conversation.task_id) {
+      const taskWithProject = tasksDb.getWithProject(conversation.task_id);
+      if (!taskWithProject || taskWithProject.user_id !== userId) {
+        return res.status(404).json({ error: 'Conversation not found' });
+      }
+      projectId = taskWithProject.project_id;
+    } else if (conversation.agent_id) {
+      const agentWithProject = agentsDb.getWithProject(conversation.agent_id);
+      if (!agentWithProject || agentWithProject.user_id !== userId) {
+        return res.status(404).json({ error: 'Conversation not found' });
+      }
+      projectId = agentWithProject.project_id;
+    } else {
       return res.status(404).json({ error: 'Conversation not found' });
     }
 
@@ -322,7 +366,7 @@ router.get('/conversations/:id/messages', async (req, res) => {
     }
 
     // Get the project to find the repo folder path
-    const project = projectsDb.getById(taskWithProject.project_id, userId);
+    const project = projectsDb.getById(projectId, userId);
 
     if (!project) {
       return res.status(404).json({ error: 'Project not found' });

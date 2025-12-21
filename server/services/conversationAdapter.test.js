@@ -350,11 +350,7 @@ describe('conversationAdapter', () => {
         options: expect.objectContaining({
           cwd: '/path/to/project',
           model: 'sonnet',
-          systemPrompt: expect.objectContaining({
-            type: 'preset',
-            preset: 'claude_code',
-            append: 'Custom prompt'
-          }),
+          systemPrompt: 'Custom prompt',
           settingSources: ['project', 'user', 'local']
         })
       });

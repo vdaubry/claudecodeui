@@ -68,6 +68,7 @@ The frontend uses a **Trello-style Board UX** with a 4-screen navigation flow:
 |------|---------|
 | `src/App.jsx` | Root component with React Router routes |
 | `src/contexts/TaskContext.jsx` | State management for projects, tasks, conversations |
+| `src/contexts/AgentContext.jsx` | State management for custom agents |
 | `src/hooks/useAuthToken.js` | Token preservation for URL-based auth |
 | `src/hooks/useTaskSubscription.js` | Real-time task updates via WebSocket subscription |
 | `src/components/Breadcrumb.jsx` | Navigation breadcrumb (Home > Project > Task) |
@@ -123,15 +124,16 @@ The frontend uses a **Trello-style Board UX** with a 4-screen navigation flow:
 | `server/services/documentation.js` | Read/write `.claude-ui/` files, build context prompts |
 | `server/services/sessions.js` | JSONL message reading for conversation history |
 | `server/services/notifications.js` | Push notifications for conversation completion |
-| `server/database/db.js` | Database operations: `projectsDb`, `tasksDb`, `conversationsDb`, `agentRunsDb` |
+| `server/database/db.js` | Database operations: `projectsDb`, `tasksDb`, `conversationsDb`, `agentsDb`, `agentRunsDb` |
 | `server/routes/projects.js` | Project CRUD + documentation endpoints |
 | `server/routes/tasks.js` | Task CRUD + documentation endpoints |
 | `server/routes/conversations.js` | Conversation CRUD + messages endpoints |
-| `server/routes/agents.js` | Agent run endpoints (start, stop, status) |
+| `server/routes/agents.js` | Custom agent CRUD + prompt endpoints |
+| `server/routes/agent-runs.js` | Agent run endpoints (start, stop, status) |
 
 ## Database Schema
 
-Four tables manage the task-driven workflow:
+Five tables manage the task-driven workflow:
 
 **`projects`** - User-created projects pointing to repo folders
 - `id`, `user_id`, `name`, `repo_folder_path`, `created_at`, `updated_at`
@@ -140,8 +142,13 @@ Four tables manage the task-driven workflow:
 - `id`, `project_id` (FK), `title`, `status`, `workflow_complete`, `created_at`, `updated_at`
 - Documentation at `.claude-ui/tasks/task-{id}.md` (convention, not stored)
 
-**`conversations`** - Links Claude sessions to tasks
-- `id`, `task_id` (FK), `claude_conversation_id`, `created_at`
+**`conversations`** - Links Claude sessions to tasks or agents
+- `id`, `task_id` (FK, nullable), `agent_id` (FK, nullable), `claude_conversation_id`, `created_at`
+- XOR constraint: exactly one of `task_id` or `agent_id` must be set
+
+**`agents`** - Custom agents with reusable prompts
+- `id`, `project_id` (FK), `name`, `created_at`, `updated_at`
+- Prompt stored at `.claude-ui/agents/agent-{id}/prompt.md`
 
 **`agent_runs`** - Tracks agent workflow executions
 - `id`, `task_id` (FK), `conversation_id` (FK), `agent_type` (implementation/review/planification), `status` (pending/running/completed/failed), `created_at`, `updated_at`
@@ -232,6 +239,101 @@ The Task Detail page receives real-time updates via WebSocket task subscriptions
 
 This eliminates the need for polling or manual refresh when new conversations are created or agent workflows complete.
 
+## Custom Agents
+
+### Overview
+
+Custom Agents allow users to create reusable agent configurations (name + prompt) at the project level. The agent's prompt is injected as Claude's system prompt when starting conversations, enabling specialized AI behaviors per project.
+
+### Architecture
+
+Custom Agents follow the same ownership model as tasks:
+
+```
+Agent Conversations:  conversation → agent → project → user
+Task Conversations:   conversation → task → project → user
+```
+
+The `conversations` table uses nullable foreign keys with an XOR constraint: each conversation belongs to exactly one of `task_id` OR `agent_id`.
+
+### URL Structure
+
+```
+/projects/:projectId?tab=agents                            # Agents tab on BoardView
+/projects/:projectId/agents/:agentId                       # AgentDetailView
+/projects/:projectId/agents/:agentId/chat/:conversationId  # ChatPage (agent context)
+```
+
+### Key Files
+
+**Backend**
+
+| File | Purpose |
+|------|---------|
+| `server/routes/agents.js` | Agent CRUD + prompt endpoints |
+| `server/database/db.js` | `agentsDb` operations, migration for agents table |
+| `server/services/documentation.js` | `getAgentPrompt()`, `saveAgentPrompt()` for `.claude-ui/agents/` |
+| `server/services/conversationAdapter.js` | Agent conversation support via `agentId` option |
+| `server/routes/conversations.js` | Agent conversation creation endpoint |
+
+**Frontend**
+
+| File | Purpose |
+|------|---------|
+| `src/contexts/AgentContext.jsx` | State management for agents, conversations, prompts |
+| `src/components/Dashboard/BoardTabBar.jsx` | Tab navigation between Development/Agents |
+| `src/components/Dashboard/AgentsGrid.jsx` | Grid container for agent cards |
+| `src/components/Dashboard/AgentCard.jsx` | Agent card with conversation count |
+| `src/components/Dashboard/AgentForm.jsx` | Create/edit agent modal |
+| `src/components/AgentDetailView.jsx` | Split view: prompt editor + conversation list |
+| `src/pages/AgentDetailPage.jsx` | Route wrapper for agent detail |
+| `src/components/AgentNewConversationModal.jsx` | Modal for starting agent conversations |
+
+### File Storage
+
+Agent prompts are stored as markdown files following the same pattern as tasks:
+
+```
+{repo}/.claude-ui/agents/agent-{id}.md
+```
+
+### API Endpoints
+
+| Endpoint | Method | Purpose |
+|----------|--------|---------|
+| `/api/projects/:projectId/agents` | GET, POST | List/create agents |
+| `/api/agents/:id` | GET, PUT, DELETE | Agent CRUD |
+| `/api/agents/:id/prompt` | GET, PUT | Agent prompt markdown |
+| `/api/agents/:id/attachments` | GET, POST | List/upload agent attachments |
+| `/api/agents/:id/attachments/:filename` | DELETE | Delete agent attachment |
+| `/api/agents/:agentId/conversations` | GET, POST | Agent conversations |
+
+### Agent Attachments
+
+Users can upload files to agents that Claude automatically reads at conversation start.
+
+**Storage**: `.claude-ui/agents/agent-{id}/input_files/`
+**Constraints**: Max 5 MB, common formats (text, images, PDFs, code files)
+
+**Backend**
+
+| File | Key Methods |
+|------|-------------|
+| `server/services/documentation.js` | `getAgentInputFilesPath()`, `ensureAgentInputFilesFolder()`, `listAgentInputFiles()`, `saveAgentInputFile()`, `deleteAgentInputFile()`, `ATTACHMENT_CONFIG` |
+| `server/routes/agents.js` | `GET/POST/DELETE /api/agents/:id/attachments` |
+
+**Frontend**
+
+| File | Key Methods/State |
+|------|-------------------|
+| `src/utils/api.js` | `agents.listAttachments()`, `agents.uploadAttachment()`, `agents.deleteAttachment()` |
+| `src/contexts/AgentContext.jsx` | `agentAttachments`, `loadAgentAttachments()`, `uploadAgentAttachment()`, `deleteAgentAttachment()` |
+| `src/components/AgentAttachments.jsx` | Attachment list UI with upload/delete |
+| `src/components/AgentDetailView.jsx` | Integrates AgentAttachments component |
+| `src/pages/AgentDetailPage.jsx` | Wires context to AgentDetailView |
+
+**Context Injection**: `buildAgentContextPrompt()` appends input_files instructions when attachments exist, instructing Claude to read all files at conversation start.
+
 ### File Structure Convention
 
 ```
@@ -241,6 +343,11 @@ This eliminates the need for polling or manual refresh when new conversations ar
     tasks/                       # Auto-created when project added
       task-1.md                  # Task documentation (auto-created blank)
       task-2.md
+    agents/                      # Created when first agent added
+      agent-1/                   # Agent folder (created when agent added)
+        prompt.md                # Agent prompt (markdown)
+        input_files/             # Agent attachments folder
+          data.json              # Uploaded files read by Claude
 ```
 
 ## State Management
@@ -475,6 +582,12 @@ Dashboard ─────► Board View ─────► Task Detail ───
 - `agentRunner.js:startAgentRun()` - Start implementation/review/planification agent
 - `agentRunner.js:stopAgentRun()` - Stop running agent for a task
 - `conversationAdapter.js:handleAgentChaining()` - Automatic implementation ↔ review loop
+
+### Custom Agents
+
+- `AgentContext.jsx:loadAgents()` - Load agents for current project
+- `AgentContext.jsx:createAgentConversation()` - Start conversation with agent prompt as system prompt
+- `conversationAdapter.startConversation()` - Accepts `agentId` option for agent-owned conversations
 
 ### Dashboard & Board Components
 

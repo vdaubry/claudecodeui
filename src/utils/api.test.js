@@ -379,4 +379,161 @@ describe('API Client - Phase 5', () => {
       expect(mockFetch).toHaveBeenCalledWith('/api/custom/endpoint', expect.any(Object));
     });
   });
+
+  describe('api.agents', () => {
+    it('list() should call GET /api/projects/:projectId/agents', async () => {
+      await api.agents.list(123);
+
+      expect(mockFetch).toHaveBeenCalledWith('/api/projects/123/agents', expect.any(Object));
+    });
+
+    it('create() should call POST /api/projects/:projectId/agents with name', async () => {
+      await api.agents.create(123, 'My Agent');
+
+      expect(mockFetch).toHaveBeenCalledWith('/api/projects/123/agents', expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({ name: 'My Agent' }),
+      }));
+    });
+
+    it('get() should call GET /api/agents/:id', async () => {
+      await api.agents.get(456);
+
+      expect(mockFetch).toHaveBeenCalledWith('/api/agents/456', expect.any(Object));
+    });
+
+    it('update() should call PUT /api/agents/:id with data', async () => {
+      await api.agents.update(456, { name: 'Updated Agent' });
+
+      expect(mockFetch).toHaveBeenCalledWith('/api/agents/456', expect.objectContaining({
+        method: 'PUT',
+        body: JSON.stringify({ name: 'Updated Agent' }),
+      }));
+    });
+
+    it('delete() should call DELETE /api/agents/:id', async () => {
+      await api.agents.delete(456);
+
+      expect(mockFetch).toHaveBeenCalledWith('/api/agents/456', expect.objectContaining({
+        method: 'DELETE',
+      }));
+    });
+
+    it('getPrompt() should call GET /api/agents/:id/prompt', async () => {
+      await api.agents.getPrompt(456);
+
+      expect(mockFetch).toHaveBeenCalledWith('/api/agents/456/prompt', expect.any(Object));
+    });
+
+    it('savePrompt() should call PUT /api/agents/:id/prompt with content', async () => {
+      await api.agents.savePrompt(456, '# Agent Prompt');
+
+      expect(mockFetch).toHaveBeenCalledWith('/api/agents/456/prompt', expect.objectContaining({
+        method: 'PUT',
+        body: JSON.stringify({ content: '# Agent Prompt' }),
+      }));
+    });
+
+    it('listConversations() should call GET /api/agents/:agentId/conversations', async () => {
+      await api.agents.listConversations(456);
+
+      expect(mockFetch).toHaveBeenCalledWith('/api/agents/456/conversations', expect.any(Object));
+    });
+
+    it('createConversation() should call POST /api/agents/:agentId/conversations', async () => {
+      await api.agents.createConversation(456);
+
+      expect(mockFetch).toHaveBeenCalledWith('/api/agents/456/conversations', expect.objectContaining({
+        method: 'POST',
+      }));
+    });
+
+    describe('attachment methods', () => {
+      it('listAttachments() should call GET /api/agents/:agentId/attachments', async () => {
+        await api.agents.listAttachments(456);
+
+        expect(mockFetch).toHaveBeenCalledWith('/api/agents/456/attachments', expect.any(Object));
+      });
+
+      it('uploadAttachment() should call POST /api/agents/:agentId/attachments with FormData', async () => {
+        const mockFile = new File(['test content'], 'test.txt', { type: 'text/plain' });
+
+        await api.agents.uploadAttachment(456, mockFile);
+
+        expect(mockFetch).toHaveBeenCalledWith('/api/agents/456/attachments', expect.objectContaining({
+          method: 'POST',
+          body: expect.any(FormData),
+          headers: expect.objectContaining({
+            'Authorization': 'Bearer test-token',
+          }),
+        }));
+
+        // Verify FormData contains the file
+        const [, options] = mockFetch.mock.calls[0];
+        expect(options.body.get('file')).toBe(mockFile);
+      });
+
+      it('uploadAttachment() should not set Content-Type header (let browser handle it)', async () => {
+        const mockFile = new File(['test content'], 'test.txt', { type: 'text/plain' });
+
+        await api.agents.uploadAttachment(456, mockFile);
+
+        const [, options] = mockFetch.mock.calls[0];
+        // Content-Type should not be set for FormData
+        expect(options.headers['Content-Type']).toBeUndefined();
+      });
+
+      it('deleteAttachment() should call DELETE /api/agents/:agentId/attachments/:filename', async () => {
+        await api.agents.deleteAttachment(456, 'test.txt');
+
+        expect(mockFetch).toHaveBeenCalledWith('/api/agents/456/attachments/test.txt', expect.objectContaining({
+          method: 'DELETE',
+        }));
+      });
+
+      it('deleteAttachment() should encode filename with special characters', async () => {
+        await api.agents.deleteAttachment(456, 'file with spaces.txt');
+
+        expect(mockFetch).toHaveBeenCalledWith('/api/agents/456/attachments/file%20with%20spaces.txt', expect.objectContaining({
+          method: 'DELETE',
+        }));
+      });
+    });
+
+    describe('output file methods', () => {
+      it('listOutputFiles() should call GET /api/agents/:agentId/output-files', async () => {
+        await api.agents.listOutputFiles(456);
+
+        expect(mockFetch).toHaveBeenCalledWith('/api/agents/456/output-files', expect.any(Object));
+      });
+
+      it('downloadOutputFile() should call GET /api/agents/:agentId/output-files/:filename', async () => {
+        await api.agents.downloadOutputFile(456, 'report.md');
+
+        expect(mockFetch).toHaveBeenCalledWith('/api/agents/456/output-files/report.md', expect.any(Object));
+      });
+
+      it('downloadOutputFile() should encode filename with special characters', async () => {
+        await api.agents.downloadOutputFile(456, 'file with spaces.txt');
+
+        expect(mockFetch).toHaveBeenCalledWith('/api/agents/456/output-files/file%20with%20spaces.txt', expect.any(Object));
+      });
+
+      it('deleteOutputFile() should call DELETE /api/agents/:agentId/output-files/:filename', async () => {
+        await api.agents.deleteOutputFile(456, 'report.md');
+
+        expect(mockFetch).toHaveBeenCalledWith('/api/agents/456/output-files/report.md', expect.objectContaining({
+          method: 'DELETE',
+        }));
+      });
+
+      it('deleteOutputFile() should encode filename with special characters', async () => {
+        await api.agents.deleteOutputFile(456, 'file with spaces.txt');
+
+        expect(mockFetch).toHaveBeenCalledWith('/api/agents/456/output-files/file%20with%20spaces.txt', expect.objectContaining({
+          method: 'DELETE',
+        }));
+      });
+    });
+  });
 });

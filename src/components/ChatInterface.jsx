@@ -86,6 +86,7 @@ function convertSessionMessages(rawMessages) {
 function ChatInterface({
   selectedProject,
   selectedTask,
+  selectedAgent, // NEW: Support for agent conversations
   activeConversation,
   onShowSettings,
   autoExpandTools,
@@ -191,13 +192,13 @@ function ChatInterface({
   }, [refreshSessionMessages]);
 
   // Create a session-like object for the streaming hook
-  // IMPORTANT: Require real claudeSessionId for streaming
-  // With the new modal-first flow, we always have the real session ID
-  // before navigating to ChatInterface
+  // For new conversations (e.g., from agent modal), we may not have a claudeSessionId yet
+  // but we still need to subscribe to WebSocket messages to receive streaming responses.
+  // Use conversationId as a fallback to enable subscription.
   const sessionForStreaming = useMemo(() => {
-    if (!conversationId || !claudeSessionId) return null;
+    if (!conversationId) return null;
     return {
-      id: claudeSessionId,
+      id: claudeSessionId || `pending-${conversationId}`,
       __provider: 'claude'
     };
   }, [conversationId, claudeSessionId]);
@@ -288,9 +289,9 @@ function ChatInterface({
     setStreamingMessages([userMessage]);
 
     // Determine if this is a new conversation or resume
-    // New conversation: has taskId but no claudeSessionId
+    // New conversation: has taskId/agentId but no claudeSessionId
     // Resume: has claudeSessionId (from previous messages)
-    const isNewConversation = !claudeSessionId && !!selectedTask?.id;
+    const isNewConversation = !claudeSessionId && (!!selectedTask?.id || !!selectedAgent?.id);
 
     sendMessage('claude-command', {
       command: messageText,
@@ -300,14 +301,15 @@ function ChatInterface({
         sessionId: claudeSessionId,
         resume: !!claudeSessionId,
         permissionMode: permissionMode,
-        // Task-based conversation flow
+        // Task or Agent conversation flow
         conversationId: activeConversation?.id,
         taskId: selectedTask?.id,
+        agentId: selectedAgent?.id, // NEW: Support for agent conversations
         isNewConversation: isNewConversation
       }
     });
     // Note: isSending is cleared when claude-complete is received
-  }, [input, isSending, isStreaming, selectedProject, claudeSessionId, isConnected, sendMessage, permissionMode, projectPath, activeConversation, selectedTask]);
+  }, [input, isSending, isStreaming, selectedProject, claudeSessionId, isConnected, sendMessage, permissionMode, projectPath, activeConversation, selectedTask, selectedAgent]);
 
   // Convert raw messages to displayable format, including streaming messages
   const displayMessages = useMemo(() => {

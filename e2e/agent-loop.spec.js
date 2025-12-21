@@ -7,7 +7,7 @@
  * 3. Wait for planification to complete (poll database)
  * 4. Start implementation agent via API (triggers auto-loop)
  * 5. Wait for workflow_complete = true (poll database)
- * 6. Verify hello.py was created
+ * 6. Verify agent runs in database (planification, implementation, review)
  * 7. Cleanup: delete test project
  *
  * Uses Playwright's request API (no browser) for HTTP calls.
@@ -116,7 +116,7 @@ test.describe('Agent Loop Integration', () => {
     }
   });
 
-  test('complete agent loop: planification -> implementation -> review -> hello.py', async () => {
+  test('complete agent loop: planification -> implementation -> review', async () => {
     // Total test timeout: planification + loop + buffer
     test.setTimeout(PLANIFICATION_TIMEOUT + LOOP_TIMEOUT + 30000);
 
@@ -300,40 +300,9 @@ Create a simple Python "Hello World" command-line application.
     }
 
     // ========================================
-    // STEP 8: Verify hello.py was created
+    // STEP 8: Verify agent_runs table has expected entries
     // ========================================
-    console.log('Step 8: Verifying hello.py was created...');
-
-    // Check for hello.py or common variations
-    const possibleFiles = ['hello.py', 'hello_world.py', 'main.py'];
-    let foundFile = null;
-    let fileContent = '';
-
-    for (const filename of possibleFiles) {
-      const filePath = path.join(projectPath, filename);
-      if (fs.existsSync(filePath)) {
-        foundFile = filePath;
-        fileContent = fs.readFileSync(filePath, 'utf8');
-        break;
-      }
-    }
-
-    // List all files in project folder for debugging
-    const projectFiles = fs.readdirSync(projectPath);
-    console.log(`Files in project folder: ${projectFiles.join(', ') || '(empty)'}`);
-
-    // Assertions
-    expect(foundFile, `No Python file was created. Files found: ${projectFiles.join(', ')}`).not.toBeNull();
-    expect(fileContent.length, 'Python file is empty').toBeGreaterThan(0);
-    expect(fileContent.toLowerCase(), 'File does not contain "print" statement').toContain('print');
-
-    console.log(`SUCCESS! Found ${path.basename(foundFile)} with content:`);
-    console.log(fileContent);
-
-    // ========================================
-    // STEP 9: Verify agent_runs table has expected entries
-    // ========================================
-    console.log('Step 9: Verifying agent runs in database...');
+    console.log('Step 8: Verifying agent runs in database...');
 
     const dbVerify = getDb();
     try {

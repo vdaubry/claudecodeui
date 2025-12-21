@@ -121,6 +121,64 @@ const runMigrations = () => {
       }
     }
 
+    // Custom Agents table migration (for existing databases)
+    try {
+      db.prepare("SELECT 1 FROM agents LIMIT 1").get();
+    } catch (e) {
+      if (e.message.includes('no such table')) {
+        console.log('Running migration: Creating agents table');
+        db.exec(`
+          CREATE TABLE IF NOT EXISTS agents (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              project_id INTEGER NOT NULL,
+              name TEXT NOT NULL,
+              created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+              updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+              FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+          );
+          CREATE INDEX IF NOT EXISTS idx_agents_project_id ON agents(project_id);
+        `);
+      }
+    }
+
+    // Conversations table migration: Add agent_id column and make task_id nullable
+    // This supports conversations belonging to either a task OR an agent
+    const convTableInfo = db.prepare("PRAGMA table_info(conversations)").all();
+    const convColumnNames = convTableInfo.map(col => col.name);
+
+    if (!convColumnNames.includes('agent_id')) {
+      console.log('Running migration: Updating conversations table for agent support');
+
+      // SQLite doesn't support ALTER COLUMN, so we need to recreate the table
+      db.exec(`
+        -- Create new table with nullable task_id and agent_id
+        CREATE TABLE conversations_new (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            task_id INTEGER NULL,
+            agent_id INTEGER NULL,
+            claude_conversation_id TEXT,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE,
+            FOREIGN KEY (agent_id) REFERENCES agents(id) ON DELETE CASCADE,
+            CHECK ((task_id IS NULL) != (agent_id IS NULL))
+        );
+
+        -- Copy existing data (all existing conversations have task_id)
+        INSERT INTO conversations_new (id, task_id, agent_id, claude_conversation_id, created_at)
+        SELECT id, task_id, NULL, claude_conversation_id, created_at
+        FROM conversations;
+
+        -- Drop old table and rename new one
+        DROP TABLE conversations;
+        ALTER TABLE conversations_new RENAME TO conversations;
+
+        -- Recreate indexes
+        CREATE INDEX IF NOT EXISTS idx_conversations_task_id ON conversations(task_id);
+        CREATE INDEX IF NOT EXISTS idx_conversations_agent_id ON conversations(agent_id);
+        CREATE INDEX IF NOT EXISTS idx_conversations_claude_id ON conversations(claude_conversation_id);
+      `);
+    }
+
     console.log('Database migrations completed successfully');
   } catch (error) {
     console.error('Error running migrations:', error.message);
@@ -468,12 +526,23 @@ const tasksDb = {
 
 // Conversations database operations
 const conversationsDb = {
-  // Create a new conversation
+  // Create a new conversation for a task
   create: (taskId) => {
     try {
-      const stmt = db.prepare('INSERT INTO conversations (task_id) VALUES (?)');
+      const stmt = db.prepare('INSERT INTO conversations (task_id, agent_id) VALUES (?, NULL)');
       const result = stmt.run(taskId);
-      return { id: result.lastInsertRowid, taskId, claudeConversationId: null };
+      return { id: result.lastInsertRowid, task_id: taskId, agent_id: null, claude_conversation_id: null };
+    } catch (err) {
+      throw err;
+    }
+  },
+
+  // Create a new conversation for an agent
+  createForAgent: (agentId) => {
+    try {
+      const stmt = db.prepare('INSERT INTO conversations (task_id, agent_id) VALUES (NULL, ?)');
+      const result = stmt.run(agentId);
+      return { id: result.lastInsertRowid, task_id: null, agent_id: agentId, claude_conversation_id: null };
     } catch (err) {
       throw err;
     }
@@ -483,6 +552,16 @@ const conversationsDb = {
   getByTask: (taskId) => {
     try {
       const rows = db.prepare('SELECT * FROM conversations WHERE task_id = ? ORDER BY created_at DESC').all(taskId);
+      return rows;
+    } catch (err) {
+      throw err;
+    }
+  },
+
+  // Get all conversations for an agent
+  getByAgent: (agentId) => {
+    try {
+      const rows = db.prepare('SELECT * FROM conversations WHERE agent_id = ? ORDER BY created_at DESC').all(agentId);
       return rows;
     } catch (err) {
       throw err;
@@ -641,6 +720,100 @@ const agentRunsDb = {
   }
 };
 
+// Custom Agents database operations
+const agentsDb = {
+  // Create a new agent
+  create: (projectId, name) => {
+    try {
+      const stmt = db.prepare('INSERT INTO agents (project_id, name) VALUES (?, ?)');
+      const result = stmt.run(projectId, name);
+      return { id: result.lastInsertRowid, project_id: projectId, name };
+    } catch (err) {
+      throw err;
+    }
+  },
+
+  // Get all agents for a project
+  getByProject: (projectId) => {
+    try {
+      const rows = db.prepare('SELECT * FROM agents WHERE project_id = ? ORDER BY name ASC').all(projectId);
+      return rows;
+    } catch (err) {
+      throw err;
+    }
+  },
+
+  // Get agent by ID
+  getById: (id) => {
+    try {
+      const row = db.prepare('SELECT * FROM agents WHERE id = ?').get(id);
+      return row;
+    } catch (err) {
+      throw err;
+    }
+  },
+
+  // Get agent with its project (JOIN) - for ownership verification and getting project path
+  getWithProject: (agentId) => {
+    try {
+      const row = db.prepare(`
+        SELECT a.*, p.user_id, p.name as project_name, p.repo_folder_path
+        FROM agents a
+        JOIN projects p ON a.project_id = p.id
+        WHERE a.id = ?
+      `).get(agentId);
+      return row;
+    } catch (err) {
+      throw err;
+    }
+  },
+
+  // Update an agent
+  update: (id, updates) => {
+    try {
+      const allowedFields = ['name'];
+      const setClause = [];
+      const values = [];
+
+      for (const field of allowedFields) {
+        if (updates[field] !== undefined) {
+          setClause.push(`${field} = ?`);
+          values.push(updates[field]);
+        }
+      }
+
+      if (setClause.length === 0) {
+        return agentsDb.getById(id);
+      }
+
+      setClause.push('updated_at = CURRENT_TIMESTAMP');
+      values.push(id);
+
+      const stmt = db.prepare(`UPDATE agents SET ${setClause.join(', ')} WHERE id = ?`);
+      const result = stmt.run(...values);
+
+      if (result.changes === 0) {
+        return null;
+      }
+
+      return agentsDb.getById(id);
+    } catch (err) {
+      throw err;
+    }
+  },
+
+  // Delete an agent
+  delete: (id) => {
+    try {
+      const stmt = db.prepare('DELETE FROM agents WHERE id = ?');
+      const result = stmt.run(id);
+      return result.changes > 0;
+    } catch (err) {
+      throw err;
+    }
+  }
+};
+
 export {
   db,
   initializeDatabase,
@@ -648,5 +821,6 @@ export {
   projectsDb,
   tasksDb,
   conversationsDb,
-  agentRunsDb
+  agentRunsDb,
+  agentsDb
 };

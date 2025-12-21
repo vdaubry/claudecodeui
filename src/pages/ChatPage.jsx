@@ -1,8 +1,9 @@
 /**
  * ChatPage.jsx - Chat Page Wrapper
  *
- * Loads project, task, and conversation from URL params.
+ * Loads project, task/agent, and conversation from URL params.
  * Renders ChatInterface with header and breadcrumb.
+ * Supports both task and agent conversations.
  */
 
 import React, { useEffect, useState, useCallback, useMemo } from 'react';
@@ -13,15 +14,19 @@ import Breadcrumb from '../components/Breadcrumb';
 import ErrorBoundary from '../components/ErrorBoundary';
 import { Button } from '../components/ui/button';
 import { useTaskContext } from '../contexts/TaskContext';
+import { useAgentContext } from '../contexts/AgentContext';
 import { useAuthToken } from '../hooks/useAuthToken';
 import { api } from '../utils/api';
 import useLocalStorage from '../hooks/useLocalStorage';
 
 function ChatPage() {
-  const { projectId, taskId, conversationId } = useParams();
+  const { projectId, taskId, agentId, conversationId } = useParams();
   const navigate = useNavigate();
   const location = useLocation();
   const { getTokenParam } = useAuthToken();
+
+  // Determine if this is an agent conversation
+  const isAgentConversation = !!agentId;
 
   // Get initial message from navigation state (passed from NewConversationModal)
   const initialMessage = location.state?.initialMessage;
@@ -33,6 +38,11 @@ function ChatPage() {
     isLoadingProjects,
     isLoadingTasks
   } = useTaskContext();
+  const {
+    agents,
+    loadAgents,
+    isLoadingAgents
+  } = useAgentContext();
 
   // Display settings
   const [autoExpandTools] = useLocalStorage('autoExpandTools', false);
@@ -41,6 +51,7 @@ function ChatPage() {
 
   const [project, setProject] = useState(null);
   const [task, setTask] = useState(null);
+  const [agent, setAgent] = useState(null);
   const [conversation, setConversation] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -60,22 +71,26 @@ function ChatPage() {
     loadData();
   }, [projectId, loadProjects, projects.length, isLoadingProjects]);
 
-  // Find project and load tasks
+  // Find project and load tasks/agents
   useEffect(() => {
     if (projects.length > 0) {
       const foundProject = projects.find(p => p.id === parseInt(projectId));
       if (foundProject) {
         setProject(foundProject);
-        loadTasks(foundProject.id);
+        if (isAgentConversation) {
+          loadAgents(foundProject.id);
+        } else {
+          loadTasks(foundProject.id);
+        }
       } else {
         navigate(`/${getTokenParam()}`, { replace: true });
       }
     }
-  }, [projects, projectId, loadTasks, navigate, getTokenParam]);
+  }, [projects, projectId, loadTasks, loadAgents, navigate, getTokenParam, isAgentConversation]);
 
-  // Find task
+  // Find task (for task conversations)
   useEffect(() => {
-    if (tasks.length > 0 && project) {
+    if (!isAgentConversation && tasks.length > 0 && project) {
       const foundTask = tasks.find(t => t.id === parseInt(taskId));
       if (foundTask) {
         setTask(foundTask);
@@ -83,12 +98,26 @@ function ChatPage() {
         navigate(`/projects/${projectId}${getTokenParam()}`, { replace: true });
       }
     }
-  }, [tasks, taskId, project, projectId, navigate, getTokenParam]);
+  }, [tasks, taskId, project, projectId, navigate, getTokenParam, isAgentConversation]);
+
+  // Find agent (for agent conversations)
+  useEffect(() => {
+    if (isAgentConversation && agents.length > 0 && project) {
+      const foundAgent = agents.find(a => a.id === parseInt(agentId));
+      if (foundAgent) {
+        setAgent(foundAgent);
+      } else {
+        navigate(`/projects/${projectId}?tab=agents${getTokenParam() ? '&' + getTokenParam().slice(1) : ''}`, { replace: true });
+      }
+    }
+  }, [agents, agentId, project, projectId, navigate, getTokenParam, isAgentConversation]);
 
   // Load conversation
   useEffect(() => {
     const loadConversation = async () => {
-      if (!task) return;
+      // For task conversations, wait for task; for agent conversations, wait for agent
+      if (!isAgentConversation && !task) return;
+      if (isAgentConversation && !agent) return;
 
       try {
         const response = await api.conversations.get(parseInt(conversationId));
@@ -96,22 +125,34 @@ function ChatPage() {
           const data = await response.json();
           setConversation(data);
         } else {
-          // Conversation not found, redirect to task detail
-          navigate(`/projects/${projectId}/tasks/${taskId}${getTokenParam()}`, { replace: true });
+          // Conversation not found, redirect appropriately
+          if (isAgentConversation) {
+            navigate(`/projects/${projectId}/agents/${agentId}${getTokenParam()}`, { replace: true });
+          } else {
+            navigate(`/projects/${projectId}/tasks/${taskId}${getTokenParam()}`, { replace: true });
+          }
         }
       } catch (error) {
         console.error('Error loading conversation:', error);
-        navigate(`/projects/${projectId}/tasks/${taskId}${getTokenParam()}`, { replace: true });
+        if (isAgentConversation) {
+          navigate(`/projects/${projectId}/agents/${agentId}${getTokenParam()}`, { replace: true });
+        } else {
+          navigate(`/projects/${projectId}/tasks/${taskId}${getTokenParam()}`, { replace: true });
+        }
       }
     };
 
     loadConversation();
-  }, [conversationId, task, projectId, taskId, navigate, getTokenParam]);
+  }, [conversationId, task, agent, projectId, taskId, agentId, navigate, getTokenParam, isAgentConversation]);
 
   // Navigation handlers
   const handleBack = useCallback(() => {
-    navigate(`/projects/${projectId}/tasks/${taskId}${getTokenParam()}`);
-  }, [navigate, projectId, taskId, getTokenParam]);
+    if (isAgentConversation) {
+      navigate(`/projects/${projectId}/agents/${agentId}${getTokenParam()}`);
+    } else {
+      navigate(`/projects/${projectId}/tasks/${taskId}${getTokenParam()}`);
+    }
+  }, [navigate, projectId, taskId, agentId, getTokenParam, isAgentConversation]);
 
   const handleProjectClick = useCallback(() => {
     navigate(`/projects/${projectId}${getTokenParam()}`);
@@ -120,6 +161,10 @@ function ChatPage() {
   const handleTaskClick = useCallback(() => {
     navigate(`/projects/${projectId}/tasks/${taskId}${getTokenParam()}`);
   }, [navigate, projectId, taskId, getTokenParam]);
+
+  const handleAgentClick = useCallback(() => {
+    navigate(`/projects/${projectId}/agents/${agentId}${getTokenParam()}`);
+  }, [navigate, projectId, agentId, getTokenParam]);
 
   const handleHomeClick = useCallback(() => {
     navigate(`/${getTokenParam()}`);
@@ -136,7 +181,11 @@ function ChatPage() {
   }, [conversation, initialMessage]);
 
   // Loading state
-  if (isLoading || isLoadingProjects || !project || !task || !conversation) {
+  const isLoadingEntities = isAgentConversation
+    ? (isLoading || isLoadingProjects || isLoadingAgents || !project || !agent || !conversation)
+    : (isLoading || isLoadingProjects || isLoadingTasks || !project || !task || !conversation);
+
+  if (isLoadingEntities) {
     return (
       <div className="h-full flex items-center justify-center">
         <div className="text-center text-muted-foreground">
@@ -159,16 +208,18 @@ function ChatPage() {
             size="sm"
             onClick={handleBack}
             className="h-8 w-8 p-0"
-            title="Back to Task"
+            title={isAgentConversation ? "Back to Agent" : "Back to Task"}
           >
             <ArrowLeft className="w-4 h-4" />
           </Button>
           <Breadcrumb
             project={project}
             task={task}
+            agent={agent}
             conversation={activeConversation}
             onProjectClick={handleProjectClick}
             onTaskClick={handleTaskClick}
+            onAgentClick={handleAgentClick}
             onHomeClick={handleHomeClick}
           />
         </div>
@@ -180,6 +231,7 @@ function ChatPage() {
           <ChatInterface
             selectedProject={project}
             selectedTask={task}
+            selectedAgent={agent}
             activeConversation={activeConversation}
             onShowSettings={() => window.openSettings?.()}
             autoExpandTools={autoExpandTools}
