@@ -5,8 +5,8 @@
  * Renders ChatInterface with header and breadcrumb.
  */
 
-import React, { useEffect, useState, useCallback } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import React, { useEffect, useState, useCallback, useMemo } from 'react';
+import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { ArrowLeft } from 'lucide-react';
 import ChatInterface from '../components/ChatInterface';
 import Breadcrumb from '../components/Breadcrumb';
@@ -20,7 +20,11 @@ import useLocalStorage from '../hooks/useLocalStorage';
 function ChatPage() {
   const { projectId, taskId, conversationId } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
   const { getTokenParam } = useAuthToken();
+
+  // Get initial message from navigation state (passed from NewConversationModal)
+  const initialMessage = location.state?.initialMessage;
   const {
     projects,
     tasks,
@@ -121,6 +125,16 @@ function ChatPage() {
     navigate(`/${getTokenParam()}`);
   }, [navigate, getTokenParam]);
 
+  // Create conversation object with initial message for ChatInterface
+  const activeConversation = useMemo(() => {
+    if (!conversation) return null;
+    // Attach initial message so ChatInterface can display it immediately
+    if (initialMessage) {
+      return { ...conversation, __initialMessage: initialMessage };
+    }
+    return conversation;
+  }, [conversation, initialMessage]);
+
   // Loading state
   if (isLoading || isLoadingProjects || !project || !task || !conversation) {
     return (
@@ -152,7 +166,7 @@ function ChatPage() {
           <Breadcrumb
             project={project}
             task={task}
-            conversation={conversation}
+            conversation={activeConversation}
             onProjectClick={handleProjectClick}
             onTaskClick={handleTaskClick}
             onHomeClick={handleHomeClick}
@@ -166,7 +180,7 @@ function ChatPage() {
           <ChatInterface
             selectedProject={project}
             selectedTask={task}
-            activeConversation={conversation}
+            activeConversation={activeConversation}
             onShowSettings={() => window.openSettings?.()}
             autoExpandTools={autoExpandTools}
             showRawParameters={showRawParameters}

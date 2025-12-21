@@ -132,7 +132,10 @@ function TaskDetailPage() {
 
   const handleConversationCreated = useCallback((conversation) => {
     setShowNewConversationModal(false);
-    navigate(`/projects/${projectId}/tasks/${taskId}/chat/${conversation.id}${getTokenParam()}`);
+    // Pass initial message via navigation state so ChatPage can display it immediately
+    navigate(`/projects/${projectId}/tasks/${taskId}/chat/${conversation.id}${getTokenParam()}`, {
+      state: { initialMessage: conversation.__initialMessage }
+    });
   }, [navigate, projectId, taskId, getTokenParam]);
 
   const handleResumeConversation = useCallback((conversation) => {
