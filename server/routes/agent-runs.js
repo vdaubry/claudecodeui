@@ -84,9 +84,13 @@ router.post('/tasks/:taskId/agent-runs', async (req, res) => {
       }
     };
 
+    // Get the task-specific broadcast function
+    const broadcastToTaskSubscribersFn = req.app.locals.broadcastToTaskSubscribers;
+
     // Start the agent run (creates conversation, starts streaming, handles chaining)
     const { agentRun } = await startAgentRun(taskId, agentType, {
       broadcastFn,
+      broadcastToTaskSubscribersFn,
       userId
     });
 

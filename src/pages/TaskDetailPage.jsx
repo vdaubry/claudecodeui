@@ -12,6 +12,7 @@ import NewConversationModal from '../components/NewConversationModal';
 import { useTaskContext } from '../contexts/TaskContext';
 import { useToast } from '../contexts/ToastContext';
 import { useAuthToken } from '../hooks/useAuthToken';
+import { useTaskSubscription } from '../hooks/useTaskSubscription';
 import { api } from '../utils/api';
 
 function TaskDetailPage() {
@@ -44,6 +45,9 @@ function TaskDetailPage() {
   const [task, setTask] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
   const [showNewConversationModal, setShowNewConversationModal] = useState(false);
+
+  // Subscribe to real-time task updates via WebSocket
+  useTaskSubscription(task?.id || null);
 
   // Load project data
   useEffect(() => {

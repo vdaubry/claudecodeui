@@ -28,7 +28,7 @@ import {
  * @returns {Promise<{agentRun: Object, conversation: Object, claudeSessionId: string}>}
  */
 export async function startAgentRun(taskId, agentType, options = {}) {
-  const { broadcastFn, userId } = options;
+  const { broadcastFn, broadcastToTaskSubscribersFn, userId } = options;
 
   // Get task and project info
   const taskWithProject = tasksDb.getWithProject(taskId);
@@ -59,6 +59,10 @@ export async function startAgentRun(taskId, agentType, options = {}) {
   const agentRun = agentRunsDb.create(taskId, agentType, null);
   console.log(`[AgentRunner] Created agent run ${agentRun.id} (${agentType}) for task ${taskId}`);
 
+  // Set agent run status to 'running' immediately
+  agentRunsDb.updateStatus(agentRun.id, 'running');
+  agentRun.status = 'running';
+
   // Create conversation
   const conversation = conversationsDb.create(taskId);
   console.log(`[AgentRunner] Created conversation ${conversation.id} for task ${taskId}`);
@@ -66,6 +70,19 @@ export async function startAgentRun(taskId, agentType, options = {}) {
   // Link conversation to agent run
   agentRunsDb.linkConversation(agentRun.id, conversation.id);
   console.log(`[AgentRunner] Linked conversation ${conversation.id} to agent run ${agentRun.id}`);
+
+  // Broadcast agent run created/running to task subscribers
+  if (broadcastToTaskSubscribersFn) {
+    broadcastToTaskSubscribersFn(taskId, {
+      type: 'agent-run-updated',
+      agentRun: {
+        id: agentRun.id,
+        status: 'running',
+        agent_type: agentType,
+        conversation_id: conversation.id
+      }
+    });
+  }
 
   // Update task status to 'in_progress' if it's currently 'pending'
   if (taskWithProject.status === 'pending') {
@@ -88,6 +105,7 @@ export async function startAgentRun(taskId, agentType, options = {}) {
   // agent status updates, notifications, and chaining)
   const { conversationId, claudeSessionId } = await startConversation(taskId, message, {
     broadcastFn,
+    broadcastToTaskSubscribersFn,
     userId,
     customSystemPrompt: contextPrompt,
     permissionMode: 'bypassPermissions',

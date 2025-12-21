@@ -79,11 +79,27 @@ import { validateApiKey, authenticateToken, authenticateWebSocket } from './midd
 // Track which session each client is subscribed to for targeted message delivery
 const clientSubscriptions = new Map(); // Map<WebSocket, { sessionId: string | null, provider: string }>
 
+// Track which tasks each client is subscribed to for live updates on Task Detail page
+const taskSubscriptions = new Map(); // Map<WebSocket, Set<taskId>>
+
 // Broadcast message to all connected WebSocket clients
 function broadcastToAll(wss, message) {
     wss.clients.forEach(client => {
         if (client.readyState === WebSocket.OPEN) {
             client.send(JSON.stringify(message));
+        }
+    });
+}
+
+// Broadcast message only to clients subscribed to a specific task
+function broadcastToTaskSubscribers(taskId, message) {
+    const messageWithTaskId = { ...message, taskId };
+    wss.clients.forEach(client => {
+        if (client.readyState === WebSocket.OPEN) {
+            const subscribedTasks = taskSubscriptions.get(client);
+            if (subscribedTasks?.has(taskId)) {
+                client.send(JSON.stringify(messageWithTaskId));
+            }
         }
     });
 }
@@ -149,8 +165,9 @@ wss.on('close', () => {
     clearInterval(heartbeatInterval);
 });
 
-// Make WebSocket server available to routes
+// Make WebSocket server and broadcast functions available to routes
 app.locals.wss = wss;
+app.locals.broadcastToTaskSubscribers = broadcastToTaskSubscribers;
 
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
@@ -282,6 +299,7 @@ function handleChatConnection(ws, request) {
                         // Use adapter to start conversation
                         await startConversation(taskId, data.command, {
                             broadcastFn,
+                            broadcastToTaskSubscribersFn: broadcastToTaskSubscribers,
                             userId,
                             customSystemPrompt: contextPrompt,
                             conversationId, // Use existing if provided
@@ -296,6 +314,7 @@ function handleChatConnection(ws, request) {
                         // Use adapter to send message
                         await sendMessage(conversationId, data.command, {
                             broadcastFn,
+                            broadcastToTaskSubscribersFn: broadcastToTaskSubscribers,
                             userId,
                             images,
                             permissionMode: permissionMode || 'bypassPermissions'
@@ -369,6 +388,33 @@ function handleChatConnection(ws, request) {
                     type: 'session-unsubscribed',
                     success: true
                 }));
+            } else if (data.type === 'subscribe-task') {
+                // Subscribe client to task updates for live Task Detail page
+                const { taskId } = data;
+                console.log('[DEBUG] Client subscribing to task:', taskId);
+
+                if (!taskSubscriptions.has(ws)) {
+                    taskSubscriptions.set(ws, new Set());
+                }
+                taskSubscriptions.get(ws).add(taskId);
+
+                ws.send(JSON.stringify({
+                    type: 'task-subscribed',
+                    taskId,
+                    success: true
+                }));
+            } else if (data.type === 'unsubscribe-task') {
+                // Unsubscribe client from task updates
+                const { taskId } = data;
+                console.log('[DEBUG] Client unsubscribing from task:', taskId);
+
+                taskSubscriptions.get(ws)?.delete(taskId);
+
+                ws.send(JSON.stringify({
+                    type: 'task-unsubscribed',
+                    taskId,
+                    success: true
+                }));
             }
         } catch (error) {
             console.error('[ERROR] Chat WebSocket error:', error.message);
@@ -381,8 +427,9 @@ function handleChatConnection(ws, request) {
 
     ws.on('close', () => {
         console.log('🔌 Chat client disconnected');
-        // Clean up subscription
+        // Clean up subscriptions
         clientSubscriptions.delete(ws);
+        taskSubscriptions.delete(ws);
     });
 }
 
