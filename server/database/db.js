@@ -448,6 +448,21 @@ const tasksDb = {
     } catch (err) {
       throw err;
     }
+  },
+
+  // Get old completed tasks (those beyond the first N newest completed tasks)
+  getOldCompletedTasks: (projectId, keepCount = 20) => {
+    try {
+      const rows = db.prepare(`
+        SELECT id FROM tasks
+        WHERE project_id = ? AND status = 'completed'
+        ORDER BY updated_at DESC
+        LIMIT -1 OFFSET ?
+      `).all(projectId, keepCount);
+      return rows.map(r => r.id);
+    } catch (err) {
+      throw err;
+    }
   }
 };
 

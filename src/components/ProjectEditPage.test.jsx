@@ -24,6 +24,16 @@ vi.mock('lucide-react', () => ({
   Trash2: () => <span data-testid="icon-trash" />,
   FolderOpen: () => <span data-testid="icon-folder" />,
   AlertTriangle: () => <span data-testid="icon-alert" />,
+  Archive: () => <span data-testid="icon-archive" />,
+}));
+
+// Mock api
+vi.mock('../utils/api', () => ({
+  api: {
+    tasks: {
+      cleanupOldCompleted: vi.fn(),
+    },
+  },
 }));
 
 describe('ProjectEditPage Component', () => {

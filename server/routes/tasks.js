@@ -324,6 +324,65 @@ router.put('/tasks/:id/documentation', (req, res) => {
 });
 
 /**
+ * DELETE /api/projects/:projectId/tasks/cleanup-old-completed
+ * Delete old completed tasks, keeping the most recent N (default 20)
+ * Also deletes associated documentation files
+ *
+ * Query params:
+ *   - keep: Number of recent completed tasks to keep (default: 20)
+ */
+router.delete('/projects/:projectId/tasks/cleanup-old-completed', (req, res) => {
+  try {
+    const userId = req.user.id;
+    const projectId = parseInt(req.params.projectId, 10);
+    const keepCount = parseInt(req.query.keep, 10) || 20;
+
+    if (isNaN(projectId)) {
+      return res.status(400).json({ error: 'Invalid project ID' });
+    }
+
+    // Verify the project belongs to the user
+    const project = projectsDb.getById(projectId, userId);
+    if (!project) {
+      return res.status(404).json({ error: 'Project not found' });
+    }
+
+    // Get task IDs to delete (beyond the keepCount)
+    const taskIdsToDelete = tasksDb.getOldCompletedTasks(projectId, keepCount);
+
+    if (taskIdsToDelete.length === 0) {
+      return res.json({ deletedCount: 0, message: 'No old completed tasks to delete' });
+    }
+
+    // Delete each task and its documentation
+    let deletedCount = 0;
+    for (const taskId of taskIdsToDelete) {
+      // Delete task from database (cascade deletes conversations)
+      const deleted = tasksDb.delete(taskId);
+
+      if (deleted) {
+        deletedCount++;
+        // Delete task documentation file
+        try {
+          deleteTaskDoc(project.repo_folder_path, taskId);
+        } catch (fileError) {
+          console.error(`Failed to delete task-${taskId}.md:`, fileError);
+          // Continue with other deletions
+        }
+      }
+    }
+
+    res.json({
+      deletedCount,
+      message: `Deleted ${deletedCount} old completed task(s), kept the ${keepCount} most recent`
+    });
+  } catch (error) {
+    console.error('Error cleaning up old completed tasks:', error);
+    res.status(500).json({ error: 'Failed to cleanup old completed tasks' });
+  }
+});
+
+/**
  * PUT /api/tasks/:id/workflow-complete
  * Toggle workflow complete status
  * Used for recovery from stuck states - when complete=true, force-completes all running agents

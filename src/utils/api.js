@@ -103,6 +103,10 @@ export const api = {
         method: 'PUT',
         body: JSON.stringify({ content }),
       }),
+    cleanupOldCompleted: (projectId, keepCount = 20) =>
+      authenticatedFetch(`/api/projects/${projectId}/tasks/cleanup-old-completed?keep=${keepCount}`, {
+        method: 'DELETE',
+      }),
   },
 
   // Conversations API
