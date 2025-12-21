@@ -81,13 +81,14 @@ export default function AgentNewConversationModal({
       const conversation = await createResponse.json();
 
       // Then start the Claude session via WebSocket
-      sendWsMessage({
-        type: 'claude-command',
-        conversationId: conversation.id,
-        agentId: agent.id,
-        projectPath: projectPath,
-        permissionMode: permissionMode,
-        message: input.trim()
+      sendWsMessage('claude-command', {
+        command: input.trim(),
+        options: {
+          conversationId: conversation.id,
+          agentId: agent.id,
+          isNewConversation: true,
+          permissionMode: permissionMode
+        }
       });
 
       // Attach the initial message for immediate display in ChatInterface
