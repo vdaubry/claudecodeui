@@ -192,13 +192,13 @@ function ChatInterface({
   }, [refreshSessionMessages]);
 
   // Create a session-like object for the streaming hook
-  // IMPORTANT: Require real claudeSessionId for streaming
-  // With the new modal-first flow, we always have the real session ID
-  // before navigating to ChatInterface
+  // For new conversations (e.g., from agent modal), we may not have a claudeSessionId yet
+  // but we still need to subscribe to WebSocket messages to receive streaming responses.
+  // Use conversationId as a fallback to enable subscription.
   const sessionForStreaming = useMemo(() => {
-    if (!conversationId || !claudeSessionId) return null;
+    if (!conversationId) return null;
     return {
-      id: claudeSessionId,
+      id: claudeSessionId || `pending-${conversationId}`,
       __provider: 'claude'
     };
   }, [conversationId, claudeSessionId]);
