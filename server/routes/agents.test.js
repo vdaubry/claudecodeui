@@ -37,7 +37,7 @@ vi.mock('../services/documentation.js', () => ({
 
 import agentsRoutes from './agents.js';
 import { projectsDb, agentsDb, conversationsDb } from '../database/db.js';
-import { readAgentPrompt, writeAgentPrompt, deleteAgentPrompt } from '../services/documentation.js';
+import { readAgentPrompt, writeAgentPrompt, deleteAgentPrompt, listAgentInputFiles, saveAgentInputFile, deleteAgentInputFile, ATTACHMENT_CONFIG } from '../services/documentation.js';
 
 describe('Agents Routes', () => {
   let app;
@@ -473,6 +473,215 @@ describe('Agents Routes', () => {
       const response = await request(app)
         .post('/api/agents/abc/conversations')
         .send({});
+
+      expect(response.status).toBe(400);
+      expect(response.body.error).toBe('Invalid agent ID');
+    });
+  });
+
+  describe('GET /api/agents/:id/attachments', () => {
+    it('should return all attachments for an agent', async () => {
+      const mockAgentWithProject = { id: 1, project_id: 1, user_id: testUserId, repo_folder_path: '/path/to/repo' };
+      const mockFiles = [
+        { name: 'file1.txt', size: 1024, mimeType: 'text/plain' },
+        { name: 'image.png', size: 2048, mimeType: 'image/png' }
+      ];
+      agentsDb.getWithProject.mockReturnValue(mockAgentWithProject);
+      listAgentInputFiles.mockReturnValue(mockFiles);
+
+      const response = await request(app).get('/api/agents/1/attachments');
+
+      expect(response.status).toBe(200);
+      expect(response.body).toEqual(mockFiles);
+      expect(listAgentInputFiles).toHaveBeenCalledWith('/path/to/repo', 1);
+    });
+
+    it('should return empty array when no attachments exist', async () => {
+      const mockAgentWithProject = { id: 1, project_id: 1, user_id: testUserId, repo_folder_path: '/path/to/repo' };
+      agentsDb.getWithProject.mockReturnValue(mockAgentWithProject);
+      listAgentInputFiles.mockReturnValue([]);
+
+      const response = await request(app).get('/api/agents/1/attachments');
+
+      expect(response.status).toBe(200);
+      expect(response.body).toEqual([]);
+    });
+
+    it('should return 404 if agent not found', async () => {
+      agentsDb.getWithProject.mockReturnValue(undefined);
+
+      const response = await request(app).get('/api/agents/999/attachments');
+
+      expect(response.status).toBe(404);
+      expect(response.body.error).toBe('Agent not found');
+    });
+
+    it('should return 404 if agent belongs to different user', async () => {
+      const mockAgentWithProject = { id: 1, project_id: 1, user_id: 999 };
+      agentsDb.getWithProject.mockReturnValue(mockAgentWithProject);
+
+      const response = await request(app).get('/api/agents/1/attachments');
+
+      expect(response.status).toBe(404);
+      expect(response.body.error).toBe('Agent not found');
+    });
+
+    it('should return 400 for invalid agent ID', async () => {
+      const response = await request(app).get('/api/agents/abc/attachments');
+
+      expect(response.status).toBe(400);
+      expect(response.body.error).toBe('Invalid agent ID');
+    });
+  });
+
+  describe('POST /api/agents/:id/attachments', () => {
+    it('should upload a file successfully', async () => {
+      const mockAgentWithProject = { id: 1, project_id: 1, user_id: testUserId, repo_folder_path: '/path/to/repo' };
+      const savedFile = { name: 'test.txt', size: 100, mimeType: 'text/plain' };
+      agentsDb.getWithProject.mockReturnValue(mockAgentWithProject);
+      saveAgentInputFile.mockReturnValue(savedFile);
+
+      const response = await request(app)
+        .post('/api/agents/1/attachments')
+        .attach('file', Buffer.from('test content'), 'test.txt');
+
+      expect(response.status).toBe(201);
+      expect(response.body.success).toBe(true);
+      expect(response.body.file).toEqual(savedFile);
+      expect(saveAgentInputFile).toHaveBeenCalledWith(
+        '/path/to/repo',
+        1,
+        'test.txt',
+        expect.any(Buffer)
+      );
+    });
+
+    it('should return 400 when no file is provided', async () => {
+      const mockAgentWithProject = { id: 1, project_id: 1, user_id: testUserId, repo_folder_path: '/path/to/repo' };
+      agentsDb.getWithProject.mockReturnValue(mockAgentWithProject);
+
+      const response = await request(app)
+        .post('/api/agents/1/attachments')
+        .send({});
+
+      expect(response.status).toBe(400);
+      expect(response.body.error).toBe('No file provided');
+    });
+
+    it('should return 400 for disallowed file type', async () => {
+      const mockAgentWithProject = { id: 1, project_id: 1, user_id: testUserId, repo_folder_path: '/path/to/repo' };
+      agentsDb.getWithProject.mockReturnValue(mockAgentWithProject);
+
+      const response = await request(app)
+        .post('/api/agents/1/attachments')
+        .attach('file', Buffer.from('test content'), 'test.exe');
+
+      expect(response.status).toBe(400);
+      expect(response.body.error).toContain('File type .exe not allowed');
+    });
+
+    it('should return 404 if agent not found', async () => {
+      agentsDb.getWithProject.mockReturnValue(undefined);
+
+      const response = await request(app)
+        .post('/api/agents/999/attachments')
+        .attach('file', Buffer.from('test content'), 'test.txt');
+
+      expect(response.status).toBe(404);
+      expect(response.body.error).toBe('Agent not found');
+    });
+
+    it('should return 404 if agent belongs to different user', async () => {
+      const mockAgentWithProject = { id: 1, project_id: 1, user_id: 999 };
+      agentsDb.getWithProject.mockReturnValue(mockAgentWithProject);
+
+      const response = await request(app)
+        .post('/api/agents/1/attachments')
+        .attach('file', Buffer.from('test content'), 'test.txt');
+
+      expect(response.status).toBe(404);
+      expect(response.body.error).toBe('Agent not found');
+    });
+
+    it('should return 400 for invalid agent ID', async () => {
+      const response = await request(app)
+        .post('/api/agents/abc/attachments')
+        .attach('file', Buffer.from('test content'), 'test.txt');
+
+      expect(response.status).toBe(400);
+      expect(response.body.error).toBe('Invalid agent ID');
+    });
+
+    it('should return 500 when save fails', async () => {
+      const mockAgentWithProject = { id: 1, project_id: 1, user_id: testUserId, repo_folder_path: '/path/to/repo' };
+      agentsDb.getWithProject.mockReturnValue(mockAgentWithProject);
+      saveAgentInputFile.mockImplementation(() => { throw new Error('Save failed'); });
+
+      const response = await request(app)
+        .post('/api/agents/1/attachments')
+        .attach('file', Buffer.from('test content'), 'test.txt');
+
+      expect(response.status).toBe(500);
+      expect(response.body.error).toBe('Failed to save attachment');
+    });
+  });
+
+  describe('DELETE /api/agents/:id/attachments/:filename', () => {
+    it('should delete an attachment successfully', async () => {
+      const mockAgentWithProject = { id: 1, project_id: 1, user_id: testUserId, repo_folder_path: '/path/to/repo' };
+      agentsDb.getWithProject.mockReturnValue(mockAgentWithProject);
+      deleteAgentInputFile.mockReturnValue(true);
+
+      const response = await request(app).delete('/api/agents/1/attachments/test.txt');
+
+      expect(response.status).toBe(200);
+      expect(response.body).toEqual({ success: true });
+      expect(deleteAgentInputFile).toHaveBeenCalledWith('/path/to/repo', 1, 'test.txt');
+    });
+
+    it('should handle URL-encoded filenames', async () => {
+      const mockAgentWithProject = { id: 1, project_id: 1, user_id: testUserId, repo_folder_path: '/path/to/repo' };
+      agentsDb.getWithProject.mockReturnValue(mockAgentWithProject);
+      deleteAgentInputFile.mockReturnValue(true);
+
+      const response = await request(app).delete('/api/agents/1/attachments/file%20with%20spaces.txt');
+
+      expect(response.status).toBe(200);
+      expect(deleteAgentInputFile).toHaveBeenCalledWith('/path/to/repo', 1, 'file with spaces.txt');
+    });
+
+    it('should return 404 if file not found', async () => {
+      const mockAgentWithProject = { id: 1, project_id: 1, user_id: testUserId, repo_folder_path: '/path/to/repo' };
+      agentsDb.getWithProject.mockReturnValue(mockAgentWithProject);
+      deleteAgentInputFile.mockReturnValue(false);
+
+      const response = await request(app).delete('/api/agents/1/attachments/nonexistent.txt');
+
+      expect(response.status).toBe(404);
+      expect(response.body.error).toBe('Attachment not found');
+    });
+
+    it('should return 404 if agent not found', async () => {
+      agentsDb.getWithProject.mockReturnValue(undefined);
+
+      const response = await request(app).delete('/api/agents/999/attachments/test.txt');
+
+      expect(response.status).toBe(404);
+      expect(response.body.error).toBe('Agent not found');
+    });
+
+    it('should return 404 if agent belongs to different user', async () => {
+      const mockAgentWithProject = { id: 1, project_id: 1, user_id: 999 };
+      agentsDb.getWithProject.mockReturnValue(mockAgentWithProject);
+
+      const response = await request(app).delete('/api/agents/1/attachments/test.txt');
+
+      expect(response.status).toBe(404);
+      expect(response.body.error).toBe('Agent not found');
+    });
+
+    it('should return 400 for invalid agent ID', async () => {
+      const response = await request(app).delete('/api/agents/abc/attachments/test.txt');
 
       expect(response.status).toBe(400);
       expect(response.body.error).toBe('Invalid agent ID');

@@ -12,6 +12,11 @@ import {
   buildContextPrompt,
   writeAgentPrompt,
   buildAgentContextPrompt,
+  ensureAgentInputFilesFolder,
+  listAgentInputFiles,
+  saveAgentInputFile,
+  deleteAgentInputFile,
+  ATTACHMENT_CONFIG,
   _internal
 } from './documentation.js';
 
@@ -64,6 +69,11 @@ describe('Documentation Service - Phase 2', () => {
     it('should return correct agent doc path', () => {
       const result = _internal.getAgentDocPath('/home/user/project', 42);
       expect(result).toBe('/home/user/project/.claude-ui/agents/agent-42/prompt.md');
+    });
+
+    it('should return correct agent input files path', () => {
+      const result = _internal.getAgentInputFilesPath('/home/user/project', 42);
+      expect(result).toBe('/home/user/project/.claude-ui/agents/agent-42/input_files');
     });
   });
 
@@ -401,6 +411,272 @@ describe('Documentation Service - Phase 2', () => {
       // But different agent prompts
       expect(result1).toContain('Agent 1 specific');
       expect(result2).toContain('Agent 2 specific');
+    });
+
+    it('should include input files section when files exist', () => {
+      writeAgentPrompt(testRepoPath, 1, 'Agent prompt content');
+      // Create input files
+      const inputFilesPath = ensureAgentInputFilesFolder(testRepoPath, 1);
+      fs.writeFileSync(path.join(inputFilesPath, 'context.txt'), 'some context');
+      fs.writeFileSync(path.join(inputFilesPath, 'data.json'), '{}');
+
+      const result = buildAgentContextPrompt(testRepoPath, 1);
+
+      expect(result).toContain('## Input Files');
+      expect(result).toContain('IMPORTANT: At the start of this conversation');
+      expect(result).toContain('context.txt');
+      expect(result).toContain('data.json');
+      expect(result).toContain('Use the Read tool to read each file');
+    });
+
+    it('should not include input files section when no files exist', () => {
+      writeAgentPrompt(testRepoPath, 1, 'Agent prompt content');
+
+      const result = buildAgentContextPrompt(testRepoPath, 1);
+
+      expect(result).not.toContain('## Input Files');
+      expect(result).toContain('Agent prompt content');
+    });
+  });
+
+  describe('ATTACHMENT_CONFIG', () => {
+    it('should have correct max size of 5 MB', () => {
+      expect(ATTACHMENT_CONFIG.maxSizeBytes).toBe(5 * 1024 * 1024);
+    });
+
+    it('should include text file extensions', () => {
+      expect(ATTACHMENT_CONFIG.allowedExtensions).toContain('.txt');
+      expect(ATTACHMENT_CONFIG.allowedExtensions).toContain('.md');
+      expect(ATTACHMENT_CONFIG.allowedExtensions).toContain('.json');
+    });
+
+    it('should include image extensions', () => {
+      expect(ATTACHMENT_CONFIG.allowedExtensions).toContain('.png');
+      expect(ATTACHMENT_CONFIG.allowedExtensions).toContain('.jpg');
+      expect(ATTACHMENT_CONFIG.allowedExtensions).toContain('.jpeg');
+      expect(ATTACHMENT_CONFIG.allowedExtensions).toContain('.gif');
+    });
+
+    it('should include pdf extension', () => {
+      expect(ATTACHMENT_CONFIG.allowedExtensions).toContain('.pdf');
+    });
+
+    it('should include code file extensions', () => {
+      expect(ATTACHMENT_CONFIG.allowedExtensions).toContain('.js');
+      expect(ATTACHMENT_CONFIG.allowedExtensions).toContain('.ts');
+      expect(ATTACHMENT_CONFIG.allowedExtensions).toContain('.py');
+      expect(ATTACHMENT_CONFIG.allowedExtensions).toContain('.go');
+    });
+  });
+
+  describe('ensureAgentInputFilesFolder', () => {
+    it('should create input_files folder for agent', () => {
+      const result = ensureAgentInputFilesFolder(testRepoPath, 1);
+
+      expect(result).toBe(path.join(testRepoPath, '.claude-ui', 'agents', 'agent-1', 'input_files'));
+      expect(fs.existsSync(result)).toBe(true);
+    });
+
+    it('should create parent folders if they do not exist', () => {
+      ensureAgentInputFilesFolder(testRepoPath, 1);
+
+      expect(fs.existsSync(path.join(testRepoPath, '.claude-ui'))).toBe(true);
+      expect(fs.existsSync(path.join(testRepoPath, '.claude-ui', 'agents'))).toBe(true);
+      expect(fs.existsSync(path.join(testRepoPath, '.claude-ui', 'agents', 'agent-1'))).toBe(true);
+    });
+
+    it('should not fail if folder already exists', () => {
+      ensureAgentInputFilesFolder(testRepoPath, 1);
+      const result = ensureAgentInputFilesFolder(testRepoPath, 1);
+
+      expect(result).toBe(path.join(testRepoPath, '.claude-ui', 'agents', 'agent-1', 'input_files'));
+    });
+
+    it('should use correct agent ID in path', () => {
+      const result = ensureAgentInputFilesFolder(testRepoPath, 42);
+
+      expect(result).toContain('agent-42');
+    });
+  });
+
+  describe('listAgentInputFiles', () => {
+    it('should return empty array when input_files folder does not exist', () => {
+      const result = listAgentInputFiles(testRepoPath, 1);
+
+      expect(result).toEqual([]);
+    });
+
+    it('should return empty array when input_files folder is empty', () => {
+      ensureAgentInputFilesFolder(testRepoPath, 1);
+
+      const result = listAgentInputFiles(testRepoPath, 1);
+
+      expect(result).toEqual([]);
+    });
+
+    it('should return list of files with name, size, and mimeType', () => {
+      const inputFilesPath = ensureAgentInputFilesFolder(testRepoPath, 1);
+      fs.writeFileSync(path.join(inputFilesPath, 'test.txt'), 'hello world');
+
+      const result = listAgentInputFiles(testRepoPath, 1);
+
+      expect(result).toHaveLength(1);
+      expect(result[0].name).toBe('test.txt');
+      expect(result[0].size).toBe(11); // 'hello world'.length
+      expect(result[0].mimeType).toBe('text/plain');
+    });
+
+    it('should return correct mimeType for different file types', () => {
+      const inputFilesPath = ensureAgentInputFilesFolder(testRepoPath, 1);
+      fs.writeFileSync(path.join(inputFilesPath, 'doc.md'), '# Title');
+      fs.writeFileSync(path.join(inputFilesPath, 'data.json'), '{}');
+      fs.writeFileSync(path.join(inputFilesPath, 'script.py'), 'print()');
+
+      const result = listAgentInputFiles(testRepoPath, 1);
+
+      const mdFile = result.find(f => f.name === 'doc.md');
+      const jsonFile = result.find(f => f.name === 'data.json');
+      const pyFile = result.find(f => f.name === 'script.py');
+
+      expect(mdFile.mimeType).toBe('text/markdown');
+      expect(jsonFile.mimeType).toBe('application/json');
+      expect(pyFile.mimeType).toBe('text/x-python');
+    });
+
+    it('should return application/octet-stream for unknown extensions', () => {
+      const inputFilesPath = ensureAgentInputFilesFolder(testRepoPath, 1);
+      fs.writeFileSync(path.join(inputFilesPath, 'file.xyz'), 'data');
+
+      const result = listAgentInputFiles(testRepoPath, 1);
+
+      expect(result[0].mimeType).toBe('application/octet-stream');
+    });
+
+    it('should only list files, not subdirectories', () => {
+      const inputFilesPath = ensureAgentInputFilesFolder(testRepoPath, 1);
+      fs.writeFileSync(path.join(inputFilesPath, 'file.txt'), 'content');
+      fs.mkdirSync(path.join(inputFilesPath, 'subdir'));
+
+      const result = listAgentInputFiles(testRepoPath, 1);
+
+      expect(result).toHaveLength(1);
+      expect(result[0].name).toBe('file.txt');
+    });
+  });
+
+  describe('saveAgentInputFile', () => {
+    it('should save file and return file info', () => {
+      const buffer = Buffer.from('test content');
+
+      const result = saveAgentInputFile(testRepoPath, 1, 'test.txt', buffer);
+
+      expect(result.name).toBe('test.txt');
+      expect(result.size).toBe(12); // 'test content'.length
+      expect(result.mimeType).toBe('text/plain');
+    });
+
+    it('should create input_files folder if it does not exist', () => {
+      const buffer = Buffer.from('content');
+
+      saveAgentInputFile(testRepoPath, 1, 'file.txt', buffer);
+
+      const inputFilesPath = path.join(testRepoPath, '.claude-ui', 'agents', 'agent-1', 'input_files');
+      expect(fs.existsSync(inputFilesPath)).toBe(true);
+    });
+
+    it('should write correct content to file', () => {
+      const content = 'Hello, World!';
+      const buffer = Buffer.from(content);
+
+      saveAgentInputFile(testRepoPath, 1, 'greeting.txt', buffer);
+
+      const inputFilesPath = path.join(testRepoPath, '.claude-ui', 'agents', 'agent-1', 'input_files');
+      const savedContent = fs.readFileSync(path.join(inputFilesPath, 'greeting.txt'), 'utf8');
+      expect(savedContent).toBe(content);
+    });
+
+    it('should sanitize filename by removing path components', () => {
+      const buffer = Buffer.from('content');
+
+      const result = saveAgentInputFile(testRepoPath, 1, '../../../etc/passwd', buffer);
+
+      expect(result.name).toBe('passwd');
+    });
+
+    it('should sanitize filename by replacing dangerous characters', () => {
+      const buffer = Buffer.from('content');
+
+      const result = saveAgentInputFile(testRepoPath, 1, 'file name with spaces!@#.txt', buffer);
+
+      expect(result.name).toBe('file_name_with_spaces___.txt');
+    });
+
+    it('should overwrite existing file', () => {
+      const inputFilesPath = ensureAgentInputFilesFolder(testRepoPath, 1);
+      fs.writeFileSync(path.join(inputFilesPath, 'file.txt'), 'old content');
+
+      saveAgentInputFile(testRepoPath, 1, 'file.txt', Buffer.from('new content'));
+
+      const savedContent = fs.readFileSync(path.join(inputFilesPath, 'file.txt'), 'utf8');
+      expect(savedContent).toBe('new content');
+    });
+
+    it('should return correct mimeType for image files', () => {
+      const buffer = Buffer.from('fake image data');
+
+      const result = saveAgentInputFile(testRepoPath, 1, 'image.png', buffer);
+
+      expect(result.mimeType).toBe('image/png');
+    });
+  });
+
+  describe('deleteAgentInputFile', () => {
+    it('should delete file and return true', () => {
+      const inputFilesPath = ensureAgentInputFilesFolder(testRepoPath, 1);
+      fs.writeFileSync(path.join(inputFilesPath, 'file.txt'), 'content');
+
+      const result = deleteAgentInputFile(testRepoPath, 1, 'file.txt');
+
+      expect(result).toBe(true);
+      expect(fs.existsSync(path.join(inputFilesPath, 'file.txt'))).toBe(false);
+    });
+
+    it('should return false if file does not exist', () => {
+      ensureAgentInputFilesFolder(testRepoPath, 1);
+
+      const result = deleteAgentInputFile(testRepoPath, 1, 'nonexistent.txt');
+
+      expect(result).toBe(false);
+    });
+
+    it('should return false if input_files folder does not exist', () => {
+      const result = deleteAgentInputFile(testRepoPath, 1, 'file.txt');
+
+      expect(result).toBe(false);
+    });
+
+    it('should only delete the specified file', () => {
+      const inputFilesPath = ensureAgentInputFilesFolder(testRepoPath, 1);
+      fs.writeFileSync(path.join(inputFilesPath, 'file1.txt'), 'content1');
+      fs.writeFileSync(path.join(inputFilesPath, 'file2.txt'), 'content2');
+
+      deleteAgentInputFile(testRepoPath, 1, 'file1.txt');
+
+      expect(fs.existsSync(path.join(inputFilesPath, 'file1.txt'))).toBe(false);
+      expect(fs.existsSync(path.join(inputFilesPath, 'file2.txt'))).toBe(true);
+    });
+
+    it('should sanitize filename to prevent directory traversal', () => {
+      const inputFilesPath = ensureAgentInputFilesFolder(testRepoPath, 1);
+      fs.writeFileSync(path.join(inputFilesPath, 'safe.txt'), 'content');
+
+      // Try to delete a file outside the input_files folder
+      const result = deleteAgentInputFile(testRepoPath, 1, '../prompt.md');
+
+      // Should try to delete 'prompt.md' in input_files, which doesn't exist
+      expect(result).toBe(false);
+      // The safe file should still exist
+      expect(fs.existsSync(path.join(inputFilesPath, 'safe.txt'))).toBe(true);
     });
   });
 });
