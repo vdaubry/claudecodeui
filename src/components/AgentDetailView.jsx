@@ -9,13 +9,15 @@
  * - Conversation history with New/Resume buttons
  */
 
-import React from 'react';
+import React, { useState } from 'react';
 import { Bot, ArrowLeft } from 'lucide-react';
 import { Button } from './ui/button';
 import Breadcrumb from './Breadcrumb';
 import MarkdownEditor from './MarkdownEditor';
 import ConversationList from './ConversationList';
 import AgentAttachments from './AgentAttachments';
+import AgentOutputFiles from './AgentOutputFiles';
+import AgentFilesTabBar from './AgentFilesTabBar';
 import { cn } from '../lib/utils';
 
 function AgentDetailView({
@@ -25,11 +27,16 @@ function AgentDetailView({
   conversations = [],
   isLoadingPrompt = false,
   isLoadingConversations = false,
-  // Attachments
+  // Attachments (input files)
   agentAttachments = [],
   isLoadingAttachments = false,
   onUploadAttachment,
   onDeleteAttachment,
+  // Output files
+  agentOutputFiles = [],
+  isLoadingOutputFiles = false,
+  onDownloadOutputFile,
+  onDeleteOutputFile,
   // Callbacks
   onBack,
   onProjectClick,
@@ -41,6 +48,7 @@ function AgentDetailView({
   onDeleteConversation,
   className
 }) {
+  const [filesTab, setFilesTab] = useState('input');
   if (!agent) return null;
 
   return (
@@ -115,15 +123,31 @@ function AgentDetailView({
             />
           </div>
 
-          {/* Attachments Section */}
+          {/* Files Section with Tabs */}
           <div className="border-t border-border flex-shrink-0">
-            <AgentAttachments
-              attachments={agentAttachments}
-              isLoading={isLoadingAttachments}
-              onUpload={onUploadAttachment}
-              onDelete={onDeleteAttachment}
-              className="max-h-64 overflow-auto"
+            <AgentFilesTabBar
+              activeTab={filesTab}
+              onTabChange={setFilesTab}
+              inputCount={agentAttachments.length}
+              outputCount={agentOutputFiles.length}
             />
+            {filesTab === 'input' ? (
+              <AgentAttachments
+                attachments={agentAttachments}
+                isLoading={isLoadingAttachments}
+                onUpload={onUploadAttachment}
+                onDelete={onDeleteAttachment}
+                className="max-h-56 overflow-auto"
+              />
+            ) : (
+              <AgentOutputFiles
+                files={agentOutputFiles}
+                isLoading={isLoadingOutputFiles}
+                onDownload={onDownloadOutputFile}
+                onDelete={onDeleteOutputFile}
+                className="max-h-56 overflow-auto"
+              />
+            )}
           </div>
         </div>
       </div>

@@ -205,6 +205,14 @@ export const api = {
       authenticatedFetch(`/api/agents/${agentId}/attachments/${encodeURIComponent(filename)}`, {
         method: 'DELETE',
       }),
+    // Agent output files
+    listOutputFiles: (agentId) => authenticatedFetch(`/api/agents/${agentId}/output-files`),
+    downloadOutputFile: (agentId, filename) =>
+      authenticatedFetch(`/api/agents/${agentId}/output-files/${encodeURIComponent(filename)}`),
+    deleteOutputFile: (agentId, filename) =>
+      authenticatedFetch(`/api/agents/${agentId}/output-files/${encodeURIComponent(filename)}`, {
+        method: 'DELETE',
+      }),
   },
 
   // Streaming sessions (for live indicator)

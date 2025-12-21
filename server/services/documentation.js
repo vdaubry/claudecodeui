@@ -5,6 +5,7 @@ const CLAUDE_UI_FOLDER = '.claude-ui';
 const TASKS_FOLDER = 'tasks';
 const AGENTS_FOLDER = 'agents';
 const INPUT_FILES_FOLDER = 'input_files';
+const OUTPUT_FILES_FOLDER = 'output_files';
 const PROJECT_DOC_FILE = 'project.md';
 
 /**
@@ -78,6 +79,13 @@ function getAgentDocPath(repoPath, agentId) {
  */
 function getAgentInputFilesPath(repoPath, agentId) {
   return path.join(repoPath, CLAUDE_UI_FOLDER, AGENTS_FOLDER, `agent-${agentId}`, INPUT_FILES_FOLDER);
+}
+
+/**
+ * Get the path to an agent's output_files folder
+ */
+function getAgentOutputFilesPath(repoPath, agentId) {
+  return path.join(repoPath, CLAUDE_UI_FOLDER, AGENTS_FOLDER, `agent-${agentId}`, OUTPUT_FILES_FOLDER);
 }
 
 /**
@@ -477,6 +485,197 @@ export function deleteAgentInputFile(repoPath, agentId, filename) {
 }
 
 /**
+ * Ensure the output_files folder exists for an agent
+ * @param {string} repoPath - Absolute path to the repository
+ * @param {number} agentId - The agent ID
+ * @returns {string} - Path to the output_files folder
+ */
+export function ensureAgentOutputFilesFolder(repoPath, agentId) {
+  try {
+    // Ensure base folder structure exists
+    ensureClaudeUIFolder(repoPath);
+
+    // Ensure agent folder exists
+    const agentFolder = getAgentFolderPath(repoPath, agentId);
+    if (!fs.existsSync(agentFolder)) {
+      fs.mkdirSync(agentFolder, { recursive: true });
+    }
+
+    // Ensure output_files folder exists
+    const outputFilesPath = getAgentOutputFilesPath(repoPath, agentId);
+    if (!fs.existsSync(outputFilesPath)) {
+      fs.mkdirSync(outputFilesPath, { recursive: true });
+    }
+
+    return outputFilesPath;
+  } catch (error) {
+    console.error(`Failed to ensure output_files folder: ${error.message}`);
+    throw error;
+  }
+}
+
+/**
+ * List all files in an agent's output_files folder
+ * @param {string} repoPath - Absolute path to the repository
+ * @param {number} agentId - The agent ID
+ * @returns {Array<{name: string, size: number, mimeType: string}>} - List of files
+ */
+export function listAgentOutputFiles(repoPath, agentId) {
+  try {
+    const outputFilesPath = getAgentOutputFilesPath(repoPath, agentId);
+
+    if (!fs.existsSync(outputFilesPath)) {
+      return [];
+    }
+
+    const files = fs.readdirSync(outputFilesPath);
+    return files
+      .filter(name => {
+        const filePath = path.join(outputFilesPath, name);
+        return fs.statSync(filePath).isFile();
+      })
+      .map(name => {
+        const filePath = path.join(outputFilesPath, name);
+        const stats = fs.statSync(filePath);
+        const ext = path.extname(name).toLowerCase();
+
+        // Simple mime type mapping
+        const mimeTypes = {
+          '.txt': 'text/plain',
+          '.md': 'text/markdown',
+          '.json': 'application/json',
+          '.yaml': 'text/yaml',
+          '.yml': 'text/yaml',
+          '.csv': 'text/csv',
+          '.png': 'image/png',
+          '.jpg': 'image/jpeg',
+          '.jpeg': 'image/jpeg',
+          '.gif': 'image/gif',
+          '.pdf': 'application/pdf',
+          '.js': 'text/javascript',
+          '.ts': 'text/typescript',
+          '.jsx': 'text/javascript',
+          '.tsx': 'text/typescript',
+          '.py': 'text/x-python',
+          '.rb': 'text/x-ruby',
+          '.go': 'text/x-go',
+          '.rs': 'text/x-rust',
+          '.java': 'text/x-java',
+          '.c': 'text/x-c',
+          '.cpp': 'text/x-c++',
+          '.h': 'text/x-c',
+          '.hpp': 'text/x-c++',
+          '.css': 'text/css',
+          '.scss': 'text/x-scss',
+          '.html': 'text/html',
+          '.xml': 'text/xml',
+          '.sh': 'application/x-sh',
+          '.bash': 'application/x-sh',
+          '.sql': 'text/x-sql'
+        };
+
+        return {
+          name,
+          size: stats.size,
+          mimeType: mimeTypes[ext] || 'application/octet-stream'
+        };
+      });
+  } catch (error) {
+    console.error(`Failed to list agent output files: ${error.message}`);
+    throw error;
+  }
+}
+
+/**
+ * Delete a file from agent's output_files folder
+ * @param {string} repoPath - Absolute path to the repository
+ * @param {number} agentId - The agent ID
+ * @param {string} filename - Filename to delete
+ * @returns {boolean} - True if file was deleted, false if it didn't exist
+ */
+export function deleteAgentOutputFile(repoPath, agentId, filename) {
+  try {
+    const outputFilesPath = getAgentOutputFilesPath(repoPath, agentId);
+    const filePath = path.join(outputFilesPath, path.basename(filename));
+
+    if (!fs.existsSync(filePath)) {
+      return false;
+    }
+
+    fs.unlinkSync(filePath);
+    return true;
+  } catch (error) {
+    console.error(`Failed to delete agent output file: ${error.message}`);
+    throw error;
+  }
+}
+
+/**
+ * Read a file from agent's output_files folder for download
+ * @param {string} repoPath - Absolute path to the repository
+ * @param {number} agentId - The agent ID
+ * @param {string} filename - Filename to read
+ * @returns {{buffer: Buffer, mimeType: string, filename: string} | null} - File data or null if not found
+ */
+export function readAgentOutputFile(repoPath, agentId, filename) {
+  try {
+    const outputFilesPath = getAgentOutputFilesPath(repoPath, agentId);
+    const sanitizedFilename = path.basename(filename);
+    const filePath = path.join(outputFilesPath, sanitizedFilename);
+
+    if (!fs.existsSync(filePath)) {
+      return null;
+    }
+
+    const buffer = fs.readFileSync(filePath);
+    const ext = path.extname(sanitizedFilename).toLowerCase();
+
+    const mimeTypes = {
+      '.txt': 'text/plain',
+      '.md': 'text/markdown',
+      '.json': 'application/json',
+      '.yaml': 'text/yaml',
+      '.yml': 'text/yaml',
+      '.csv': 'text/csv',
+      '.png': 'image/png',
+      '.jpg': 'image/jpeg',
+      '.jpeg': 'image/jpeg',
+      '.gif': 'image/gif',
+      '.pdf': 'application/pdf',
+      '.js': 'text/javascript',
+      '.ts': 'text/typescript',
+      '.jsx': 'text/javascript',
+      '.tsx': 'text/typescript',
+      '.py': 'text/x-python',
+      '.rb': 'text/x-ruby',
+      '.go': 'text/x-go',
+      '.rs': 'text/x-rust',
+      '.java': 'text/x-java',
+      '.c': 'text/x-c',
+      '.cpp': 'text/x-c++',
+      '.h': 'text/x-c',
+      '.hpp': 'text/x-c++',
+      '.css': 'text/css',
+      '.scss': 'text/x-scss',
+      '.html': 'text/html',
+      '.xml': 'text/xml',
+      '.sh': 'application/x-sh',
+      '.bash': 'application/x-sh',
+      '.sql': 'text/x-sql'
+    };
+
+    return {
+      buffer,
+      mimeType: mimeTypes[ext] || 'application/octet-stream',
+      filename: sanitizedFilename
+    };
+  } catch (error) {
+    console.error(`Failed to read agent output file: ${error.message}`);
+    throw error;
+  }
+}
+
+/**
  * Build a combined context prompt from project and task documentation
  * @param {string} repoPath - Absolute path to the repository
  * @param {number} taskId - The task ID
@@ -540,6 +739,15 @@ ${fileList}
 Use the Read tool to read each file before proceeding with any other actions. These files contain important context for this conversation.`);
   }
 
+  // Always add output files instructions
+  const outputFilesPath = ensureAgentOutputFilesFolder(repoPath, agentId);
+  sections.push(`## Output Files
+
+When you create any output files, documents, or artifacts during this conversation, write them to:
+${outputFilesPath}
+
+Use the Write tool to create files in this directory. This allows the user to easily access and download your outputs.`);
+
   if (sections.length === 0) {
     return '';
   }
@@ -556,5 +764,6 @@ export const _internal = {
   getProjectDocPath,
   getTaskDocPath,
   getAgentDocPath,
-  getAgentInputFilesPath
+  getAgentInputFilesPath,
+  getAgentOutputFilesPath
 };

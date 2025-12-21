@@ -16,6 +16,10 @@ import {
   listAgentInputFiles,
   saveAgentInputFile,
   deleteAgentInputFile,
+  ensureAgentOutputFilesFolder,
+  listAgentOutputFiles,
+  deleteAgentOutputFile,
+  readAgentOutputFile,
   ATTACHMENT_CONFIG,
   _internal
 } from './documentation.js';
@@ -74,6 +78,11 @@ describe('Documentation Service - Phase 2', () => {
     it('should return correct agent input files path', () => {
       const result = _internal.getAgentInputFilesPath('/home/user/project', 42);
       expect(result).toBe('/home/user/project/.claude-ui/agents/agent-42/input_files');
+    });
+
+    it('should return correct agent output files path', () => {
+      const result = _internal.getAgentOutputFilesPath('/home/user/project', 42);
+      expect(result).toBe('/home/user/project/.claude-ui/agents/agent-42/output_files');
     });
   });
 
@@ -325,10 +334,13 @@ describe('Documentation Service - Phase 2', () => {
   });
 
   describe('buildAgentContextPrompt', () => {
-    it('should return empty string when no documentation exists', () => {
+    it('should include output files section even when no other documentation exists', () => {
       const result = buildAgentContextPrompt(testRepoPath, 1);
 
-      expect(result).toBe('');
+      expect(result).toContain('## Output Files');
+      expect(result).toContain('output_files');
+      expect(result).not.toContain('## Project Context');
+      expect(result).not.toContain('## Agent Instructions');
     });
 
     it('should include only project context when agent prompt is missing', () => {
@@ -375,13 +387,15 @@ describe('Documentation Service - Phase 2', () => {
       expect(result).not.toMatch(/## Project Context\n\n\s+Project/);
     });
 
-    it('should return empty string when docs exist but are whitespace only', () => {
+    it('should only include output files section when docs are whitespace only', () => {
       writeProjectDoc(testRepoPath, '   \n\n   ');
       writeAgentPrompt(testRepoPath, 1, '   ');
 
       const result = buildAgentContextPrompt(testRepoPath, 1);
 
-      expect(result).toBe('');
+      expect(result).toContain('## Output Files');
+      expect(result).not.toContain('## Project Context');
+      expect(result).not.toContain('## Agent Instructions');
     });
 
     it('should use correct agent ID for context', () => {
@@ -677,6 +691,211 @@ describe('Documentation Service - Phase 2', () => {
       expect(result).toBe(false);
       // The safe file should still exist
       expect(fs.existsSync(path.join(inputFilesPath, 'safe.txt'))).toBe(true);
+    });
+  });
+
+  describe('ensureAgentOutputFilesFolder', () => {
+    it('should create output_files folder for agent', () => {
+      const result = ensureAgentOutputFilesFolder(testRepoPath, 1);
+
+      expect(result).toBe(path.join(testRepoPath, '.claude-ui', 'agents', 'agent-1', 'output_files'));
+      expect(fs.existsSync(result)).toBe(true);
+    });
+
+    it('should create parent folders if they do not exist', () => {
+      ensureAgentOutputFilesFolder(testRepoPath, 1);
+
+      expect(fs.existsSync(path.join(testRepoPath, '.claude-ui'))).toBe(true);
+      expect(fs.existsSync(path.join(testRepoPath, '.claude-ui', 'agents'))).toBe(true);
+      expect(fs.existsSync(path.join(testRepoPath, '.claude-ui', 'agents', 'agent-1'))).toBe(true);
+    });
+
+    it('should not fail if folder already exists', () => {
+      ensureAgentOutputFilesFolder(testRepoPath, 1);
+      const result = ensureAgentOutputFilesFolder(testRepoPath, 1);
+
+      expect(result).toBe(path.join(testRepoPath, '.claude-ui', 'agents', 'agent-1', 'output_files'));
+    });
+
+    it('should use correct agent ID in path', () => {
+      const result = ensureAgentOutputFilesFolder(testRepoPath, 42);
+
+      expect(result).toContain('agent-42');
+    });
+  });
+
+  describe('listAgentOutputFiles', () => {
+    it('should return empty array when output_files folder does not exist', () => {
+      const result = listAgentOutputFiles(testRepoPath, 1);
+
+      expect(result).toEqual([]);
+    });
+
+    it('should return empty array when output_files folder is empty', () => {
+      ensureAgentOutputFilesFolder(testRepoPath, 1);
+
+      const result = listAgentOutputFiles(testRepoPath, 1);
+
+      expect(result).toEqual([]);
+    });
+
+    it('should return list of files with name, size, and mimeType', () => {
+      const outputFilesPath = ensureAgentOutputFilesFolder(testRepoPath, 1);
+      fs.writeFileSync(path.join(outputFilesPath, 'test.txt'), 'hello world');
+
+      const result = listAgentOutputFiles(testRepoPath, 1);
+
+      expect(result).toHaveLength(1);
+      expect(result[0].name).toBe('test.txt');
+      expect(result[0].size).toBe(11); // 'hello world'.length
+      expect(result[0].mimeType).toBe('text/plain');
+    });
+
+    it('should return correct mimeType for different file types', () => {
+      const outputFilesPath = ensureAgentOutputFilesFolder(testRepoPath, 1);
+      fs.writeFileSync(path.join(outputFilesPath, 'doc.md'), '# Title');
+      fs.writeFileSync(path.join(outputFilesPath, 'data.json'), '{}');
+      fs.writeFileSync(path.join(outputFilesPath, 'script.py'), 'print()');
+
+      const result = listAgentOutputFiles(testRepoPath, 1);
+
+      const mdFile = result.find(f => f.name === 'doc.md');
+      const jsonFile = result.find(f => f.name === 'data.json');
+      const pyFile = result.find(f => f.name === 'script.py');
+
+      expect(mdFile.mimeType).toBe('text/markdown');
+      expect(jsonFile.mimeType).toBe('application/json');
+      expect(pyFile.mimeType).toBe('text/x-python');
+    });
+
+    it('should return application/octet-stream for unknown extensions', () => {
+      const outputFilesPath = ensureAgentOutputFilesFolder(testRepoPath, 1);
+      fs.writeFileSync(path.join(outputFilesPath, 'file.xyz'), 'data');
+
+      const result = listAgentOutputFiles(testRepoPath, 1);
+
+      expect(result[0].mimeType).toBe('application/octet-stream');
+    });
+
+    it('should only list files, not subdirectories', () => {
+      const outputFilesPath = ensureAgentOutputFilesFolder(testRepoPath, 1);
+      fs.writeFileSync(path.join(outputFilesPath, 'file.txt'), 'content');
+      fs.mkdirSync(path.join(outputFilesPath, 'subdir'));
+
+      const result = listAgentOutputFiles(testRepoPath, 1);
+
+      expect(result).toHaveLength(1);
+      expect(result[0].name).toBe('file.txt');
+    });
+  });
+
+  describe('deleteAgentOutputFile', () => {
+    it('should delete file and return true', () => {
+      const outputFilesPath = ensureAgentOutputFilesFolder(testRepoPath, 1);
+      fs.writeFileSync(path.join(outputFilesPath, 'file.txt'), 'content');
+
+      const result = deleteAgentOutputFile(testRepoPath, 1, 'file.txt');
+
+      expect(result).toBe(true);
+      expect(fs.existsSync(path.join(outputFilesPath, 'file.txt'))).toBe(false);
+    });
+
+    it('should return false if file does not exist', () => {
+      ensureAgentOutputFilesFolder(testRepoPath, 1);
+
+      const result = deleteAgentOutputFile(testRepoPath, 1, 'nonexistent.txt');
+
+      expect(result).toBe(false);
+    });
+
+    it('should return false if output_files folder does not exist', () => {
+      const result = deleteAgentOutputFile(testRepoPath, 1, 'file.txt');
+
+      expect(result).toBe(false);
+    });
+
+    it('should only delete the specified file', () => {
+      const outputFilesPath = ensureAgentOutputFilesFolder(testRepoPath, 1);
+      fs.writeFileSync(path.join(outputFilesPath, 'file1.txt'), 'content1');
+      fs.writeFileSync(path.join(outputFilesPath, 'file2.txt'), 'content2');
+
+      deleteAgentOutputFile(testRepoPath, 1, 'file1.txt');
+
+      expect(fs.existsSync(path.join(outputFilesPath, 'file1.txt'))).toBe(false);
+      expect(fs.existsSync(path.join(outputFilesPath, 'file2.txt'))).toBe(true);
+    });
+
+    it('should sanitize filename to prevent directory traversal', () => {
+      const outputFilesPath = ensureAgentOutputFilesFolder(testRepoPath, 1);
+      fs.writeFileSync(path.join(outputFilesPath, 'safe.txt'), 'content');
+
+      // Try to delete a file outside the output_files folder
+      const result = deleteAgentOutputFile(testRepoPath, 1, '../prompt.md');
+
+      // Should try to delete 'prompt.md' in output_files, which doesn't exist
+      expect(result).toBe(false);
+      // The safe file should still exist
+      expect(fs.existsSync(path.join(outputFilesPath, 'safe.txt'))).toBe(true);
+    });
+  });
+
+  describe('readAgentOutputFile', () => {
+    it('should return file data when file exists', () => {
+      const outputFilesPath = ensureAgentOutputFilesFolder(testRepoPath, 1);
+      fs.writeFileSync(path.join(outputFilesPath, 'test.txt'), 'hello world');
+
+      const result = readAgentOutputFile(testRepoPath, 1, 'test.txt');
+
+      expect(result).not.toBeNull();
+      expect(result.filename).toBe('test.txt');
+      expect(result.mimeType).toBe('text/plain');
+      expect(result.buffer.toString()).toBe('hello world');
+    });
+
+    it('should return null if file does not exist', () => {
+      ensureAgentOutputFilesFolder(testRepoPath, 1);
+
+      const result = readAgentOutputFile(testRepoPath, 1, 'nonexistent.txt');
+
+      expect(result).toBeNull();
+    });
+
+    it('should return null if output_files folder does not exist', () => {
+      const result = readAgentOutputFile(testRepoPath, 1, 'file.txt');
+
+      expect(result).toBeNull();
+    });
+
+    it('should return correct mimeType for different file types', () => {
+      const outputFilesPath = ensureAgentOutputFilesFolder(testRepoPath, 1);
+      fs.writeFileSync(path.join(outputFilesPath, 'image.png'), 'fake png data');
+
+      const result = readAgentOutputFile(testRepoPath, 1, 'image.png');
+
+      expect(result.mimeType).toBe('image/png');
+    });
+
+    it('should sanitize filename to prevent directory traversal', () => {
+      const outputFilesPath = ensureAgentOutputFilesFolder(testRepoPath, 1);
+      fs.writeFileSync(path.join(outputFilesPath, 'safe.txt'), 'content');
+
+      // Create a file outside output_files
+      writeAgentPrompt(testRepoPath, 1, 'secret prompt');
+
+      // Try to read a file outside the output_files folder
+      const result = readAgentOutputFile(testRepoPath, 1, '../prompt.md');
+
+      // Should try to read 'prompt.md' in output_files, which doesn't exist
+      expect(result).toBeNull();
+    });
+
+    it('should return application/octet-stream for unknown extensions', () => {
+      const outputFilesPath = ensureAgentOutputFilesFolder(testRepoPath, 1);
+      fs.writeFileSync(path.join(outputFilesPath, 'file.xyz'), 'data');
+
+      const result = readAgentOutputFile(testRepoPath, 1, 'file.xyz');
+
+      expect(result.mimeType).toBe('application/octet-stream');
     });
   });
 });

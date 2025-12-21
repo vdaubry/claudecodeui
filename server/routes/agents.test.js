@@ -29,6 +29,9 @@ vi.mock('../services/documentation.js', () => ({
   listAgentInputFiles: vi.fn().mockReturnValue([]),
   saveAgentInputFile: vi.fn(),
   deleteAgentInputFile: vi.fn(),
+  listAgentOutputFiles: vi.fn().mockReturnValue([]),
+  readAgentOutputFile: vi.fn(),
+  deleteAgentOutputFile: vi.fn(),
   ATTACHMENT_CONFIG: {
     maxSizeBytes: 5 * 1024 * 1024,
     allowedExtensions: ['.txt', '.md', '.json', '.yaml', '.yml', '.csv', '.png', '.jpg', '.jpeg', '.gif', '.pdf', '.js', '.ts', '.jsx', '.tsx', '.py', '.rb', '.go', '.rs', '.java', '.c', '.cpp', '.h', '.hpp', '.css', '.scss', '.html', '.xml', '.sh', '.bash', '.sql']
@@ -37,7 +40,7 @@ vi.mock('../services/documentation.js', () => ({
 
 import agentsRoutes from './agents.js';
 import { projectsDb, agentsDb, conversationsDb } from '../database/db.js';
-import { readAgentPrompt, writeAgentPrompt, deleteAgentPrompt, listAgentInputFiles, saveAgentInputFile, deleteAgentInputFile, ATTACHMENT_CONFIG } from '../services/documentation.js';
+import { readAgentPrompt, writeAgentPrompt, deleteAgentPrompt, listAgentInputFiles, saveAgentInputFile, deleteAgentInputFile, listAgentOutputFiles, readAgentOutputFile, deleteAgentOutputFile, ATTACHMENT_CONFIG } from '../services/documentation.js';
 
 describe('Agents Routes', () => {
   let app;
@@ -682,6 +685,204 @@ describe('Agents Routes', () => {
 
     it('should return 400 for invalid agent ID', async () => {
       const response = await request(app).delete('/api/agents/abc/attachments/test.txt');
+
+      expect(response.status).toBe(400);
+      expect(response.body.error).toBe('Invalid agent ID');
+    });
+  });
+
+  describe('GET /api/agents/:id/output-files', () => {
+    it('should return all output files for an agent', async () => {
+      const mockAgentWithProject = { id: 1, project_id: 1, user_id: testUserId, repo_folder_path: '/path/to/repo' };
+      const mockFiles = [
+        { name: 'report.md', size: 1024, mimeType: 'text/markdown' },
+        { name: 'data.json', size: 2048, mimeType: 'application/json' }
+      ];
+      agentsDb.getWithProject.mockReturnValue(mockAgentWithProject);
+      listAgentOutputFiles.mockReturnValue(mockFiles);
+
+      const response = await request(app).get('/api/agents/1/output-files');
+
+      expect(response.status).toBe(200);
+      expect(response.body).toEqual(mockFiles);
+      expect(listAgentOutputFiles).toHaveBeenCalledWith('/path/to/repo', 1);
+    });
+
+    it('should return empty array when no output files exist', async () => {
+      const mockAgentWithProject = { id: 1, project_id: 1, user_id: testUserId, repo_folder_path: '/path/to/repo' };
+      agentsDb.getWithProject.mockReturnValue(mockAgentWithProject);
+      listAgentOutputFiles.mockReturnValue([]);
+
+      const response = await request(app).get('/api/agents/1/output-files');
+
+      expect(response.status).toBe(200);
+      expect(response.body).toEqual([]);
+    });
+
+    it('should return 404 if agent not found', async () => {
+      agentsDb.getWithProject.mockReturnValue(undefined);
+
+      const response = await request(app).get('/api/agents/999/output-files');
+
+      expect(response.status).toBe(404);
+      expect(response.body.error).toBe('Agent not found');
+    });
+
+    it('should return 404 if agent belongs to different user', async () => {
+      const mockAgentWithProject = { id: 1, project_id: 1, user_id: 999 };
+      agentsDb.getWithProject.mockReturnValue(mockAgentWithProject);
+
+      const response = await request(app).get('/api/agents/1/output-files');
+
+      expect(response.status).toBe(404);
+      expect(response.body.error).toBe('Agent not found');
+    });
+
+    it('should return 400 for invalid agent ID', async () => {
+      const response = await request(app).get('/api/agents/abc/output-files');
+
+      expect(response.status).toBe(400);
+      expect(response.body.error).toBe('Invalid agent ID');
+    });
+  });
+
+  describe('GET /api/agents/:id/output-files/:filename', () => {
+    it('should download a file successfully', async () => {
+      const mockAgentWithProject = { id: 1, project_id: 1, user_id: testUserId, repo_folder_path: '/path/to/repo' };
+      const mockFileData = {
+        buffer: Buffer.from('test content'),
+        mimeType: 'text/plain',
+        filename: 'test.txt'
+      };
+      agentsDb.getWithProject.mockReturnValue(mockAgentWithProject);
+      readAgentOutputFile.mockReturnValue(mockFileData);
+
+      const response = await request(app)
+        .get('/api/agents/1/output-files/test.txt')
+        .buffer()
+        .parse((res, callback) => {
+          let data = Buffer.alloc(0);
+          res.on('data', chunk => { data = Buffer.concat([data, chunk]); });
+          res.on('end', () => callback(null, data));
+        });
+
+      expect(response.status).toBe(200);
+      expect(response.headers['content-type']).toBe('text/plain');
+      expect(response.headers['content-disposition']).toBe('attachment; filename="test.txt"');
+      expect(response.body.toString()).toBe('test content');
+      expect(readAgentOutputFile).toHaveBeenCalledWith('/path/to/repo', 1, 'test.txt');
+    });
+
+    it('should handle URL-encoded filenames', async () => {
+      const mockAgentWithProject = { id: 1, project_id: 1, user_id: testUserId, repo_folder_path: '/path/to/repo' };
+      const mockFileData = {
+        buffer: Buffer.from('test content'),
+        mimeType: 'text/plain',
+        filename: 'file with spaces.txt'
+      };
+      agentsDb.getWithProject.mockReturnValue(mockAgentWithProject);
+      readAgentOutputFile.mockReturnValue(mockFileData);
+
+      const response = await request(app).get('/api/agents/1/output-files/file%20with%20spaces.txt');
+
+      expect(response.status).toBe(200);
+      expect(readAgentOutputFile).toHaveBeenCalledWith('/path/to/repo', 1, 'file with spaces.txt');
+    });
+
+    it('should return 404 if file not found', async () => {
+      const mockAgentWithProject = { id: 1, project_id: 1, user_id: testUserId, repo_folder_path: '/path/to/repo' };
+      agentsDb.getWithProject.mockReturnValue(mockAgentWithProject);
+      readAgentOutputFile.mockReturnValue(null);
+
+      const response = await request(app).get('/api/agents/1/output-files/nonexistent.txt');
+
+      expect(response.status).toBe(404);
+      expect(response.body.error).toBe('File not found');
+    });
+
+    it('should return 404 if agent not found', async () => {
+      agentsDb.getWithProject.mockReturnValue(undefined);
+
+      const response = await request(app).get('/api/agents/999/output-files/test.txt');
+
+      expect(response.status).toBe(404);
+      expect(response.body.error).toBe('Agent not found');
+    });
+
+    it('should return 404 if agent belongs to different user', async () => {
+      const mockAgentWithProject = { id: 1, project_id: 1, user_id: 999 };
+      agentsDb.getWithProject.mockReturnValue(mockAgentWithProject);
+
+      const response = await request(app).get('/api/agents/1/output-files/test.txt');
+
+      expect(response.status).toBe(404);
+      expect(response.body.error).toBe('Agent not found');
+    });
+
+    it('should return 400 for invalid agent ID', async () => {
+      const response = await request(app).get('/api/agents/abc/output-files/test.txt');
+
+      expect(response.status).toBe(400);
+      expect(response.body.error).toBe('Invalid agent ID');
+    });
+  });
+
+  describe('DELETE /api/agents/:id/output-files/:filename', () => {
+    it('should delete an output file successfully', async () => {
+      const mockAgentWithProject = { id: 1, project_id: 1, user_id: testUserId, repo_folder_path: '/path/to/repo' };
+      agentsDb.getWithProject.mockReturnValue(mockAgentWithProject);
+      deleteAgentOutputFile.mockReturnValue(true);
+
+      const response = await request(app).delete('/api/agents/1/output-files/test.txt');
+
+      expect(response.status).toBe(200);
+      expect(response.body).toEqual({ success: true });
+      expect(deleteAgentOutputFile).toHaveBeenCalledWith('/path/to/repo', 1, 'test.txt');
+    });
+
+    it('should handle URL-encoded filenames', async () => {
+      const mockAgentWithProject = { id: 1, project_id: 1, user_id: testUserId, repo_folder_path: '/path/to/repo' };
+      agentsDb.getWithProject.mockReturnValue(mockAgentWithProject);
+      deleteAgentOutputFile.mockReturnValue(true);
+
+      const response = await request(app).delete('/api/agents/1/output-files/file%20with%20spaces.txt');
+
+      expect(response.status).toBe(200);
+      expect(deleteAgentOutputFile).toHaveBeenCalledWith('/path/to/repo', 1, 'file with spaces.txt');
+    });
+
+    it('should return 404 if file not found', async () => {
+      const mockAgentWithProject = { id: 1, project_id: 1, user_id: testUserId, repo_folder_path: '/path/to/repo' };
+      agentsDb.getWithProject.mockReturnValue(mockAgentWithProject);
+      deleteAgentOutputFile.mockReturnValue(false);
+
+      const response = await request(app).delete('/api/agents/1/output-files/nonexistent.txt');
+
+      expect(response.status).toBe(404);
+      expect(response.body.error).toBe('File not found');
+    });
+
+    it('should return 404 if agent not found', async () => {
+      agentsDb.getWithProject.mockReturnValue(undefined);
+
+      const response = await request(app).delete('/api/agents/999/output-files/test.txt');
+
+      expect(response.status).toBe(404);
+      expect(response.body.error).toBe('Agent not found');
+    });
+
+    it('should return 404 if agent belongs to different user', async () => {
+      const mockAgentWithProject = { id: 1, project_id: 1, user_id: 999 };
+      agentsDb.getWithProject.mockReturnValue(mockAgentWithProject);
+
+      const response = await request(app).delete('/api/agents/1/output-files/test.txt');
+
+      expect(response.status).toBe(404);
+      expect(response.body.error).toBe('Agent not found');
+    });
+
+    it('should return 400 for invalid agent ID', async () => {
+      const response = await request(app).delete('/api/agents/abc/output-files/test.txt');
 
       expect(response.status).toBe(400);
       expect(response.body.error).toBe('Invalid agent ID');

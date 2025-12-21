@@ -48,6 +48,10 @@ export function AgentContextProvider({ children }) {
   const [agentAttachments, setAgentAttachments] = useState([]);
   const [isLoadingAttachments, setIsLoadingAttachments] = useState(false);
 
+  // Agent output files state
+  const [agentOutputFiles, setAgentOutputFiles] = useState([]);
+  const [isLoadingOutputFiles, setIsLoadingOutputFiles] = useState(false);
+
   // ========== Agents API ==========
 
   const loadAgents = useCallback(async (projectId) => {
@@ -231,6 +235,73 @@ export function AgentContextProvider({ children }) {
     }
   }, []);
 
+  // ========== Agent Output Files API ==========
+
+  const loadAgentOutputFiles = useCallback(async (agentId) => {
+    if (!agentId) {
+      setAgentOutputFiles([]);
+      return;
+    }
+
+    setIsLoadingOutputFiles(true);
+    try {
+      const response = await api.agents.listOutputFiles(agentId);
+      if (response.ok) {
+        const data = await response.json();
+        setAgentOutputFiles(data || []);
+      } else {
+        setAgentOutputFiles([]);
+      }
+    } catch (error) {
+      console.error('Error loading agent output files:', error);
+      setAgentOutputFiles([]);
+    } finally {
+      setIsLoadingOutputFiles(false);
+    }
+  }, []);
+
+  const downloadAgentOutputFile = useCallback(async (agentId, filename) => {
+    try {
+      const response = await api.agents.downloadOutputFile(agentId, filename);
+      if (response.ok) {
+        // Get the blob from response
+        const blob = await response.blob();
+        // Create download link
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        window.URL.revokeObjectURL(url);
+        document.body.removeChild(a);
+        return { success: true };
+      } else {
+        const error = await response.json();
+        return { success: false, error: error.error || 'Download failed' };
+      }
+    } catch (error) {
+      console.error('Error downloading output file:', error);
+      return { success: false, error: error.message };
+    }
+  }, []);
+
+  const deleteAgentOutputFile = useCallback(async (agentId, filename) => {
+    try {
+      const response = await api.agents.deleteOutputFile(agentId, filename);
+      if (response.ok) {
+        setAgentOutputFiles(prev => prev.filter(f => f.name !== filename));
+        return { success: true };
+      } else {
+        const error = await response.json();
+        return { success: false, error: error.error || 'Delete failed' };
+      }
+    } catch (error) {
+      console.error('Error deleting output file:', error);
+      return { success: false, error: error.message };
+    }
+  }, []);
+
   // ========== Agent Conversations API ==========
 
   const loadAgentConversations = useCallback(async (agentId) => {
@@ -299,18 +370,20 @@ export function AgentContextProvider({ children }) {
     setActiveAgentConversation(null);
 
     if (agent) {
-      // Load conversations, prompt, and attachments for this agent
+      // Load conversations, prompt, attachments, and output files for this agent
       await Promise.all([
         loadAgentConversations(agent.id),
         loadAgentPrompt(agent.id),
-        loadAgentAttachments(agent.id)
+        loadAgentAttachments(agent.id),
+        loadAgentOutputFiles(agent.id)
       ]);
     } else {
       setAgentConversations([]);
       setAgentPrompt('');
       setAgentAttachments([]);
+      setAgentOutputFiles([]);
     }
-  }, [loadAgentConversations, loadAgentPrompt, loadAgentAttachments]);
+  }, [loadAgentConversations, loadAgentPrompt, loadAgentAttachments, loadAgentOutputFiles]);
 
   const selectAgentConversation = useCallback((conversation) => {
     setActiveAgentConversation(conversation);
@@ -322,6 +395,7 @@ export function AgentContextProvider({ children }) {
     setActiveAgentConversation(null);
     setAgentPrompt('');
     setAgentAttachments([]);
+    setAgentOutputFiles([]);
   }, []);
 
   // ========== Context Value ==========
@@ -346,6 +420,10 @@ export function AgentContextProvider({ children }) {
     agentAttachments,
     isLoadingAttachments,
 
+    // Agent output files state
+    agentOutputFiles,
+    isLoadingOutputFiles,
+
     // Agents API
     loadAgents,
     createAgent,
@@ -360,6 +438,11 @@ export function AgentContextProvider({ children }) {
     loadAgentAttachments,
     uploadAgentAttachment,
     deleteAgentAttachment,
+
+    // Agent output files API
+    loadAgentOutputFiles,
+    downloadAgentOutputFile,
+    deleteAgentOutputFile,
 
     // Agent conversations API
     loadAgentConversations,

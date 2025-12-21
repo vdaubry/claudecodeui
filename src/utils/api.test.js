@@ -499,5 +499,41 @@ describe('API Client - Phase 5', () => {
         }));
       });
     });
+
+    describe('output file methods', () => {
+      it('listOutputFiles() should call GET /api/agents/:agentId/output-files', async () => {
+        await api.agents.listOutputFiles(456);
+
+        expect(mockFetch).toHaveBeenCalledWith('/api/agents/456/output-files', expect.any(Object));
+      });
+
+      it('downloadOutputFile() should call GET /api/agents/:agentId/output-files/:filename', async () => {
+        await api.agents.downloadOutputFile(456, 'report.md');
+
+        expect(mockFetch).toHaveBeenCalledWith('/api/agents/456/output-files/report.md', expect.any(Object));
+      });
+
+      it('downloadOutputFile() should encode filename with special characters', async () => {
+        await api.agents.downloadOutputFile(456, 'file with spaces.txt');
+
+        expect(mockFetch).toHaveBeenCalledWith('/api/agents/456/output-files/file%20with%20spaces.txt', expect.any(Object));
+      });
+
+      it('deleteOutputFile() should call DELETE /api/agents/:agentId/output-files/:filename', async () => {
+        await api.agents.deleteOutputFile(456, 'report.md');
+
+        expect(mockFetch).toHaveBeenCalledWith('/api/agents/456/output-files/report.md', expect.objectContaining({
+          method: 'DELETE',
+        }));
+      });
+
+      it('deleteOutputFile() should encode filename with special characters', async () => {
+        await api.agents.deleteOutputFile(456, 'file with spaces.txt');
+
+        expect(mockFetch).toHaveBeenCalledWith('/api/agents/456/output-files/file%20with%20spaces.txt', expect.objectContaining({
+          method: 'DELETE',
+        }));
+      });
+    });
   });
 });

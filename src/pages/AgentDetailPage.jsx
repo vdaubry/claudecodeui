@@ -37,6 +37,11 @@ function AgentDetailPage() {
     loadAgentAttachments,
     uploadAgentAttachment,
     deleteAgentAttachment,
+    agentOutputFiles,
+    isLoadingOutputFiles,
+    loadAgentOutputFiles,
+    downloadAgentOutputFile,
+    deleteAgentOutputFile,
     isLoadingAgents,
     isLoadingAgentConversations,
     isLoadingAgentPrompt
@@ -86,12 +91,13 @@ function AgentDetailPage() {
         loadAgentConversations(foundAgent.id);
         loadAgentPrompt(foundAgent.id);
         loadAgentAttachments(foundAgent.id);
+        loadAgentOutputFiles(foundAgent.id);
       } else {
         // Agent not found, redirect to board agents tab
         navigate(`/projects/${projectId}?tab=agents${getTokenParam() ? '&' + getTokenParam().slice(1) : ''}`, { replace: true });
       }
     }
-  }, [agents, agentId, project, projectId, loadAgentConversations, loadAgentPrompt, loadAgentAttachments, navigate, getTokenParam]);
+  }, [agents, agentId, project, projectId, loadAgentConversations, loadAgentPrompt, loadAgentAttachments, loadAgentOutputFiles, navigate, getTokenParam]);
 
   // Navigation handlers
   const handleBack = useCallback(() => {
@@ -151,6 +157,17 @@ function AgentDetailPage() {
     return await deleteAgentAttachment(agent.id, filename);
   }, [agent, deleteAgentAttachment]);
 
+  // Output file handlers
+  const handleDownloadOutputFile = useCallback(async (filename) => {
+    if (!agent) return { success: false, error: 'No agent selected' };
+    return await downloadAgentOutputFile(agent.id, filename);
+  }, [agent, downloadAgentOutputFile]);
+
+  const handleDeleteOutputFile = useCallback(async (filename) => {
+    if (!agent) return { success: false, error: 'No agent selected' };
+    return await deleteAgentOutputFile(agent.id, filename);
+  }, [agent, deleteAgentOutputFile]);
+
   // Loading state
   if (isLoading || isLoadingProjects || isLoadingAgents || !project || !agent) {
     return (
@@ -178,6 +195,10 @@ function AgentDetailPage() {
         isLoadingAttachments={isLoadingAttachments}
         onUploadAttachment={handleUploadAttachment}
         onDeleteAttachment={handleDeleteAttachment}
+        agentOutputFiles={agentOutputFiles}
+        isLoadingOutputFiles={isLoadingOutputFiles}
+        onDownloadOutputFile={handleDownloadOutputFile}
+        onDeleteOutputFile={handleDeleteOutputFile}
         onBack={handleBack}
         onProjectClick={handleProjectClick}
         onHomeClick={handleHomeClick}

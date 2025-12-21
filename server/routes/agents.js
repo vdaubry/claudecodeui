@@ -9,6 +9,9 @@ import {
   listAgentInputFiles,
   saveAgentInputFile,
   deleteAgentInputFile,
+  listAgentOutputFiles,
+  readAgentOutputFile,
+  deleteAgentOutputFile,
   ATTACHMENT_CONFIG
 } from '../services/documentation.js';
 
@@ -487,6 +490,129 @@ router.delete('/agents/:id/attachments/:filename', (req, res) => {
   } catch (error) {
     console.error('Error deleting agent attachment:', error);
     res.status(500).json({ error: 'Failed to delete attachment' });
+  }
+});
+
+/**
+ * GET /api/agents/:id/output-files
+ * List all output files for an agent
+ */
+router.get('/agents/:id/output-files', (req, res) => {
+  try {
+    const userId = req.user.id;
+    const agentId = parseInt(req.params.id, 10);
+
+    if (isNaN(agentId)) {
+      return res.status(400).json({ error: 'Invalid agent ID' });
+    }
+
+    // Get agent with project info to verify ownership
+    const agentWithProject = agentsDb.getWithProject(agentId);
+
+    if (!agentWithProject) {
+      return res.status(404).json({ error: 'Agent not found' });
+    }
+
+    // Verify the project belongs to the user
+    if (agentWithProject.user_id !== userId) {
+      return res.status(404).json({ error: 'Agent not found' });
+    }
+
+    const files = listAgentOutputFiles(agentWithProject.repo_folder_path, agentId);
+    res.json(files);
+  } catch (error) {
+    console.error('Error listing agent output files:', error);
+    res.status(500).json({ error: 'Failed to list output files' });
+  }
+});
+
+/**
+ * GET /api/agents/:id/output-files/:filename
+ * Download an output file from an agent
+ */
+router.get('/agents/:id/output-files/:filename', (req, res) => {
+  try {
+    const userId = req.user.id;
+    const agentId = parseInt(req.params.id, 10);
+    const filename = req.params.filename;
+
+    if (isNaN(agentId)) {
+      return res.status(400).json({ error: 'Invalid agent ID' });
+    }
+
+    if (!filename) {
+      return res.status(400).json({ error: 'Filename is required' });
+    }
+
+    // Get agent with project info to verify ownership
+    const agentWithProject = agentsDb.getWithProject(agentId);
+
+    if (!agentWithProject) {
+      return res.status(404).json({ error: 'Agent not found' });
+    }
+
+    // Verify the project belongs to the user
+    if (agentWithProject.user_id !== userId) {
+      return res.status(404).json({ error: 'Agent not found' });
+    }
+
+    const fileData = readAgentOutputFile(agentWithProject.repo_folder_path, agentId, filename);
+
+    if (!fileData) {
+      return res.status(404).json({ error: 'File not found' });
+    }
+
+    // Set headers for file download
+    res.setHeader('Content-Type', fileData.mimeType);
+    res.setHeader('Content-Disposition', `attachment; filename="${fileData.filename}"`);
+    res.setHeader('Content-Length', fileData.buffer.length);
+    res.send(fileData.buffer);
+  } catch (error) {
+    console.error('Error downloading agent output file:', error);
+    res.status(500).json({ error: 'Failed to download file' });
+  }
+});
+
+/**
+ * DELETE /api/agents/:id/output-files/:filename
+ * Delete an output file from an agent
+ */
+router.delete('/agents/:id/output-files/:filename', (req, res) => {
+  try {
+    const userId = req.user.id;
+    const agentId = parseInt(req.params.id, 10);
+    const filename = req.params.filename;
+
+    if (isNaN(agentId)) {
+      return res.status(400).json({ error: 'Invalid agent ID' });
+    }
+
+    if (!filename) {
+      return res.status(400).json({ error: 'Filename is required' });
+    }
+
+    // Get agent with project info to verify ownership
+    const agentWithProject = agentsDb.getWithProject(agentId);
+
+    if (!agentWithProject) {
+      return res.status(404).json({ error: 'Agent not found' });
+    }
+
+    // Verify the project belongs to the user
+    if (agentWithProject.user_id !== userId) {
+      return res.status(404).json({ error: 'Agent not found' });
+    }
+
+    const deleted = deleteAgentOutputFile(agentWithProject.repo_folder_path, agentId, filename);
+
+    if (!deleted) {
+      return res.status(404).json({ error: 'File not found' });
+    }
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error deleting agent output file:', error);
+    res.status(500).json({ error: 'Failed to delete file' });
   }
 });
 
