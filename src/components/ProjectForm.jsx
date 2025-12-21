@@ -1,17 +1,19 @@
 /**
- * ProjectForm.jsx - Project Create/Edit Modal
+ * ProjectForm.jsx - Project Create Modal
  *
- * Modal form for creating or editing a project.
+ * Modal form for creating a new project.
  * Allows users to:
  * - Enter a project name
  * - Enter a repository folder path
+ * - Add initial documentation
+ *
+ * Note: Project editing is done via the full ProjectEditPage.
  */
 
 import React, { useState, useEffect, useRef } from 'react';
 import { X, FileText } from 'lucide-react';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
-import { api } from '../utils/api';
 import { Textarea } from './ui/textarea';
 import { MicButton } from './MicButton';
 
@@ -19,51 +21,23 @@ function ProjectForm({
   isOpen,
   onClose,
   onSubmit,
-  initialData = null, // null for create, object for edit
   isSubmitting = false
 }) {
   const [name, setName] = useState('');
   const [repoFolderPath, setRepoFolderPath] = useState('');
   const [documentation, setDocumentation] = useState('');
-  const [isLoadingDoc, setIsLoadingDoc] = useState(false);
   const [error, setError] = useState(null);
   const documentationRef = useRef(null);
 
   // Reset form when modal opens/closes
   useEffect(() => {
     if (isOpen) {
-      if (initialData) {
-        setName(initialData.name || '');
-        setRepoFolderPath(initialData.repo_folder_path || '');
-        // Load documentation for existing project
-        loadDocumentation(initialData.id);
-      } else {
-        setName('');
-        setRepoFolderPath('');
-        setDocumentation('');
-      }
+      setName('');
+      setRepoFolderPath('');
+      setDocumentation('');
       setError(null);
     }
-  }, [isOpen, initialData]);
-
-  // Load documentation for existing project
-  const loadDocumentation = async (projectId) => {
-    setIsLoadingDoc(true);
-    try {
-      const response = await api.projects.getDoc(projectId);
-      if (response.ok) {
-        const data = await response.json();
-        setDocumentation(data.content || '');
-      } else {
-        setDocumentation('');
-      }
-    } catch (err) {
-      console.error('Error loading documentation:', err);
-      setDocumentation('');
-    } finally {
-      setIsLoadingDoc(false);
-    }
-  };
+  }, [isOpen]);
 
   // Handle form submission
   const handleSubmit = async (e) => {
@@ -88,16 +62,14 @@ function ProjectForm({
       });
 
       if (!result.success) {
-        setError(result.error || 'Failed to save project');
+        setError(result.error || 'Failed to create project');
       }
     } catch (err) {
-      setError(err.message || 'Failed to save project');
+      setError(err.message || 'Failed to create project');
     }
   };
 
   if (!isOpen) return null;
-
-  const isEditMode = !!initialData;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
@@ -112,7 +84,7 @@ function ProjectForm({
         {/* Header */}
         <div className="flex items-center justify-between p-4 border-b border-border">
           <h2 className="text-lg font-semibold text-foreground">
-            {isEditMode ? 'Edit Project' : 'Create New Project'}
+            Create New Project
           </h2>
           <Button
             variant="ghost"
@@ -160,13 +132,7 @@ function ProjectForm({
                 value={repoFolderPath}
                 onChange={(e) => setRepoFolderPath(e.target.value)}
                 placeholder="/path/to/your/project"
-                disabled={isEditMode}
               />
-              {isEditMode && (
-                <p className="text-xs text-muted-foreground">
-                  Repository path cannot be changed after creation.
-                </p>
-              )}
             </div>
 
             {/* Project Documentation */}
@@ -175,42 +141,33 @@ function ProjectForm({
                 <FileText className="w-4 h-4" />
                 Project Documentation
               </label>
-              {isLoadingDoc ? (
-                <div className="flex items-center gap-2 py-4 text-sm text-muted-foreground">
-                  <div className="w-4 h-4 border-2 border-primary border-t-transparent rounded-full animate-spin" />
-                  Loading documentation...
-                </div>
-              ) : (
-                <>
-                  <div className="flex gap-2 items-start">
-                    <Textarea
-                      ref={documentationRef}
-                      id="project-documentation"
-                      value={documentation}
-                      onChange={(e) => setDocumentation(e.target.value)}
-                      placeholder="Add context about this project for the coding agent. This will be injected as context when starting conversations."
-                      rows={6}
-                      className="resize-y min-h-[120px] flex-1"
-                    />
-                    <MicButton
-                      onTranscript={(transcript) => {
-                        setDocumentation(prev => {
-                          if (!prev.trim()) return transcript;
-                          return prev.trimEnd() + ' ' + transcript;
-                        });
-                        requestAnimationFrame(() => {
-                          if (documentationRef.current) {
-                            documentationRef.current.focus();
-                          }
-                        });
-                      }}
-                    />
-                  </div>
-                  <p className="text-xs text-muted-foreground">
-                    This documentation is saved to <code className="bg-muted px-1 rounded">.claude-ui/project.md</code> and provides context for all tasks in this project.
-                  </p>
-                </>
-              )}
+              <div className="flex gap-2 items-start">
+                <Textarea
+                  ref={documentationRef}
+                  id="project-documentation"
+                  value={documentation}
+                  onChange={(e) => setDocumentation(e.target.value)}
+                  placeholder="Add context about this project for the coding agent. This will be injected as context when starting conversations."
+                  rows={6}
+                  className="resize-y min-h-[120px] flex-1"
+                />
+                <MicButton
+                  onTranscript={(transcript) => {
+                    setDocumentation(prev => {
+                      if (!prev.trim()) return transcript;
+                      return prev.trimEnd() + ' ' + transcript;
+                    });
+                    requestAnimationFrame(() => {
+                      if (documentationRef.current) {
+                        documentationRef.current.focus();
+                      }
+                    });
+                  }}
+                />
+              </div>
+              <p className="text-xs text-muted-foreground">
+                This documentation is saved to <code className="bg-muted px-1 rounded">.claude-ui/project.md</code> and provides context for all tasks in this project.
+              </p>
             </div>
 
             {/* Actions */}
@@ -233,10 +190,10 @@ function ProjectForm({
                 {isSubmitting ? (
                   <>
                     <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2" />
-                    {isEditMode ? 'Saving...' : 'Creating...'}
+                    Creating...
                   </>
                 ) : (
-                  isEditMode ? 'Save Changes' : 'Create Project'
+                  'Create Project'
                 )}
               </Button>
             </div>

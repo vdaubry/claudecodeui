@@ -12,21 +12,19 @@ import Settings from '../components/Settings';
 import ProjectForm from '../components/ProjectForm';
 import { useTaskContext } from '../contexts/TaskContext';
 import { useAuthToken } from '../hooks/useAuthToken';
-import useLocalStorage from '../hooks/useLocalStorage';
 
 function DashboardPage() {
   const navigate = useNavigate();
   const { getTokenParam } = useAuthToken();
-  const { createProject, updateProject, saveProjectDoc } = useTaskContext();
+  const { createProject } = useTaskContext();
 
   // UI state
   const [isMobile, setIsMobile] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [settingsInitialTab, setSettingsInitialTab] = useState('tools');
 
-  // Project form modal state
+  // Project form modal state (create only)
   const [showProjectForm, setShowProjectForm] = useState(false);
-  const [editingProject, setEditingProject] = useState(null);
   const [isCreatingProject, setIsCreatingProject] = useState(false);
 
   useEffect(() => {
@@ -46,25 +44,13 @@ function DashboardPage() {
     setShowSettings(true);
   }, []);
 
-  // Handle project creation/update from modal
+  // Handle project creation from modal
   const handleProjectSubmit = async ({ name, repoFolderPath, documentation }) => {
     setIsCreatingProject(true);
     try {
-      let result;
-      if (editingProject) {
-        // Update existing project
-        result = await updateProject(editingProject.id, { name });
-        if (result.success && documentation !== undefined) {
-          // Save documentation separately
-          await saveProjectDoc(editingProject.id, documentation);
-        }
-      } else {
-        // Create new project
-        result = await createProject(name, repoFolderPath, documentation);
-      }
+      const result = await createProject(name, repoFolderPath, documentation);
       if (result.success) {
         setShowProjectForm(false);
-        setEditingProject(null);
       }
       return result;
     } finally {
@@ -72,11 +58,10 @@ function DashboardPage() {
     }
   };
 
-  // Handle opening project edit form
+  // Handle opening project edit page (navigate to full edit page)
   const handleEditProject = useCallback((project) => {
-    setEditingProject(project);
-    setShowProjectForm(true);
-  }, []);
+    navigate(`/projects/${project.id}/edit${getTokenParam()}`);
+  }, [navigate, getTokenParam]);
 
   // Handle task click from in-progress view - navigate to task detail
   const handleTaskClick = useCallback((task) => {
@@ -101,15 +86,11 @@ function DashboardPage() {
         initialTab={settingsInitialTab}
       />
 
-      {/* Project Form Modal */}
+      {/* Project Form Modal (Create Only) */}
       <ProjectForm
         isOpen={showProjectForm}
-        onClose={() => {
-          setShowProjectForm(false);
-          setEditingProject(null);
-        }}
+        onClose={() => setShowProjectForm(false)}
         onSubmit={handleProjectSubmit}
-        initialData={editingProject}
         isSubmitting={isCreatingProject}
       />
     </>

@@ -7,12 +7,13 @@
 
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Save, Trash2, FolderOpen, AlertTriangle } from 'lucide-react';
+import { ArrowLeft, Save, Trash2, FolderOpen, AlertTriangle, Archive } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { MicButton } from '../components/MicButton';
 import { useTaskContext } from '../contexts/TaskContext';
 import { useAuthToken } from '../hooks/useAuthToken';
+import { api } from '../utils/api';
 import { cn } from '../lib/utils';
 
 function ProjectEditPageWrapper() {
@@ -41,6 +42,8 @@ function ProjectEditPageWrapper() {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [error, setError] = useState(null);
   const [hasChanges, setHasChanges] = useState(false);
+  const [isCleaning, setIsCleaning] = useState(false);
+  const [cleanupResult, setCleanupResult] = useState(null);
 
   const textareaRef = useRef(null);
   const nameInputRef = useRef(null);
@@ -150,6 +153,29 @@ function ProjectEditPageWrapper() {
   const handleCancel = useCallback(() => {
     navigate(`/projects/${projectId}${getTokenParam()}`);
   }, [navigate, projectId, getTokenParam]);
+
+  // Handle cleanup old completed tasks
+  const handleCleanupOldTasks = useCallback(async () => {
+    if (!project) return;
+
+    setIsCleaning(true);
+    setError(null);
+    setCleanupResult(null);
+
+    try {
+      const response = await api.tasks.cleanupOldCompleted(project.id);
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.error || 'Failed to cleanup old tasks');
+      }
+      const result = await response.json();
+      setCleanupResult(result);
+    } catch (err) {
+      setError(err.message || 'Failed to cleanup old tasks');
+    } finally {
+      setIsCleaning(false);
+    }
+  }, [project]);
 
   // Keyboard shortcuts
   const handleKeyDown = useCallback((e) => {
@@ -317,6 +343,35 @@ function ProjectEditPageWrapper() {
             <p className="text-xs text-muted-foreground">
               Supports markdown formatting. Use headers, lists, and code blocks.
             </p>
+          </div>
+
+          {/* Maintenance section */}
+          <div className="pt-6 border-t border-border">
+            <div className="space-y-3">
+              <h3 className="text-sm font-medium text-foreground">
+                Maintenance
+              </h3>
+              <p className="text-sm text-muted-foreground">
+                Clean up old completed tasks to reduce clutter. This will keep the 20 most recent completed tasks and delete older ones along with their documentation files.
+              </p>
+              <div className="flex items-center gap-3">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleCleanupOldTasks}
+                  disabled={isCleaning || isSaving || isDeleting}
+                  data-testid="cleanup-button"
+                >
+                  <Archive className="w-4 h-4 mr-1.5" />
+                  {isCleaning ? 'Cleaning...' : 'Delete Old Completed Tasks'}
+                </Button>
+                {cleanupResult && (
+                  <span className="text-sm text-muted-foreground">
+                    {cleanupResult.message}
+                  </span>
+                )}
+              </div>
+            </div>
           </div>
 
           {/* Danger zone */}
