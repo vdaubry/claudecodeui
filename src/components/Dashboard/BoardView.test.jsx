@@ -3,11 +3,17 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import BoardView from './BoardView';
 import { useTaskContext } from '../../contexts/TaskContext';
+import { useAgentContext } from '../../contexts/AgentContext';
 import { api } from '../../utils/api';
 
 // Mock TaskContext
 vi.mock('../../contexts/TaskContext', () => ({
   useTaskContext: vi.fn(),
+}));
+
+// Mock AgentContext
+vi.mock('../../contexts/AgentContext', () => ({
+  useAgentContext: vi.fn(),
 }));
 
 // Mock the useAuthToken hook
@@ -71,6 +77,8 @@ vi.mock('lucide-react', () => ({
   Plus: () => <span data-testid="icon-plus" />,
   Columns: () => <span data-testid="icon-columns" />,
   Settings: () => <span data-testid="icon-settings" />,
+  Bot: () => <span data-testid="icon-bot" />,
+  Code: () => <span data-testid="icon-code" />,
 }));
 
 // Helper to render with Router
@@ -103,9 +111,16 @@ describe('BoardView Component', () => {
     isTaskLive: vi.fn(() => false),
   };
 
+  const defaultAgentContextValue = {
+    agents: [],
+    isLoadingAgents: false,
+    loadAgents: vi.fn(),
+  };
+
   beforeEach(() => {
     vi.clearAllMocks();
     useTaskContext.mockReturnValue(defaultContextValue);
+    useAgentContext.mockReturnValue(defaultAgentContextValue);
 
     // Default API mock responses
     api.tasks.getDoc.mockResolvedValue({

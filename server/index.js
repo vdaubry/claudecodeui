@@ -58,6 +58,7 @@ import mime from 'mime-types';
 
 import {
   startConversation,
+  startAgentConversation,
   sendMessage,
   abortSession,
   isSessionActive,
@@ -71,7 +72,9 @@ import projectsRoutes from './routes/projects.js';
 import tasksRoutes from './routes/tasks.js';
 import conversationsRoutes from './routes/conversations.js';
 import agentRunsRoutes from './routes/agent-runs.js';
-import { initializeDatabase, projectsDb, tasksDb, conversationsDb, agentRunsDb } from './database/db.js';
+import agentsRoutes from './routes/agents.js';
+import { initializeDatabase, projectsDb, tasksDb, conversationsDb, agentRunsDb, agentsDb } from './database/db.js';
+import { readAgentPrompt } from './services/documentation.js';
 import { buildContextPrompt } from './services/documentation.js';
 import { transcribeAudio } from './services/transcription.js';
 import { validateApiKey, authenticateToken, authenticateWebSocket } from './middleware/auth.js';
@@ -198,6 +201,7 @@ app.use('/api/projects', authenticateToken, projectsRoutes);
 app.use('/api', authenticateToken, tasksRoutes);
 app.use('/api', authenticateToken, conversationsRoutes);
 app.use('/api', authenticateToken, agentRunsRoutes);
+app.use('/api', authenticateToken, agentsRoutes);
 
 // Get active streaming sessions (for Dashboard live indicator)
 app.get('/api/streaming-sessions', authenticateToken, (req, res) => {
@@ -269,8 +273,8 @@ function handleChatConnection(ws, request) {
             if (data.type === 'claude-command') {
                 console.log('[DEBUG] User message:', data.command || '[Continue/Resume]');
 
-                // Check for task-based conversation flow
-                const { taskId, conversationId, isNewConversation, images, permissionMode } = data.options || {};
+                // Check for task-based or agent-based conversation flow
+                const { taskId, agentId, conversationId, isNewConversation, images, permissionMode } = data.options || {};
                 const userId = request?.user?.id;
 
                 // Create broadcast function that sends to all WebSocket clients
@@ -281,7 +285,7 @@ function handleChatConnection(ws, request) {
 
                 try {
                     if (taskId && isNewConversation) {
-                        // NEW CONVERSATION FLOW
+                        // NEW TASK CONVERSATION FLOW
                         console.log('[DEBUG] Starting new conversation for taskId:', taskId);
 
                         // Build context prompt
@@ -307,8 +311,32 @@ function handleChatConnection(ws, request) {
                             permissionMode: permissionMode || 'bypassPermissions'
                         });
 
+                    } else if (agentId && isNewConversation) {
+                        // NEW AGENT CONVERSATION FLOW
+                        console.log('[DEBUG] Starting new conversation for agentId:', agentId);
+
+                        // Verify agent exists
+                        const agentWithProject = agentsDb.getWithProject(agentId);
+                        if (!agentWithProject) {
+                            ws.send(JSON.stringify({
+                                type: 'claude-error',
+                                error: `Agent ${agentId} not found`
+                            }));
+                            return;
+                        }
+
+                        // Use adapter to start agent conversation
+                        await startAgentConversation(agentId, data.command, {
+                            broadcastFn,
+                            broadcastToTaskSubscribersFn: broadcastToTaskSubscribers,
+                            userId,
+                            conversationId, // Use existing if provided
+                            images,
+                            permissionMode: permissionMode || 'bypassPermissions'
+                        });
+
                     } else if (conversationId && !isNewConversation) {
-                        // RESUME CONVERSATION FLOW
+                        // RESUME CONVERSATION FLOW (works for both task and agent conversations)
                         console.log('[DEBUG] Resuming conversation:', conversationId);
 
                         // Use adapter to send message
@@ -321,10 +349,10 @@ function handleChatConnection(ws, request) {
                         });
 
                     } else {
-                        // Legacy flow (no task context) - error
+                        // Legacy flow (no task or agent context) - error
                         ws.send(JSON.stringify({
                             type: 'claude-error',
-                            error: 'Task-based conversation required. Please provide taskId.'
+                            error: 'Task or Agent context required. Please provide taskId or agentId.'
                         }));
                     }
                 } catch (error) {

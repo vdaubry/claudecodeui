@@ -14,6 +14,7 @@ import { ThemeProvider } from './contexts/ThemeContext';
 import { AuthProvider } from './contexts/AuthContext';
 import { WebSocketProvider } from './contexts/WebSocketContext';
 import { TaskContextProvider } from './contexts/TaskContext';
+import { AgentContextProvider } from './contexts/AgentContext';
 import { ToastProvider } from './contexts/ToastContext';
 import ProtectedRoute from './components/ProtectedRoute';
 
@@ -22,9 +23,11 @@ import {
   DashboardPage,
   BoardPage,
   TaskDetailPage,
+  AgentDetailPage,
   ChatPage,
   ProjectEditPageWrapper,
-  TaskEditPageWrapper
+  TaskEditPageWrapper,
+  AgentEditPageWrapper
 } from './pages';
 
 // App wrapper for PWA detection and global settings
@@ -68,8 +71,9 @@ function App() {
       <AuthProvider>
         <WebSocketProvider>
           <TaskContextProvider>
-            <ToastProvider>
-              <ProtectedRoute>
+            <AgentContextProvider>
+              <ToastProvider>
+                <ProtectedRoute>
                 <Router>
                   <AppWrapper>
                     <Routes>
@@ -88,16 +92,26 @@ function App() {
                       {/* Task Edit */}
                       <Route path="/projects/:projectId/tasks/:taskId/edit" element={<TaskEditPageWrapper />} />
 
-                      {/* Chat */}
+                      {/* Task Chat */}
                       <Route path="/projects/:projectId/tasks/:taskId/chat/:conversationId" element={<ChatPage />} />
+
+                      {/* Agent Detail */}
+                      <Route path="/projects/:projectId/agents/:agentId" element={<AgentDetailPage />} />
+
+                      {/* Agent Edit */}
+                      <Route path="/projects/:projectId/agents/:agentId/edit" element={<AgentEditPageWrapper />} />
+
+                      {/* Agent Chat */}
+                      <Route path="/projects/:projectId/agents/:agentId/chat/:conversationId" element={<ChatPage />} />
 
                       {/* Catch-all redirect to dashboard */}
                       <Route path="*" element={<Navigate to="/" replace />} />
                     </Routes>
                   </AppWrapper>
                 </Router>
-              </ProtectedRoute>
-            </ToastProvider>
+                </ProtectedRoute>
+              </ToastProvider>
+            </AgentContextProvider>
           </TaskContextProvider>
         </WebSocketProvider>
       </AuthProvider>

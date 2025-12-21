@@ -3,18 +3,21 @@
  *
  * Displays a clickable navigation path for the task-driven workflow.
  * Shows: Project > Task > Conversation (when applicable)
+ * Also supports: Project > Agent > Conversation
  */
 
 import React from 'react';
-import { ChevronRight, Home, FolderOpen, FileText, MessageSquare } from 'lucide-react';
+import { ChevronRight, Home, FolderOpen, FileText, MessageSquare, Bot } from 'lucide-react';
 import { cn } from '../lib/utils';
 
 function Breadcrumb({
   project,
   task,
+  agent, // NEW: Support for agent breadcrumb
   conversation,
   onProjectClick,
   onTaskClick,
+  onAgentClick, // NEW: Callback for agent click
   onHomeClick,
   className
 }) {
@@ -36,17 +39,28 @@ function Breadcrumb({
       label: project.name,
       icon: FolderOpen,
       onClick: onProjectClick,
-      isClickable: !!task || !!conversation // Only clickable if we're deeper in navigation
+      isClickable: !!task || !!agent || !!conversation // Only clickable if we're deeper in navigation
     });
   }
 
-  // Task (if selected)
+  // Task (if selected) - mutually exclusive with agent
   if (task) {
     items.push({
       key: 'task',
       label: task.title || `Task ${task.id}`,
       icon: FileText,
       onClick: onTaskClick,
+      isClickable: !!conversation // Only clickable if we're in chat view
+    });
+  }
+
+  // Agent (if selected) - mutually exclusive with task
+  if (agent) {
+    items.push({
+      key: 'agent',
+      label: agent.name,
+      icon: Bot,
+      onClick: onAgentClick,
       isClickable: !!conversation // Only clickable if we're in chat view
     });
   }

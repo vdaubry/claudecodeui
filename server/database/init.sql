@@ -63,6 +63,19 @@ CREATE TABLE IF NOT EXISTS conversations (
 CREATE INDEX IF NOT EXISTS idx_conversations_task_id ON conversations(task_id);
 CREATE INDEX IF NOT EXISTS idx_conversations_claude_id ON conversations(claude_conversation_id);
 
+-- Custom Agents table - Reusable agent configurations with prompts
+-- Agents belong to a project and have a system prompt stored in markdown files
+CREATE TABLE IF NOT EXISTS agents (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_id INTEGER NOT NULL,
+    name TEXT NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_agents_project_id ON agents(project_id);
+
 -- Task Agent Runs table - Tracks automated agent runs for tasks
 -- Agent types: 'planification', 'implementation', 'review'
 -- Status: 'pending', 'running', 'completed', 'failed'

@@ -156,7 +156,7 @@ describe('Conversations Routes - Phase 3', () => {
 
   describe('GET /api/conversations/:id', () => {
     it('should return a conversation by ID', async () => {
-      const mockConversation = { id: 1, task_id: 1, claude_conversation_id: 'claude-1' };
+      const mockConversation = { id: 1, task_id: 1, claude_conversation_id: 'claude-1', metadata: null };
       const mockTaskWithProject = { id: 1, user_id: testUserId };
       conversationsDb.getById.mockReturnValue(mockConversation);
       tasksDb.getWithProject.mockReturnValue(mockTaskWithProject);

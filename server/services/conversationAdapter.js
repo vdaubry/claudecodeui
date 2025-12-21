@@ -10,8 +10,9 @@
  */
 
 import { query } from '@anthropic-ai/claude-agent-sdk';
-import { conversationsDb, tasksDb, agentRunsDb } from '../database/db.js';
+import { conversationsDb, tasksDb, agentRunsDb, agentsDb } from '../database/db.js';
 import { notifyClaudeComplete, updateUserBadge } from './notifications.js';
+import { buildAgentContextPrompt } from './documentation.js';
 import { promises as fs } from 'fs';
 import path from 'path';
 import os from 'os';
@@ -225,19 +226,22 @@ function extractTokenBudget(resultMessage) {
  * Broadcasts to WebSocket clients
  */
 function handleStreamingStarted(context) {
-  const { conversationId, taskId, claudeSessionId, broadcastFn } = context;
+  const { conversationId, taskId, agentId, claudeSessionId, broadcastFn } = context;
 
-  // Track active streaming session
-  activeStreamingSessions.set(claudeSessionId, { taskId, conversationId });
+  // Track active streaming session (with taskId or agentId)
+  activeStreamingSessions.set(claudeSessionId, { taskId, agentId, conversationId });
 
   // Broadcast to WebSocket clients
   if (broadcastFn) {
-    broadcastFn(conversationId, {
+    const message = {
       type: 'streaming-started',
-      taskId,
       conversationId,
       claudeSessionId
-    });
+    };
+    if (taskId) message.taskId = taskId;
+    if (agentId) message.agentId = agentId;
+
+    broadcastFn(conversationId, message);
   }
 
   console.log(`[ConversationAdapter] Streaming started for conversation ${conversationId}`);
@@ -248,65 +252,82 @@ function handleStreamingStarted(context) {
  * Updates agent run status, broadcasts to WebSocket, sends notifications
  */
 async function handleStreamingComplete(context, isError) {
-  const { conversationId, taskId, claudeSessionId, userId, broadcastFn, broadcastToTaskSubscribersFn } = context;
+  const { conversationId, taskId, agentId, claudeSessionId, userId, broadcastFn, broadcastToTaskSubscribersFn } = context;
 
   // Remove from active sessions
   activeStreamingSessions.delete(claudeSessionId);
 
   // Broadcast streaming-ended to WebSocket clients
   if (broadcastFn) {
-    broadcastFn(conversationId, {
+    const message = {
       type: 'streaming-ended',
-      taskId,
       conversationId
-    });
+    };
+    if (taskId) message.taskId = taskId;
+    if (agentId) message.agentId = agentId;
+
+    broadcastFn(conversationId, message);
   }
 
   console.log(`[ConversationAdapter] Streaming ended for conversation ${conversationId}, isError: ${isError}`);
 
-  // Check if conversation is linked to an agent run
-  const agentRuns = agentRunsDb.getByTask(taskId);
-  const linkedAgentRun = agentRuns.find(r => r.conversation_id === conversationId);
+  // Task-specific logic: check for linked agent runs and handle chaining
+  if (taskId) {
+    const agentRuns = agentRunsDb.getByTask(taskId);
+    const linkedAgentRun = agentRuns.find(r => r.conversation_id === conversationId);
 
-  if (linkedAgentRun) {
-    const { id: agentRunId, agent_type: agentType, status } = linkedAgentRun;
+    if (linkedAgentRun) {
+      const { id: agentRunId, agent_type: agentType, status } = linkedAgentRun;
 
-    // Only update if still in 'running' status
-    if (status === 'running') {
-      const newStatus = isError ? 'failed' : 'completed';
-      agentRunsDb.updateStatus(agentRunId, newStatus);
-      console.log(`[ConversationAdapter] Agent run ${agentRunId} (${agentType}) ${newStatus}`);
+      // Only update if still in 'running' status
+      if (status === 'running') {
+        const newStatus = isError ? 'failed' : 'completed';
+        agentRunsDb.updateStatus(agentRunId, newStatus);
+        console.log(`[ConversationAdapter] Agent run ${agentRunId} (${agentType}) ${newStatus}`);
 
-      // Broadcast agent run status update to task subscribers
-      if (broadcastToTaskSubscribersFn) {
-        broadcastToTaskSubscribersFn(taskId, {
-          type: 'agent-run-updated',
-          agentRun: {
-            id: agentRunId,
-            status: newStatus,
-            agent_type: agentType,
-            conversation_id: conversationId
-          }
-        });
-      }
+        // Broadcast agent run status update to task subscribers
+        if (broadcastToTaskSubscribersFn) {
+          broadcastToTaskSubscribersFn(taskId, {
+            type: 'agent-run-updated',
+            agentRun: {
+              id: agentRunId,
+              status: newStatus,
+              agent_type: agentType,
+              conversation_id: conversationId
+            }
+          });
+        }
 
-      // Handle agent chaining for implementation/review
-      if (!isError && (agentType === 'implementation' || agentType === 'review')) {
-        await handleAgentChaining(taskId, agentType, context);
+        // Handle agent chaining for implementation/review
+        if (!isError && (agentType === 'implementation' || agentType === 'review')) {
+          await handleAgentChaining(taskId, agentType, context);
+        }
       }
     }
+
+    // Send push notification for task conversations
+    if (!isError && userId) {
+      const taskInfo = tasksDb.getById(taskId);
+      const taskTitle = taskInfo?.title || null;
+      const workflowComplete = !!taskInfo?.workflow_complete;
+      const agentType = linkedAgentRun?.agent_type || null;
+
+      notifyClaudeComplete(userId, taskTitle, taskId, conversationId, {
+        agentType,
+        workflowComplete
+      }).catch(err => {
+        console.error('[ConversationAdapter] Failed to send notification:', err);
+      });
+    }
   }
+  // Agent-specific logic: simpler notification handling (no agent runs/chaining)
+  else if (agentId && !isError && userId) {
+    const agent = agentsDb.getById(agentId);
+    const agentName = agent?.name || 'Custom Agent';
 
-  // Send push notification (for both agent and non-agent conversations)
-  if (!isError && userId) {
-    const taskInfo = tasksDb.getById(taskId);
-    const taskTitle = taskInfo?.title || null;
-    const workflowComplete = !!taskInfo?.workflow_complete;
-    const agentType = linkedAgentRun?.agent_type || null;
-
-    notifyClaudeComplete(userId, taskTitle, taskId, conversationId, {
-      agentType,
-      workflowComplete
+    notifyClaudeComplete(userId, `Agent: ${agentName}`, null, conversationId, {
+      agentType: 'custom',
+      workflowComplete: false
     }).catch(err => {
       console.error('[ConversationAdapter] Failed to send notification:', err);
     });
@@ -595,6 +616,234 @@ export async function startConversation(taskId, message, options = {}) {
 }
 
 /**
+ * Start a new conversation for a custom agent
+ *
+ * @param {number} agentId - Agent ID
+ * @param {string} message - First message to send
+ * @param {Object} options - Options
+ * @param {Function} options.broadcastFn - WebSocket broadcast function
+ * @param {number} options.userId - User ID for notifications
+ * @param {string} options.permissionMode - Permission mode (default: 'bypassPermissions')
+ * @param {number} options.conversationId - Existing conversation ID (optional)
+ * @param {Array} options.images - Images to include (optional)
+ * @returns {Promise<{conversationId: number, claudeSessionId: string}>}
+ */
+export async function startAgentConversation(agentId, message, options = {}) {
+  // Validate and normalize options
+  const normalizedOptions = validateAndNormalizeOptions(options, 'startAgentConversation');
+  const { broadcastFn, broadcastToTaskSubscribersFn, userId, permissionMode, images } = normalizedOptions;
+
+  // Get agent and project info
+  const agentWithProject = agentsDb.getWithProject(agentId);
+  if (!agentWithProject) {
+    throw new Error(`Agent ${agentId} not found`);
+  }
+
+  const projectPath = agentWithProject.repo_folder_path;
+
+  // Build context prompt from project doc + agent prompt (similar to task conversations)
+  const agentContextPrompt = buildAgentContextPrompt(projectPath, agentId);
+
+  // Create or use existing conversation
+  let conversationId = options.conversationId;
+  if (!conversationId) {
+    const conversation = conversationsDb.createForAgent(agentId);
+    conversationId = conversation.id;
+    console.log(`[ConversationAdapter] Created conversation ${conversationId} for agent ${agentId}`);
+  }
+
+  // Build SDK options - agent context (project doc + agent prompt) becomes the system prompt
+  const sdkOptions = mapOptionsToSDK({
+    cwd: projectPath,
+    permissionMode,
+    customSystemPrompt: agentContextPrompt || undefined
+  });
+
+  // Load MCP configuration
+  const mcpServers = await loadMcpConfig(projectPath);
+  if (mcpServers) {
+    sdkOptions.mcpServers = mcpServers;
+  }
+
+  // Handle images
+  const imageResult = await handleImages(message, images, projectPath);
+  const finalMessage = imageResult.modifiedCommand;
+  const { tempImagePaths, tempDir } = imageResult;
+
+  // Create SDK query instance
+  const queryInstance = query({
+    prompt: finalMessage,
+    options: sdkOptions
+  });
+
+  // Process streaming
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      reject(new Error('Session creation timeout'));
+    }, 30000);
+
+    let claudeSessionId = null;
+    let sessionCreatedBroadcast = false;
+
+    // Context for lifecycle events - agentId instead of taskId
+    const context = {
+      conversationId,
+      agentId,
+      taskId: null, // No task for agent conversations
+      claudeSessionId: null,
+      userId,
+      broadcastFn,
+      broadcastToTaskSubscribersFn
+    };
+
+    (async () => {
+      try {
+        for await (const sdkMessage of queryInstance) {
+          // Capture session ID from first message
+          if (sdkMessage.session_id && !claudeSessionId) {
+            claudeSessionId = sdkMessage.session_id;
+            context.claudeSessionId = claudeSessionId;
+            clearTimeout(timeout);
+
+            // Track session
+            activeSessions.set(claudeSessionId, {
+              instance: queryInstance,
+              startTime: Date.now(),
+              status: 'active',
+              tempImagePaths,
+              tempDir
+            });
+
+            // Update conversation with Claude session ID
+            conversationsDb.updateClaudeId(conversationId, claudeSessionId);
+            console.log(`[ConversationAdapter] Updated conversation ${conversationId} with session ${claudeSessionId}`);
+
+            // Track active streaming session (for agent, taskId is null)
+            activeStreamingSessions.set(claudeSessionId, { taskId: null, agentId, conversationId });
+
+            // Broadcast conversation-created
+            if (broadcastFn) {
+              broadcastFn(conversationId, {
+                type: 'streaming-started',
+                agentId,
+                conversationId,
+                claudeSessionId
+              });
+
+              broadcastFn(conversationId, {
+                type: 'conversation-created',
+                conversationId,
+                claudeSessionId
+              });
+            }
+
+            // Resolve immediately with IDs
+            resolve({ conversationId, claudeSessionId });
+          }
+
+          // Broadcast message to WebSocket clients
+          if (broadcastFn) {
+            broadcastFn(conversationId, {
+              type: 'claude-response',
+              data: sdkMessage
+            });
+
+            // Broadcast session-created once
+            if (claudeSessionId && !sessionCreatedBroadcast) {
+              sessionCreatedBroadcast = true;
+              broadcastFn(conversationId, {
+                type: 'session-created',
+                sessionId: claudeSessionId
+              });
+            }
+
+            // Extract and send token budget from result message
+            if (sdkMessage.type === 'result') {
+              const tokenBudget = extractTokenBudget(sdkMessage);
+              if (tokenBudget) {
+                broadcastFn(conversationId, {
+                  type: 'token-budget',
+                  data: tokenBudget
+                });
+              }
+            }
+          }
+        }
+
+        // Clean up session
+        if (claudeSessionId) {
+          activeSessions.delete(claudeSessionId);
+          activeStreamingSessions.delete(claudeSessionId);
+        }
+
+        // Clean up temp files
+        await cleanupTempFiles(tempImagePaths, tempDir);
+
+        // Broadcast completion
+        if (broadcastFn) {
+          broadcastFn(conversationId, {
+            type: 'streaming-ended',
+            agentId,
+            conversationId
+          });
+
+          broadcastFn(conversationId, {
+            type: 'claude-complete',
+            sessionId: claudeSessionId,
+            exitCode: 0,
+            isNewSession: true
+          });
+        }
+
+        // Send push notification (for agent conversations)
+        if (userId) {
+          const agentName = agentWithProject.name;
+          notifyClaudeComplete(userId, `Agent: ${agentName}`, null, conversationId, {
+            agentType: 'custom',
+            workflowComplete: false
+          }).catch(err => {
+            console.error('[ConversationAdapter] Failed to send notification:', err);
+          });
+        }
+
+        console.log(`[ConversationAdapter] Agent conversation ${conversationId} completed`);
+
+      } catch (error) {
+        console.error('[ConversationAdapter] Agent streaming error:', error);
+
+        // Clean up
+        if (claudeSessionId) {
+          activeSessions.delete(claudeSessionId);
+          activeStreamingSessions.delete(claudeSessionId);
+        }
+        await cleanupTempFiles(tempImagePaths, tempDir);
+
+        // If not resolved yet, reject
+        if (!claudeSessionId) {
+          clearTimeout(timeout);
+          reject(error);
+          return;
+        }
+
+        // Broadcast error
+        if (broadcastFn) {
+          broadcastFn(conversationId, {
+            type: 'streaming-ended',
+            agentId,
+            conversationId
+          });
+
+          broadcastFn(conversationId, {
+            type: 'claude-error',
+            error: error.message
+          });
+        }
+      }
+    })();
+  });
+}
+
+/**
  * Send a message to an existing conversation (resume)
  *
  * @param {number} conversationId - Conversation ID
@@ -623,14 +872,25 @@ export async function sendMessage(conversationId, message, options = {}) {
 
   const claudeSessionId = conversation.claude_conversation_id;
   const taskId = conversation.task_id;
+  const agentId = conversation.agent_id;
 
-  // Get task and project for cwd
-  const taskWithProject = tasksDb.getWithProject(taskId);
-  if (!taskWithProject) {
-    throw new Error(`Task ${taskId} not found`);
+  // Get project path based on whether this is a task or agent conversation
+  let projectPath;
+  if (taskId) {
+    const taskWithProject = tasksDb.getWithProject(taskId);
+    if (!taskWithProject) {
+      throw new Error(`Task ${taskId} not found`);
+    }
+    projectPath = taskWithProject.repo_folder_path;
+  } else if (agentId) {
+    const agentWithProject = agentsDb.getWithProject(agentId);
+    if (!agentWithProject) {
+      throw new Error(`Agent ${agentId} not found`);
+    }
+    projectPath = agentWithProject.repo_folder_path;
+  } else {
+    throw new Error(`Conversation ${conversationId} has no task_id or agent_id`);
   }
-
-  const projectPath = taskWithProject.repo_folder_path;
 
   // Build SDK options for resume (permissionMode already validated/normalized)
   const sdkOptions = mapOptionsToSDK({
@@ -654,13 +914,14 @@ export async function sendMessage(conversationId, message, options = {}) {
   const context = {
     conversationId,
     taskId,
+    agentId,
     claudeSessionId,
     userId,
     broadcastFn,
     broadcastToTaskSubscribersFn
   };
 
-  // Handle streaming started
+  // Handle streaming started (handles both task and agent conversations)
   handleStreamingStarted(context);
 
   // Create SDK query instance

@@ -10,6 +10,8 @@ import {
   writeTaskDoc,
   deleteTaskDoc,
   buildContextPrompt,
+  writeAgentPrompt,
+  buildAgentContextPrompt,
   _internal
 } from './documentation.js';
 
@@ -294,6 +296,96 @@ describe('Documentation Service - Phase 2', () => {
       expect(result1).not.toContain('Task 2 docs');
       expect(result2).toContain('Task 2 docs');
       expect(result2).not.toContain('Task 1 docs');
+    });
+  });
+
+  describe('buildAgentContextPrompt', () => {
+    it('should return empty string when no documentation exists', () => {
+      const result = buildAgentContextPrompt(testRepoPath, 1);
+
+      expect(result).toBe('');
+    });
+
+    it('should include only project context when agent prompt is missing', () => {
+      writeProjectDoc(testRepoPath, 'Project documentation');
+
+      const result = buildAgentContextPrompt(testRepoPath, 1);
+
+      expect(result).toContain('## Project Context');
+      expect(result).toContain('Project documentation');
+      expect(result).not.toContain('## Agent Instructions');
+    });
+
+    it('should include only agent instructions when project doc is missing', () => {
+      writeAgentPrompt(testRepoPath, 1, 'You are a helpful coding assistant');
+
+      const result = buildAgentContextPrompt(testRepoPath, 1);
+
+      expect(result).toContain('## Agent Instructions');
+      expect(result).toContain('You are a helpful coding assistant');
+      expect(result).not.toContain('## Project Context');
+    });
+
+    it('should include both project and agent context when both exist', () => {
+      writeProjectDoc(testRepoPath, 'Project documentation');
+      writeAgentPrompt(testRepoPath, 1, 'Agent prompt content');
+
+      const result = buildAgentContextPrompt(testRepoPath, 1);
+
+      expect(result).toContain('## Project Context');
+      expect(result).toContain('Project documentation');
+      expect(result).toContain('## Agent Instructions');
+      expect(result).toContain('Agent prompt content');
+      expect(result).toContain('---'); // Section separator
+    });
+
+    it('should trim whitespace from documentation', () => {
+      writeProjectDoc(testRepoPath, '  Project with whitespace  \n\n');
+      writeAgentPrompt(testRepoPath, 1, '\n  Agent with whitespace  ');
+
+      const result = buildAgentContextPrompt(testRepoPath, 1);
+
+      expect(result).toContain('Project with whitespace');
+      expect(result).toContain('Agent with whitespace');
+      expect(result).not.toMatch(/## Project Context\n\n\s+Project/);
+    });
+
+    it('should return empty string when docs exist but are whitespace only', () => {
+      writeProjectDoc(testRepoPath, '   \n\n   ');
+      writeAgentPrompt(testRepoPath, 1, '   ');
+
+      const result = buildAgentContextPrompt(testRepoPath, 1);
+
+      expect(result).toBe('');
+    });
+
+    it('should use correct agent ID for context', () => {
+      writeAgentPrompt(testRepoPath, 1, 'Agent 1 prompt');
+      writeAgentPrompt(testRepoPath, 2, 'Agent 2 prompt');
+
+      const result1 = buildAgentContextPrompt(testRepoPath, 1);
+      const result2 = buildAgentContextPrompt(testRepoPath, 2);
+
+      expect(result1).toContain('Agent 1 prompt');
+      expect(result1).not.toContain('Agent 2 prompt');
+      expect(result2).toContain('Agent 2 prompt');
+      expect(result2).not.toContain('Agent 1 prompt');
+    });
+
+    it('should share project context across different agents', () => {
+      writeProjectDoc(testRepoPath, 'Shared project context');
+      writeAgentPrompt(testRepoPath, 1, 'Agent 1 specific');
+      writeAgentPrompt(testRepoPath, 2, 'Agent 2 specific');
+
+      const result1 = buildAgentContextPrompt(testRepoPath, 1);
+      const result2 = buildAgentContextPrompt(testRepoPath, 2);
+
+      // Both should have project context
+      expect(result1).toContain('Shared project context');
+      expect(result2).toContain('Shared project context');
+      // But different agent prompts
+      expect(result1).toContain('Agent 1 specific');
+      expect(result2).toContain('Agent 2 specific');
     });
   });
 });
