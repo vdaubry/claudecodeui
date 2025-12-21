@@ -105,7 +105,7 @@ describe('agentRunner', () => {
     it('should create agent run and conversation for planification agent', async () => {
       const result = await startAgentRun(1, 'planification');
 
-      expect(generatePlanificationMessage).toHaveBeenCalledWith('.claude-ui/tasks/task-1.md');
+      expect(generatePlanificationMessage).toHaveBeenCalledWith('.claude-ui/tasks/task-1.md', 1);
       expect(agentRunsDb.create).toHaveBeenCalledWith(1, 'planification', null);
       expect(conversationsDb.create).toHaveBeenCalledWith(1);
       expect(agentRunsDb.linkConversation).toHaveBeenCalledWith(1, 1);

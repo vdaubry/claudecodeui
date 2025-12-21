@@ -93,6 +93,11 @@ const runMigrations = () => {
       db.exec('ALTER TABLE tasks ADD COLUMN workflow_complete INTEGER DEFAULT 0 NOT NULL');
     }
 
+    if (!taskColumnNames.includes('planification_complete')) {
+      console.log('Running migration: Adding planification_complete column to tasks');
+      db.exec('ALTER TABLE tasks ADD COLUMN planification_complete INTEGER DEFAULT 0 NOT NULL');
+    }
+
     // Task Agent Runs table migration (for existing databases)
     try {
       db.prepare("SELECT 1 FROM task_agent_runs LIMIT 1").get();
@@ -390,7 +395,7 @@ const tasksDb = {
   // Update a task
   update: (id, updates) => {
     try {
-      const allowedFields = ['title', 'status', 'workflow_complete'];
+      const allowedFields = ['title', 'status', 'workflow_complete', 'planification_complete'];
       const setClause = [];
       const values = [];
 

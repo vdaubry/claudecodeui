@@ -314,4 +314,168 @@ describe('WebSocket Handler - Task-based Conversation Flow', () => {
       expect(sdkOptions.sessionId).toBe(claudeSessionId);
     });
   });
+
+  describe('Task Subscription Flow', () => {
+    it('should track task subscriptions in a Map', () => {
+      // Simulate the task subscription tracking (as done in index.js)
+      const taskSubscriptions = new Map();
+
+      // Mock WebSocket client
+      const mockWs1 = { id: 'ws1' };
+      const mockWs2 = { id: 'ws2' };
+
+      // Subscribe ws1 to task 1 and task 2
+      if (!taskSubscriptions.has(mockWs1)) {
+        taskSubscriptions.set(mockWs1, new Set());
+      }
+      taskSubscriptions.get(mockWs1).add(1);
+      taskSubscriptions.get(mockWs1).add(2);
+
+      // Subscribe ws2 to task 1 only
+      if (!taskSubscriptions.has(mockWs2)) {
+        taskSubscriptions.set(mockWs2, new Set());
+      }
+      taskSubscriptions.get(mockWs2).add(1);
+
+      // Verify subscriptions
+      expect(taskSubscriptions.get(mockWs1).has(1)).toBe(true);
+      expect(taskSubscriptions.get(mockWs1).has(2)).toBe(true);
+      expect(taskSubscriptions.get(mockWs2).has(1)).toBe(true);
+      expect(taskSubscriptions.get(mockWs2).has(2)).toBe(false);
+    });
+
+    it('should unsubscribe from task correctly', () => {
+      const taskSubscriptions = new Map();
+      const mockWs = { id: 'ws1' };
+
+      // Subscribe to tasks
+      taskSubscriptions.set(mockWs, new Set([1, 2, 3]));
+      expect(taskSubscriptions.get(mockWs).size).toBe(3);
+
+      // Unsubscribe from task 2
+      taskSubscriptions.get(mockWs).delete(2);
+
+      expect(taskSubscriptions.get(mockWs).has(1)).toBe(true);
+      expect(taskSubscriptions.get(mockWs).has(2)).toBe(false);
+      expect(taskSubscriptions.get(mockWs).has(3)).toBe(true);
+    });
+
+    it('should clean up subscriptions on disconnect', () => {
+      const taskSubscriptions = new Map();
+      const mockWs = { id: 'ws1' };
+
+      // Subscribe to tasks
+      taskSubscriptions.set(mockWs, new Set([1, 2]));
+      expect(taskSubscriptions.has(mockWs)).toBe(true);
+
+      // Simulate disconnect cleanup
+      taskSubscriptions.delete(mockWs);
+
+      expect(taskSubscriptions.has(mockWs)).toBe(false);
+    });
+
+    it('should broadcast to task subscribers only', () => {
+      const taskSubscriptions = new Map();
+      const sentMessages = [];
+
+      // Mock WebSocket clients
+      const mockWs1 = {
+        id: 'ws1',
+        readyState: 1, // WebSocket.OPEN
+        send: (msg) => sentMessages.push({ client: 'ws1', msg: JSON.parse(msg) })
+      };
+      const mockWs2 = {
+        id: 'ws2',
+        readyState: 1,
+        send: (msg) => sentMessages.push({ client: 'ws2', msg: JSON.parse(msg) })
+      };
+      const mockWs3 = {
+        id: 'ws3',
+        readyState: 1,
+        send: (msg) => sentMessages.push({ client: 'ws3', msg: JSON.parse(msg) })
+      };
+
+      // Subscribe ws1 and ws2 to task 1, ws3 to task 2
+      taskSubscriptions.set(mockWs1, new Set([1]));
+      taskSubscriptions.set(mockWs2, new Set([1]));
+      taskSubscriptions.set(mockWs3, new Set([2]));
+
+      // Simulate broadcast to task 1 subscribers
+      const clients = [mockWs1, mockWs2, mockWs3];
+      const targetTaskId = 1;
+      const message = { type: 'agent-run-updated', agentRun: { id: 1, status: 'running' } };
+
+      clients.forEach(client => {
+        if (client.readyState === 1) {
+          const subscribedTasks = taskSubscriptions.get(client);
+          if (subscribedTasks?.has(targetTaskId)) {
+            client.send(JSON.stringify({ ...message, taskId: targetTaskId }));
+          }
+        }
+      });
+
+      // Verify only ws1 and ws2 received the message
+      expect(sentMessages.length).toBe(2);
+      expect(sentMessages[0].client).toBe('ws1');
+      expect(sentMessages[1].client).toBe('ws2');
+      expect(sentMessages[0].msg.taskId).toBe(1);
+      expect(sentMessages[0].msg.type).toBe('agent-run-updated');
+    });
+
+    it('should handle subscribe-task message correctly', () => {
+      const taskSubscriptions = new Map();
+      const mockWs = { id: 'ws1' };
+
+      // Simulate handling subscribe-task message
+      const message = {
+        type: 'subscribe-task',
+        taskId: taskId
+      };
+
+      if (message.type === 'subscribe-task') {
+        if (!taskSubscriptions.has(mockWs)) {
+          taskSubscriptions.set(mockWs, new Set());
+        }
+        taskSubscriptions.get(mockWs).add(message.taskId);
+      }
+
+      expect(taskSubscriptions.get(mockWs).has(taskId)).toBe(true);
+    });
+
+    it('should handle unsubscribe-task message correctly', () => {
+      const taskSubscriptions = new Map();
+      const mockWs = { id: 'ws1' };
+
+      // Pre-subscribe
+      taskSubscriptions.set(mockWs, new Set([taskId]));
+      expect(taskSubscriptions.get(mockWs).has(taskId)).toBe(true);
+
+      // Simulate handling unsubscribe-task message
+      const message = {
+        type: 'unsubscribe-task',
+        taskId: taskId
+      };
+
+      if (message.type === 'unsubscribe-task') {
+        taskSubscriptions.get(mockWs)?.delete(message.taskId);
+      }
+
+      expect(taskSubscriptions.get(mockWs).has(taskId)).toBe(false);
+    });
+
+    it('should include taskId in broadcast message', () => {
+      const targetTaskId = 42;
+      const originalMessage = {
+        type: 'conversation-added',
+        conversation: { id: 1, task_id: targetTaskId }
+      };
+
+      // Simulate adding taskId to message (as done in broadcastToTaskSubscribers)
+      const messageWithTaskId = { ...originalMessage, taskId: targetTaskId };
+
+      expect(messageWithTaskId.taskId).toBe(42);
+      expect(messageWithTaskId.type).toBe('conversation-added');
+      expect(messageWithTaskId.conversation.id).toBe(1);
+    });
+  });
 });

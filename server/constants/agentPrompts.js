@@ -8,93 +8,33 @@
 /**
  * Generate the planification agent message with task doc path
  * Uses @agent-Plan to direct Claude SDK to use the planification sub-agent
+ * @param {string} taskDocPath - Path to task documentation file
+ * @param {number} taskId - Task ID for plan completion command
  */
-export function generatePlanificationMessage(taskDocPath) {
-  return `@agent-Plan You are helping me plan the implementation of a task. Your goal is to create a comprehensive onboarding document that any developer can use to complete this task.
+export function generatePlanificationMessage(taskDocPath, taskId) {
+  return `@agent-Plan You are a planning agent. Your goal is to create an implementation plan.
 
-## Your Process
+## Primary Goal
+Update the task documentation at: \`${taskDocPath}\`
 
-### 1. Explore the Codebase
-Explore the codebase to understand:
-- Current implementation patterns
-- Relevant files and components
-- Testing patterns used in the project
+When done, run: \`node /home/ubuntu/claudecodeui/scripts/complete-plan.js ${taskId}\`
 
-### 2. Ask Clarifying Questions (Major Decisions Only)
-Before creating any plan, ask me ONLY about significant decisions that would substantially impact the implementation.
+## Process
 
-**Do ask about:**
-- Major architectural or design decisions with multiple valid approaches
-- Ambiguous requirements that could be interpreted in fundamentally different ways
-- Potential flaws or challenges in the requirements that need resolution
-- Trade-offs that require user input (e.g., performance vs. simplicity)
+1. **Explore** - Understand the codebase (patterns, relevant files, testing approach)
 
-**Do NOT ask about:**
-- Implementation details you can reasonably infer from the codebase
-- Edge cases that have standard solutions
-- Minor UI/UX details unless they're core to the feature
-- Technical choices where there's an obvious best practice
+2. **Clarify** - Ask ONLY about major architectural decisions or ambiguous requirements (2-4 questions max). Skip minor details you can infer.
 
-Make reasonable assumptions for anything not in the "Do ask" list. If you have multiple questions, group them into a single, focused set (aim for 2-4 questions maximum).
+3. **Plan** - Update the task doc with:
+   - **Overview**: Task summary, context, key decisions
+   - **Implementation Plan**: Phased steps with files to modify
+   - **Testing Strategy**: Unit tests + Playwright MCP scenarios
+   - **To-Do List**: Checkboxes for all implementation and testing steps
+   - **Project Docs Update**: Instructions for updating \`.claude-ui/project.md\` if this is a major feature
 
-Do NOT proceed to planning until you have asked and received answers to your clarifying questions.
+4. **Complete** - Run the completion script above
 
-### 3. Create the Implementation Plan
-After gathering all information, update the task documentation file at:
-\`${taskDocPath}\`
-
-Structure the document as an onboarding guide for a new developer with these sections:
-
-#### Overview
-- Summary of what this task accomplishes
-- Initial user request and context
-- Key decisions made during planning
-
-#### Implementation Plan
-- Phase-by-phase breakdown with clear steps
-- Files to modify/create for each phase
-- Technical approach and architecture decisions
-
-#### Testing Strategy
-- **Unit Tests**: List specific unit tests to create or update
-- **Manual Testing (Playwright MCP)**: Detailed scenarios including:
-  - Navigation steps
-  - Expected behavior to verify
-  - Element selectors to check
-
-#### To-Do List
-Track progress with checkboxes. Include ALL steps:
-
-**Implementation:**
-- [ ] Phase 1: [description]
-- [ ] Phase 2: [description]
-- [ ] ...
-
-**Testing:**
-- [ ] Unit test: [test description]
-- [ ] Unit test: [test description]
-- [ ] Playwright: [scenario description]
-- [ ] Playwright: [scenario description]
-
-The documentation must be complete enough that a developer who understands the codebase but knows nothing about this specific task can implement it independently. This allows pausing and resuming implementation while maintaining clear progress tracking.
-
-### 4. Add Project Documentation Update Step
-Inspect the main project documentation located at '.claude-ui/project.md'.
-
-**Evaluate:** Does this feature introduce major changes in the application architecture or UX?
-
-Based on your evaluation, add a **"Project Documentation Update"** phase to the Implementation Plan with brief instructions for the coding agent:
-
-**If NOT a major change:**
-- Instruct the coding agent to review the project docs and verify they're up to date
-
-**If YES, a major change:**
-- Instruct the coding agent to update the project docs to reflect the new feature
-- Provide brief guidance on what sections need updating
-- Keep the plan step concise - do NOT list all actual changes (could be hundreds of lines)
-- Remind the agent: no code blocks, use file/method/line references, stay synthetic
-
-Please start by asking your clarifying questions.`;
+Do NOT proceed to step 3 until you have asked and received answers to your clarifying questions.`;
 }
 
 /**

@@ -69,6 +69,7 @@ The frontend uses a **Trello-style Board UX** with a 4-screen navigation flow:
 | `src/App.jsx` | Root component with React Router routes |
 | `src/contexts/TaskContext.jsx` | State management for projects, tasks, conversations |
 | `src/hooks/useAuthToken.js` | Token preservation for URL-based auth |
+| `src/hooks/useTaskSubscription.js` | Real-time task updates via WebSocket subscription |
 | `src/components/Breadcrumb.jsx` | Navigation breadcrumb (Home > Project > Task) |
 | `src/utils/api.js` | REST API client for projects/tasks/conversations |
 
@@ -226,6 +227,18 @@ Frontend (WebSocket or REST)
    - For implementation/review: triggers agent chaining (next step in loop)
    - Sends push notification with agent type context
 
+### Task Live Updates
+
+The Task Detail page receives real-time updates via WebSocket task subscriptions:
+
+1. **Frontend subscribes** → `useTaskSubscription(taskId)` hook sends `subscribe-task`
+2. **Backend tracks** → `taskSubscriptions` Map links WebSocket clients to task IDs
+3. **On conversation created** → ConversationAdapter broadcasts `conversation-added` to task subscribers
+4. **On agent run updated** → ConversationAdapter broadcasts `agent-run-updated` to task subscribers
+5. **Hook updates state** → `setConversations` and `setAgentRuns` update TaskContext directly
+
+This eliminates the need for polling or manual refresh when new conversations are created or agent workflows complete.
+
 ### File Structure Convention
 
 ```
@@ -313,6 +326,8 @@ The `TaskContext` manages all navigation and data state:
 | `claude-command` | Send message to Claude (with taskId/conversationId) |
 | `subscribe-session` | Subscribe to updates for specific conversation |
 | `unsubscribe-session` | Unsubscribe from conversation updates |
+| `subscribe-task` | Subscribe to task-level updates (new conversations, agent runs) |
+| `unsubscribe-task` | Unsubscribe from task updates |
 | `abort-session` | Stop active conversation processing |
 
 ### Server → Client
@@ -327,6 +342,8 @@ The `TaskContext` manages all navigation and data state:
 | `streaming-started` | Claude has started streaming |
 | `streaming-ended` | Claude streaming completed |
 | `token-budget` | Token usage update (used/total) |
+| `conversation-added` | New conversation created for subscribed task |
+| `agent-run-updated` | Agent run status changed for subscribed task |
 
 ## REST API Endpoints
 
@@ -448,6 +465,11 @@ Dashboard ─────► Board View ─────► Task Detail ───
 - `conversationAdapter.abortSession()` - Abort active session
 - `conversationAdapter.isSessionActive()` - Check if session is currently streaming
 - `conversationAdapter.getAllActiveStreamingSessions()` - Get all active streams
+
+### Task Live Updates
+
+- `useTaskSubscription(taskId)` - Subscribe to real-time task updates on Task Detail page
+- `broadcastToTaskSubscribers(taskId, message)` - Send targeted updates to task subscribers
 
 ### Message Handling
 

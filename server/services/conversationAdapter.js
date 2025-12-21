@@ -248,7 +248,7 @@ function handleStreamingStarted(context) {
  * Updates agent run status, broadcasts to WebSocket, sends notifications
  */
 async function handleStreamingComplete(context, isError) {
-  const { conversationId, taskId, claudeSessionId, userId, broadcastFn } = context;
+  const { conversationId, taskId, claudeSessionId, userId, broadcastFn, broadcastToTaskSubscribersFn } = context;
 
   // Remove from active sessions
   activeStreamingSessions.delete(claudeSessionId);
@@ -273,12 +273,21 @@ async function handleStreamingComplete(context, isError) {
 
     // Only update if still in 'running' status
     if (status === 'running') {
-      if (isError) {
-        agentRunsDb.updateStatus(agentRunId, 'failed');
-        console.log(`[ConversationAdapter] Agent run ${agentRunId} failed`);
-      } else {
-        agentRunsDb.updateStatus(agentRunId, 'completed');
-        console.log(`[ConversationAdapter] Agent run ${agentRunId} (${agentType}) completed`);
+      const newStatus = isError ? 'failed' : 'completed';
+      agentRunsDb.updateStatus(agentRunId, newStatus);
+      console.log(`[ConversationAdapter] Agent run ${agentRunId} (${agentType}) ${newStatus}`);
+
+      // Broadcast agent run status update to task subscribers
+      if (broadcastToTaskSubscribersFn) {
+        broadcastToTaskSubscribersFn(taskId, {
+          type: 'agent-run-updated',
+          agentRun: {
+            id: agentRunId,
+            status: newStatus,
+            agent_type: agentType,
+            conversation_id: conversationId
+          }
+        });
       }
 
       // Handle agent chaining for implementation/review
@@ -377,7 +386,7 @@ async function handleAgentChaining(taskId, agentType, context) {
 export async function startConversation(taskId, message, options = {}) {
   // Validate and normalize options
   const normalizedOptions = validateAndNormalizeOptions(options, 'startConversation');
-  const { broadcastFn, userId, customSystemPrompt, permissionMode, images } = normalizedOptions;
+  const { broadcastFn, broadcastToTaskSubscribersFn, userId, customSystemPrompt, permissionMode, images } = normalizedOptions;
 
   // Get task and project info
   const taskWithProject = tasksDb.getWithProject(taskId);
@@ -433,7 +442,8 @@ export async function startConversation(taskId, message, options = {}) {
       taskId,
       claudeSessionId: null,
       userId,
-      broadcastFn
+      broadcastFn,
+      broadcastToTaskSubscribersFn
     };
 
     (async () => {
@@ -467,6 +477,19 @@ export async function startConversation(taskId, message, options = {}) {
                 type: 'conversation-created',
                 conversationId,
                 claudeSessionId
+              });
+            }
+
+            // Broadcast conversation-added to task subscribers (for live updates on Task Detail page)
+            if (broadcastToTaskSubscribersFn) {
+              broadcastToTaskSubscribersFn(taskId, {
+                type: 'conversation-added',
+                conversation: {
+                  id: conversationId,
+                  task_id: taskId,
+                  claude_conversation_id: claudeSessionId,
+                  created_at: new Date().toISOString()
+                }
               });
             }
 
@@ -570,7 +593,7 @@ export async function startConversation(taskId, message, options = {}) {
 export async function sendMessage(conversationId, message, options = {}) {
   // Validate and normalize options
   const normalizedOptions = validateAndNormalizeOptions(options, 'sendMessage');
-  const { broadcastFn, userId, images, permissionMode } = normalizedOptions;
+  const { broadcastFn, broadcastToTaskSubscribersFn, userId, images, permissionMode } = normalizedOptions;
 
   // Get conversation
   const conversation = conversationsDb.getById(conversationId);
@@ -617,7 +640,8 @@ export async function sendMessage(conversationId, message, options = {}) {
     taskId,
     claudeSessionId,
     userId,
-    broadcastFn
+    broadcastFn,
+    broadcastToTaskSubscribersFn
   };
 
   // Handle streaming started

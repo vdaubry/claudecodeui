@@ -652,11 +652,13 @@ export function TaskContextProvider({ children }) {
 
     // Agent Runs
     agentRuns,
+    setAgentRuns,  // Exposed for WebSocket live updates
     isLoadingAgentRuns,
     loadAgentRuns,
 
     // Conversations
     conversations,
+    setConversations,  // Exposed for WebSocket live updates
     isLoadingConversations,
     conversationsError,
     loadConversations,
