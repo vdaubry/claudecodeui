@@ -3,53 +3,37 @@
  *
  * Task-driven workflow architecture:
  * - Projects, Tasks, Conversations managed via TaskContext
- * - Full-screen Dashboard replaces sidebar
- * - MainContent renders views: Dashboard -> TaskDetail -> Chat
+ * - URL-based routing with React Router
+ * - Routes: Dashboard -> Board -> TaskDetail -> Chat
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
-import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
-import MainContent from './components/MainContent';
-import Settings from './components/Settings';
-import ProjectForm from './components/ProjectForm';
+import React, { useEffect } from 'react';
+import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 
 import { ThemeProvider } from './contexts/ThemeContext';
 import { AuthProvider } from './contexts/AuthContext';
 import { WebSocketProvider } from './contexts/WebSocketContext';
-import { TaskContextProvider, useTaskContext } from './contexts/TaskContext';
+import { TaskContextProvider } from './contexts/TaskContext';
 import { ToastProvider } from './contexts/ToastContext';
 import ProtectedRoute from './components/ProtectedRoute';
-import useLocalStorage from './hooks/useLocalStorage';
 
-// Main App component
-function AppContent() {
-  // TaskContext for state management
-  const { createProject, updateProject, saveProjectDoc } = useTaskContext();
+// Page components
+import {
+  DashboardPage,
+  BoardPage,
+  TaskDetailPage,
+  ChatPage,
+  ProjectEditPageWrapper,
+  TaskEditPageWrapper
+} from './pages';
 
-  // UI state
-  const [isMobile, setIsMobile] = useState(false);
-  const [showSettings, setShowSettings] = useState(false);
-  const [settingsInitialTab, setSettingsInitialTab] = useState('tools');
-
-  // Display settings
-  const [autoExpandTools, setAutoExpandTools] = useLocalStorage('autoExpandTools', false);
-  const [showRawParameters, setShowRawParameters] = useLocalStorage('showRawParameters', false);
-  const [showThinking, setShowThinking] = useLocalStorage('showThinking', true);
-
-  // Project form modal state
-  const [showProjectForm, setShowProjectForm] = useState(false);
-  const [editingProject, setEditingProject] = useState(null);
-  const [isCreatingProject, setIsCreatingProject] = useState(false);
-
-  // Detect if running as PWA
-  const [isPWA, setIsPWA] = useState(false);
-
+// App wrapper for PWA detection and global settings
+function AppWrapper({ children }) {
   useEffect(() => {
     const checkPWA = () => {
       const isStandalone = window.matchMedia('(display-mode: standalone)').matches ||
                           window.navigator.standalone ||
                           document.referrer.includes('android-app://');
-      setIsPWA(isStandalone);
 
       if (isStandalone) {
         document.documentElement.classList.add('pwa-mode');
@@ -68,95 +52,16 @@ function AppContent() {
     };
   }, []);
 
-  useEffect(() => {
-    const checkMobile = () => {
-      setIsMobile(window.innerWidth < 768);
-    };
-
-    checkMobile();
-    window.addEventListener('resize', checkMobile);
-
-    return () => window.removeEventListener('resize', checkMobile);
-  }, []);
-
-  // Expose openSettings function globally for component access
-  window.openSettings = useCallback((tab = 'tools') => {
-    setSettingsInitialTab(tab);
-    setShowSettings(true);
-  }, []);
-
-  // Handle project creation/update from modal
-  const handleProjectSubmit = async ({ name, repoFolderPath, documentation }) => {
-    setIsCreatingProject(true);
-    try {
-      let result;
-      if (editingProject) {
-        // Update existing project
-        result = await updateProject(editingProject.id, { name });
-        if (result.success && documentation !== undefined) {
-          // Save documentation separately
-          await saveProjectDoc(editingProject.id, documentation);
-        }
-      } else {
-        // Create new project
-        result = await createProject(name, repoFolderPath, documentation);
-      }
-      if (result.success) {
-        setShowProjectForm(false);
-        setEditingProject(null);
-      }
-      return result;
-    } finally {
-      setIsCreatingProject(false);
-    }
-  };
-
-  // Handle opening project edit form
-  const handleEditProject = useCallback((project) => {
-    setEditingProject(project);
-    setShowProjectForm(true);
-  }, []);
-
   return (
     <div className="fixed inset-0 flex bg-background">
-      {/* Main Content Area - Full Screen (no sidebar) */}
       <div className="flex-1 flex flex-col min-w-0">
-        <MainContent
-          isMobile={isMobile}
-          isPWA={isPWA}
-          onShowSettings={() => setShowSettings(true)}
-          onShowProjectForm={() => setShowProjectForm(true)}
-          onEditProject={handleEditProject}
-          autoExpandTools={autoExpandTools}
-          showRawParameters={showRawParameters}
-          showThinking={showThinking}
-        />
+        {children}
       </div>
-
-      {/* Settings Modal */}
-      <Settings
-        isOpen={showSettings}
-        onClose={() => setShowSettings(false)}
-        projects={[]}
-        initialTab={settingsInitialTab}
-      />
-
-      {/* Project Form Modal */}
-      <ProjectForm
-        isOpen={showProjectForm}
-        onClose={() => {
-          setShowProjectForm(false);
-          setEditingProject(null);
-        }}
-        onSubmit={handleProjectSubmit}
-        initialData={editingProject}
-        isSubmitting={isCreatingProject}
-      />
     </div>
   );
 }
 
-// Root App component with providers
+// Root App component with providers and routes
 function App() {
   return (
     <ThemeProvider>
@@ -166,9 +71,30 @@ function App() {
             <ToastProvider>
               <ProtectedRoute>
                 <Router>
-                  <Routes>
-                    <Route path="/*" element={<AppContent />} />
-                  </Routes>
+                  <AppWrapper>
+                    <Routes>
+                      {/* Dashboard - home page */}
+                      <Route path="/" element={<DashboardPage />} />
+
+                      {/* Board View - Kanban for a project */}
+                      <Route path="/projects/:projectId" element={<BoardPage />} />
+
+                      {/* Project Edit */}
+                      <Route path="/projects/:projectId/edit" element={<ProjectEditPageWrapper />} />
+
+                      {/* Task Detail */}
+                      <Route path="/projects/:projectId/tasks/:taskId" element={<TaskDetailPage />} />
+
+                      {/* Task Edit */}
+                      <Route path="/projects/:projectId/tasks/:taskId/edit" element={<TaskEditPageWrapper />} />
+
+                      {/* Chat */}
+                      <Route path="/projects/:projectId/tasks/:taskId/chat/:conversationId" element={<ChatPage />} />
+
+                      {/* Catch-all redirect to dashboard */}
+                      <Route path="*" element={<Navigate to="/" replace />} />
+                    </Routes>
+                  </AppWrapper>
                 </Router>
               </ProtectedRoute>
             </ToastProvider>

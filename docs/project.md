@@ -62,15 +62,26 @@ The frontend uses a **Trello-style Board UX** with a 4-screen navigation flow:
 
 ### Frontend
 
-#### Core Navigation & State
+#### Core Navigation & Routing
 
 | File | Purpose |
 |------|---------|
-| `src/App.jsx` | Root component, providers, project form modal |
-| `src/contexts/TaskContext.jsx` | State management for projects, tasks, conversations, navigation |
-| `src/components/MainContent.jsx` | View routing: Dashboard → Board → TaskDetail → Chat |
+| `src/App.jsx` | Root component with React Router routes |
+| `src/contexts/TaskContext.jsx` | State management for projects, tasks, conversations |
+| `src/hooks/useAuthToken.js` | Token preservation for URL-based auth |
 | `src/components/Breadcrumb.jsx` | Navigation breadcrumb (Home > Project > Task) |
 | `src/utils/api.js` | REST API client for projects/tasks/conversations |
+
+#### Page Components (Route Handlers)
+
+| File | Purpose |
+|------|---------|
+| `src/pages/DashboardPage.jsx` | Dashboard route - project grid |
+| `src/pages/BoardPage.jsx` | Board route - Kanban view for a project |
+| `src/pages/TaskDetailPage.jsx` | Task detail route - docs & conversations |
+| `src/pages/ChatPage.jsx` | Chat route - conversation interface |
+| `src/pages/ProjectEditPageWrapper.jsx` | Project edit route |
+| `src/pages/TaskEditPageWrapper.jsx` | Task edit route |
 
 #### Dashboard (Project Grid)
 
@@ -336,13 +347,27 @@ The `TaskContext` manages all navigation and data state:
 
 ## UI Navigation Flow
 
-The app uses a **4-screen navigation** model with a Trello-style board view:
+The app uses a **4-screen navigation** model with URL-based routing:
 
 ```
 Dashboard ─────► Board View ─────► Task Detail ─────► Chat
 (project grid)   (kanban cols)    (docs + convos)   (messages)
     ◄────────────────◄────────────────◄────────────────◄
 ```
+
+### URL Structure
+
+```
+/                                                    → Dashboard
+/projects/:projectId                                 → Board View (Kanban)
+/projects/:projectId/edit                            → Project Edit
+/projects/:projectId/tasks/:taskId                   → Task Detail
+/projects/:projectId/tasks/:taskId/edit              → Task Edit
+/projects/:projectId/tasks/:taskId/chat/:conversationId → Chat
+```
+
+**Deep Linking**: URLs support direct navigation and page refresh preserves state.
+**Token Preservation**: Auth token (`?token=`) is preserved across navigation.
 
 ### Screen 1: Dashboard (Project Grid)
 
