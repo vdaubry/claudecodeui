@@ -43,7 +43,7 @@ export async function startAgentRun(taskId, agentType, options = {}) {
   let message;
   switch (agentType) {
     case 'planification':
-      message = generatePlanificationMessage(taskDocPath);
+      message = generatePlanificationMessage(taskDocPath, taskId);
       break;
     case 'implementation':
       message = generateImplementationMessage(taskDocPath, taskId);
