@@ -42,10 +42,17 @@ function getAgentsFolderPath(repoPath) {
 }
 
 /**
+ * Get the path to a specific agent's folder
+ */
+function getAgentFolderPath(repoPath, agentId) {
+  return path.join(repoPath, CLAUDE_UI_FOLDER, AGENTS_FOLDER, `agent-${agentId}`);
+}
+
+/**
  * Get the path to an agent prompt file
  */
 function getAgentDocPath(repoPath, agentId) {
-  return path.join(repoPath, CLAUDE_UI_FOLDER, AGENTS_FOLDER, `agent-${agentId}.md`);
+  return path.join(repoPath, CLAUDE_UI_FOLDER, AGENTS_FOLDER, `agent-${agentId}`, 'prompt.md');
 }
 
 /**

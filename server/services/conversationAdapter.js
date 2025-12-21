@@ -77,11 +77,8 @@ function mapOptionsToSDK(options = {}) {
   sdkOptions.model = options.model || 'sonnet';
 
   if (customSystemPrompt) {
-    sdkOptions.systemPrompt = {
-      type: 'preset',
-      preset: 'claude_code',
-      append: customSystemPrompt
-    };
+    // Custom agents use full override - plain string replaces the entire system prompt
+    sdkOptions.systemPrompt = customSystemPrompt;
   } else {
     sdkOptions.systemPrompt = {
       type: 'preset',
