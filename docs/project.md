@@ -113,13 +113,6 @@ The frontend uses a **Trello-style Board UX** with a 4-screen navigation flow:
 | `src/components/ConversationList.jsx` | Conversation cards with Open/Resume buttons |
 | `src/components/MarkdownEditor.jsx` | View/edit toggle for documentation |
 
-#### Edit Pages
-
-| File | Purpose |
-|------|---------|
-| `src/components/ProjectEditPage.jsx` | Full-page project edit form |
-| `src/components/TaskEditPage.jsx` | Full-page task edit form with status dropdown |
-
 ### Backend
 
 | File | Purpose |

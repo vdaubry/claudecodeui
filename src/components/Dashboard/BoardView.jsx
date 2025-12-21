@@ -14,7 +14,7 @@
 
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Plus, Columns } from 'lucide-react';
+import { ArrowLeft, Plus, Columns, Settings } from 'lucide-react';
 import { Button } from '../ui/button';
 import { cn } from '../../lib/utils';
 import { useTaskContext } from '../../contexts/TaskContext';
@@ -142,6 +142,11 @@ function BoardView({ className, project }) {
     navigate(`/${getTokenParam()}`);
   }, [navigate, getTokenParam]);
 
+  // Handle project edit - navigate to project edit page
+  const handleProjectEdit = useCallback(() => {
+    navigate(`/projects/${project.id}/edit${getTokenParam()}`);
+  }, [navigate, project, getTokenParam]);
+
   if (!project) {
     return null;
   }
@@ -169,16 +174,27 @@ function BoardView({ className, project }) {
             </div>
           </div>
 
-          {/* Right: New Task button */}
-          <Button
-            variant="default"
-            size="sm"
-            onClick={() => setShowTaskForm(true)}
-            className="flex-shrink-0"
-          >
-            <Plus className="w-4 h-4 mr-1.5" />
-            New Task
-          </Button>
+          {/* Right: Edit + New Task buttons */}
+          <div className="flex items-center gap-2">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={handleProjectEdit}
+              className="h-8 w-8 p-0 flex-shrink-0"
+              title="Edit project"
+            >
+              <Settings className="w-4 h-4" />
+            </Button>
+            <Button
+              variant="default"
+              size="sm"
+              onClick={() => setShowTaskForm(true)}
+              className="flex-shrink-0"
+            >
+              <Plus className="w-4 h-4 mr-1.5" />
+              New Task
+            </Button>
+          </div>
         </div>
 
         {/* Project path */}

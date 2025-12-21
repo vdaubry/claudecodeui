@@ -70,6 +70,7 @@ vi.mock('lucide-react', () => ({
   ArrowLeft: () => <span data-testid="icon-arrow-left" />,
   Plus: () => <span data-testid="icon-plus" />,
   Columns: () => <span data-testid="icon-columns" />,
+  Settings: () => <span data-testid="icon-settings" />,
 }));
 
 // Helper to render with Router
