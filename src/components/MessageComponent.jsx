@@ -27,15 +27,26 @@ const CodeBlock = ({ children, className }) => {
 
 // Markdown components configuration
 const markdownComponents = {
-  code: ({ node, inline, className, children, ...props }) => {
-    if (inline) {
-      return (
-        <code className="bg-gray-100 dark:bg-gray-800 px-1.5 py-0.5 rounded text-sm font-mono" {...props}>
-          {children}
-        </code>
-      );
+  code: ({ className, children, ...props }) => {
+    // Detect block code: has language class OR contains newlines
+    const hasLanguage = className?.startsWith('language-');
+    const codeString = String(children).replace(/\n$/, ''); // Remove trailing newline
+    const isMultiline = codeString.includes('\n');
+    const isBlock = hasLanguage || isMultiline;
+
+    if (isBlock) {
+      return <CodeBlock className={className}>{children}</CodeBlock>;
     }
-    return <CodeBlock className={className}>{children}</CodeBlock>;
+
+    // Inline code - styled to match Claude CLI (blue tint)
+    return (
+      <code
+        className="bg-blue-100 dark:bg-blue-900/50 text-blue-800 dark:text-blue-200 px-1.5 py-0.5 rounded text-sm font-mono"
+        {...props}
+      >
+        {children}
+      </code>
+    );
   },
   pre: ({ children }) => <>{children}</>,
   p: ({ children }) => {
