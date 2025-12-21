@@ -11,6 +11,7 @@
 import React, { memo } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import remarkBreaks from 'remark-breaks';
 import ClaudeLogo from './ClaudeLogo.jsx';
 
 // Code block component for syntax highlighting
@@ -112,7 +113,7 @@ const MessageComponent = memo(({ message, isGrouped }) => {
             </div>
           )}
           <div className="prose prose-sm dark:prose-invert max-w-none text-gray-700 dark:text-gray-300">
-            <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
+            <ReactMarkdown remarkPlugins={[remarkGfm, remarkBreaks]} components={markdownComponents}>
               {message.content || ''}
             </ReactMarkdown>
           </div>
