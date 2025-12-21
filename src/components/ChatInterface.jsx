@@ -363,10 +363,19 @@ function ChatInterface({
     }
   }, [activeConversation?.id, initialPermissionMode]);
 
-  // Reset token budget when conversation changes (token tracking not available in new API)
+  // Initialize token budget from conversation metadata, or reset to null
   useEffect(() => {
-    setTokenBudget(null);
-  }, [activeConversation?.id]);
+    const tokenUsage = activeConversation?.metadata?.tokenUsage;
+    if (tokenUsage && tokenUsage.tokens > 0) {
+      // Set token budget from persisted metadata (extracted from JSONL files)
+      setTokenBudget({
+        used: tokenUsage.tokens,
+        total: tokenUsage.contextWindow || 200000
+      });
+    } else {
+      setTokenBudget(null);
+    }
+  }, [activeConversation?.id, activeConversation?.metadata]);
 
   // Manage session subscription when conversation or WebSocket changes
   useEffect(() => {

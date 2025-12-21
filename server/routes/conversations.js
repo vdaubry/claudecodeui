@@ -1,7 +1,7 @@
 import express from 'express';
 import { WebSocket } from 'ws';
 import { tasksDb, conversationsDb, projectsDb } from '../database/db.js';
-import { getSessionMessages } from '../services/sessions.js';
+import { getSessionMessages, getSessionTokenUsage } from '../services/sessions.js';
 import { updateUserBadge } from '../services/notifications.js';
 import { startConversation } from '../services/conversationAdapter.js';
 import { buildContextPrompt } from '../services/documentation.js';
@@ -154,9 +154,9 @@ router.post('/tasks/:taskId/conversations', async (req, res) => {
 
 /**
  * GET /api/conversations/:id
- * Get a specific conversation by ID
+ * Get a specific conversation by ID, including token usage metadata
  */
-router.get('/conversations/:id', (req, res) => {
+router.get('/conversations/:id', async (req, res) => {
   try {
     const userId = req.user.id;
     const conversationId = parseInt(req.params.id, 10);
@@ -178,7 +178,23 @@ router.get('/conversations/:id', (req, res) => {
       return res.status(404).json({ error: 'Conversation not found' });
     }
 
-    res.json(conversation);
+    // Extract token usage metadata if conversation has a Claude session
+    let metadata = null;
+    if (conversation.claude_conversation_id) {
+      const project = projectsDb.getById(taskWithProject.project_id, userId);
+      if (project) {
+        const tokenUsage = await getSessionTokenUsage(
+          conversation.claude_conversation_id,
+          project.repo_folder_path
+        );
+        metadata = { tokenUsage };
+      }
+    }
+
+    res.json({
+      ...conversation,
+      metadata
+    });
   } catch (error) {
     console.error('Error getting conversation:', error);
     res.status(500).json({ error: 'Failed to get conversation' });

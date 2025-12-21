@@ -513,13 +513,29 @@ export async function startConversation(taskId, message, options = {}) {
               });
             }
 
-            // Extract and send token budget
+            // Extract and send token budget from result message
             if (sdkMessage.type === 'result') {
               const tokenBudget = extractTokenBudget(sdkMessage);
               if (tokenBudget) {
                 broadcastFn(conversationId, {
                   type: 'token-budget',
                   data: tokenBudget
+                });
+              }
+            }
+
+            // Try to extract token count from assistant message (if SDK includes it)
+            if (sdkMessage.type === 'assistant' && sdkMessage.message?.usage) {
+              const usage = sdkMessage.message.usage;
+              const tokens = (usage.input_tokens || 0) + (usage.output_tokens || 0);
+              if (tokens > 0) {
+                broadcastFn(conversationId, {
+                  type: 'claude-status',
+                  data: {
+                    tokens: tokens,
+                    text: 'Generating...',
+                    can_interrupt: true
+                  }
                 });
               }
             }

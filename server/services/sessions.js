@@ -253,7 +253,100 @@ async function getSessionMessages(claudeSessionId, projectFolderPath, limit = nu
   }
 }
 
+/**
+ * Extract token usage from session messages
+ * Based on Claude's statusline-command.sh logic:
+ * - Finds the most recent main chain entry with usage data
+ * - Excludes sidechains and API errors
+ * - Returns input_tokens + cache_read_input_tokens + cache_creation_input_tokens
+ *
+ * @param {string} claudeSessionId - The Claude session ID
+ * @param {string} projectFolderPath - The project's repo folder path
+ * @returns {Promise<Object>} Token usage metadata
+ */
+async function getSessionTokenUsage(claudeSessionId, projectFolderPath) {
+  const encodedPath = projectFolderPath.replace(/\//g, '-').replace(/_/g, '-');
+  const projectDir = path.join(os.homedir(), '.claude', 'projects', encodedPath);
+
+  try {
+    const files = await fs.readdir(projectDir);
+    const jsonlFiles = files.filter(file => file.endsWith('.jsonl') && !file.startsWith('agent-'));
+
+    if (jsonlFiles.length === 0) {
+      return { tokens: 0, contextWindow: 200000 };
+    }
+
+    const entries = [];
+
+    // Collect all entries for this session
+    for (const file of jsonlFiles) {
+      const jsonlFile = path.join(projectDir, file);
+      const fileStream = fsSync.createReadStream(jsonlFile);
+      const rl = readline.createInterface({
+        input: fileStream,
+        crlfDelay: Infinity
+      });
+
+      for await (const line of rl) {
+        if (line.trim()) {
+          try {
+            const entry = JSON.parse(line);
+            if (entry.sessionId === claudeSessionId) {
+              entries.push(entry);
+            }
+          } catch (parseError) {
+            // Skip malformed lines
+          }
+        }
+      }
+    }
+
+    // Filter to main chain entries only (exclude sidechains and API errors)
+    // and find entries with usage data
+    const usageEntries = entries.filter(entry =>
+      entry.message?.usage &&
+      entry.isSidechain !== true &&
+      entry.isApiErrorMessage !== true &&
+      entry.timestamp
+    );
+
+    if (usageEntries.length === 0) {
+      return { tokens: 0, contextWindow: 200000 };
+    }
+
+    // Sort by timestamp to find most recent
+    usageEntries.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+
+    // Get the most recent entry with usage
+    const latestEntry = usageEntries[0];
+    const usage = latestEntry.message.usage;
+
+    // Calculate context length (input tokens only, like statusline script)
+    const inputTokens = usage.input_tokens || 0;
+    const cacheReadTokens = usage.cache_read_input_tokens || 0;
+    const cacheCreationTokens = usage.cache_creation_input_tokens || 0;
+    const outputTokens = usage.output_tokens || 0;
+
+    const contextUsed = inputTokens + cacheReadTokens + cacheCreationTokens;
+    const totalUsed = contextUsed + outputTokens;
+
+    return {
+      tokens: totalUsed,
+      contextUsed,
+      inputTokens,
+      outputTokens,
+      cacheReadTokens,
+      cacheCreationTokens,
+      contextWindow: 200000
+    };
+  } catch (error) {
+    console.error(`Error extracting token usage for session ${claudeSessionId}:`, error);
+    return { tokens: 0, contextWindow: 200000 };
+  }
+}
+
 export {
   parseJsonlSessions,
-  getSessionMessages
+  getSessionMessages,
+  getSessionTokenUsage
 };

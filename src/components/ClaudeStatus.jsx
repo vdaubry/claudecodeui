@@ -4,25 +4,19 @@ import { cn } from '../lib/utils';
 function ClaudeStatus({ status, onAbort, isLoading }) {
   const [elapsedTime, setElapsedTime] = useState(0);
   const [animationPhase, setAnimationPhase] = useState(0);
-  const [fakeTokens, setFakeTokens] = useState(0);
 
   // Update elapsed time every second
   useEffect(() => {
     if (!isLoading) {
       setElapsedTime(0);
-      setFakeTokens(0);
       return;
     }
 
     const startTime = Date.now();
-    // Calculate random token rate once (30-50 tokens per second)
-    const tokenRate = 30 + Math.random() * 20;
 
     const timer = setInterval(() => {
       const elapsed = Math.floor((Date.now() - startTime) / 1000);
       setElapsedTime(elapsed);
-      // Simulate token count increasing over time
-      setFakeTokens(Math.floor(elapsed * tokenRate));
     }, 1000);
 
     return () => clearInterval(timer);
@@ -49,7 +43,7 @@ function ClaudeStatus({ status, onAbort, isLoading }) {
   
   // Parse status data
   const statusText = status?.text || actionWords[actionIndex];
-  const tokens = status?.tokens || fakeTokens;
+  const tokens = status?.tokens || 0;
   const canInterrupt = status?.can_interrupt !== false;
   
   // Animation characters
