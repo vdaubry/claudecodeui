@@ -50,6 +50,21 @@ describe('Documentation Service - Phase 2', () => {
       const result = _internal.getTaskDocPath('/home/user/project', 42);
       expect(result).toBe('/home/user/project/.claude-ui/tasks/task-42.md');
     });
+
+    it('should return correct agents folder path', () => {
+      const result = _internal.getAgentsFolderPath('/home/user/project');
+      expect(result).toBe('/home/user/project/.claude-ui/agents');
+    });
+
+    it('should return correct agent folder path', () => {
+      const result = _internal.getAgentFolderPath('/home/user/project', 42);
+      expect(result).toBe('/home/user/project/.claude-ui/agents/agent-42');
+    });
+
+    it('should return correct agent doc path', () => {
+      const result = _internal.getAgentDocPath('/home/user/project', 42);
+      expect(result).toBe('/home/user/project/.claude-ui/agents/agent-42/prompt.md');
+    });
   });
 
   describe('ensureClaudeUIFolder', () => {

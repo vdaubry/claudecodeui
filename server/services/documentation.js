@@ -189,7 +189,7 @@ export function deleteTaskDoc(repoPath, taskId) {
 }
 
 /**
- * Read agent prompt from .claude-ui/agents/agent-{agentId}.md
+ * Read agent prompt from .claude-ui/agents/agent-{agentId}/prompt.md
  * @param {string} repoPath - Absolute path to the repository
  * @param {number} agentId - The agent ID
  * @returns {string} - Content of agent markdown or empty string if missing
@@ -210,15 +210,21 @@ export function readAgentPrompt(repoPath, agentId) {
 }
 
 /**
- * Write agent prompt to .claude-ui/agents/agent-{agentId}.md
+ * Write agent prompt to .claude-ui/agents/agent-{agentId}/prompt.md
  * @param {string} repoPath - Absolute path to the repository
  * @param {number} agentId - The agent ID
  * @param {string} content - Content to write
  */
 export function writeAgentPrompt(repoPath, agentId, content) {
   try {
-    // Ensure the folder exists before writing
+    // Ensure the base folder structure exists
     ensureClaudeUIFolder(repoPath);
+
+    // Ensure the agent-specific folder exists
+    const agentFolder = getAgentFolderPath(repoPath, agentId);
+    if (!fs.existsSync(agentFolder)) {
+      fs.mkdirSync(agentFolder, { recursive: true });
+    }
 
     const docPath = getAgentDocPath(repoPath, agentId);
     fs.writeFileSync(docPath, content, 'utf8');
@@ -229,23 +235,23 @@ export function writeAgentPrompt(repoPath, agentId, content) {
 }
 
 /**
- * Delete agent prompt file .claude-ui/agents/agent-{agentId}.md
+ * Delete agent folder .claude-ui/agents/agent-{agentId}/
  * @param {string} repoPath - Absolute path to the repository
  * @param {number} agentId - The agent ID
- * @returns {boolean} - True if file was deleted, false if it didn't exist
+ * @returns {boolean} - True if folder was deleted, false if it didn't exist
  */
 export function deleteAgentPrompt(repoPath, agentId) {
   try {
-    const docPath = getAgentDocPath(repoPath, agentId);
+    const agentFolder = getAgentFolderPath(repoPath, agentId);
 
-    if (!fs.existsSync(docPath)) {
+    if (!fs.existsSync(agentFolder)) {
       return false;
     }
 
-    fs.unlinkSync(docPath);
+    fs.rmSync(agentFolder, { recursive: true, force: true });
     return true;
   } catch (error) {
-    console.error(`Failed to delete agent prompt: ${error.message}`);
+    console.error(`Failed to delete agent folder: ${error.message}`);
     throw error;
   }
 }
@@ -309,6 +315,7 @@ export const _internal = {
   getClaudeUIPath,
   getTasksFolderPath,
   getAgentsFolderPath,
+  getAgentFolderPath,
   getProjectDocPath,
   getTaskDocPath,
   getAgentDocPath

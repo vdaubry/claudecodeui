@@ -148,7 +148,7 @@ Five tables manage the task-driven workflow:
 
 **`agents`** - Custom agents with reusable prompts
 - `id`, `project_id` (FK), `name`, `created_at`, `updated_at`
-- Prompt stored at `.claude-ui/agents/agent-{id}.md`
+- Prompt stored at `.claude-ui/agents/agent-{id}/prompt.md`
 
 **`agent_runs`** - Tracks agent workflow executions
 - `id`, `task_id` (FK), `conversation_id` (FK), `agent_type` (implementation/review/planification), `status` (pending/running/completed/failed), `created_at`, `updated_at`
@@ -316,7 +316,8 @@ Agent prompts are stored as markdown files following the same pattern as tasks:
       task-1.md                  # Task documentation (auto-created blank)
       task-2.md
     agents/                      # Created when first agent added
-      agent-1.md                 # Agent prompt (markdown)
+      agent-1/                   # Agent folder (created when agent added)
+        prompt.md                # Agent prompt (markdown)
 ```
 
 ## State Management

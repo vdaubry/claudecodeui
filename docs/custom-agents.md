@@ -30,7 +30,7 @@ CREATE TABLE IF NOT EXISTS agents (
 CREATE INDEX IF NOT EXISTS idx_agents_project_id ON agents(project_id);
 ```
 
-**File storage**: Agent prompts stored at `{repo}/.claude-ui/agents/agent-{id}.md`
+**File storage**: Agent prompts stored at `{repo}/.claude-ui/agents/agent-{id}/prompt.md`
 
 ### 2. Modify `conversations` table
 
@@ -159,9 +159,11 @@ createAgentConversation(agentId, message?)
   project.md                   # Project documentation
   tasks/
     task-1.md                  # Task documentation
-  agents/                      # NEW: Agent prompts directory
-    agent-1.md                 # Agent prompt (markdown)
-    agent-2.md
+  agents/                      # Agent prompts directory
+    agent-1/                   # Agent folder
+      prompt.md                # Agent prompt (markdown)
+    agent-2/
+      prompt.md
 ```
 
 ## Implementation Phases
