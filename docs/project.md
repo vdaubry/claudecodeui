@@ -7,9 +7,9 @@ Claude Code UI is a web-based interface for Claude Code CLI. It provides a deskt
 **Core Concept**: The app uses a **task-driven development** model:
 - **Project**: An explicit database entry pointing to a Git repository
 - **Task**: A unit of work with markdown documentation (stored in `.claude-ui/tasks/`)
-- **Conversation**: A Claude session linked to a specific task
+- **Conversation**: A Claude session linked to a task or a custom agent
 
-Users create projects, define tasks as units of work, and start conversations scoped to specific tasks. Task documentation is automatically injected as context when starting a conversation.
+Users create projects, define tasks as units of work, and start conversations scoped to tasks or custom agents. Task documentation is automatically injected as context when starting a task conversation.
 
 ## Architecture
 
@@ -113,6 +113,7 @@ The frontend uses a **Trello-style Board UX** with a 4-screen navigation flow:
 | `src/components/ChatInterface.jsx` | Message display, WebSocket, message input |
 | `src/components/ConversationList.jsx` | Conversation cards with Open/Resume buttons |
 | `src/components/MarkdownEditor.jsx` | View/edit toggle for documentation |
+| `src/components/NewConversationModalBase.jsx` | Shared modal for task/agent conversation creation |
 
 ### Backend
 
@@ -128,7 +129,8 @@ The frontend uses a **Trello-style Board UX** with a 4-screen navigation flow:
 | `server/routes/projects.js` | Project CRUD + documentation endpoints |
 | `server/routes/tasks.js` | Task CRUD + documentation endpoints |
 | `server/routes/conversations.js` | Conversation CRUD + messages endpoints |
-| `server/routes/agents.js` | Custom agent CRUD + prompt endpoints |
+| `server/routes/agents.js` | Custom agent CRUD + prompt endpoints + agent conversations |
+| `server/routes/conversationHandlers.js` | Shared REST handler for task/agent conversation creation |
 | `server/routes/agent-runs.js` | Agent run endpoints (start, stop, status) |
 
 ## Database Schema
@@ -165,9 +167,7 @@ All conversation lifecycle is managed through a single entry point: `conversatio
 - Session tracking and cleanup
 
 ```
-Frontend (WebSocket or REST)
-         │
-         ├── Build context prompt (caller responsibility)
+Frontend (REST for creation, WebSocket for streaming)
          │
          v
 ┌─────────────────────────────────────────┐
@@ -175,6 +175,7 @@ Frontend (WebSocket or REST)
 │       (Single unified entry point)      │
 │                                         │
 │  - startConversation(taskId, msg, opts) │
+│  - startAgentConversation(agentId, msg) │
 │  - sendMessage(conversationId, msg)     │
 │  - abortSession(sessionId)              │
 │  - Forwards to Claude Agent SDK         │
@@ -197,21 +198,26 @@ Frontend (WebSocket or REST)
 
 ### Data Flow: Starting a New Conversation
 
-1. **User clicks "New Conversation"** on TaskDetailView
-2. **Frontend sends WebSocket** → `claude-command` with `taskId`, `isNewConversation: true`
-3. **Backend builds context** → Reads `{repo}/.claude-ui/project.md` + `task-{id}.md`
-4. **Calls ConversationAdapter** → `startConversation(taskId, message, { customSystemPrompt, broadcastFn, userId })`
-5. **Adapter creates** → Conversation record in DB
-6. **Adapter calls Claude SDK** → With combined system prompt
-7. **Lifecycle handler** → Broadcasts `streaming-started` via WebSocket
-8. **SDK streams responses** → Each sent via WebSocket as `claude-response`
-9. **On first message** → Adapter captures `session_id`, updates conversation record
-10. **Stream ends** → Lifecycle handler broadcasts `streaming-ended`, sends push notification
+1. **User clicks "New Conversation"** on TaskDetailView or AgentDetailView
+2. **Frontend sends REST** →
+   - Task: `POST /api/tasks/:taskId/conversations`
+   - Agent: `POST /api/agents/:agentId/conversations`
+3. **Backend builds context** →
+   - Task: Reads `{repo}/.claude-ui/project.md` + `task-{id}.md`
+   - Agent: Adapter assembles `{repo}/.claude-ui/agents/agent-{id}/prompt.md` + project docs
+4. **Calls ConversationAdapter** →
+   - Task: `startConversation(taskId, message, { customSystemPrompt, broadcastFn, userId })`
+   - Agent: `startAgentConversation(agentId, message, { broadcastFn, userId })`
+5. **Adapter creates** → Conversation record in DB and returns real `claude_conversation_id`
+6. **Lifecycle handler** → Broadcasts `streaming-started` via WebSocket
+7. **SDK streams responses** → Each sent via WebSocket as `claude-response`
+8. **On first message** → Adapter captures `session_id`, updates conversation record
+9. **Stream ends** → Lifecycle handler broadcasts `streaming-ended`, sends push notification
 
 ### Data Flow: Resuming a Conversation
 
 1. **User clicks "Resume"** on existing conversation
-2. **Frontend sends WebSocket** → `claude-command` with `conversationId`, `isNewConversation: false`
+2. **Frontend sends WebSocket** → `claude-command` with `conversationId`
 3. **Calls ConversationAdapter** → `sendMessage(conversationId, message, { broadcastFn, userId })`
 4. **Adapter looks up** → Conversation → `claude_conversation_id`
 5. **Calls Claude SDK** → With `resume: claude_conversation_id`
@@ -273,8 +279,8 @@ The `conversations` table uses nullable foreign keys with an XOR constraint: eac
 | `server/routes/agents.js` | Agent CRUD + prompt endpoints |
 | `server/database/db.js` | `agentsDb` operations, migration for agents table |
 | `server/services/documentation.js` | `getAgentPrompt()`, `saveAgentPrompt()` for `.claude-ui/agents/` |
-| `server/services/conversationAdapter.js` | Agent conversation support via `agentId` option |
-| `server/routes/conversations.js` | Agent conversation creation endpoint |
+| `server/services/conversationAdapter.js` | Agent conversation support via `startAgentConversation()` |
+| `server/routes/agents.js` | Agent conversation creation endpoint |
 
 **Frontend**
 
@@ -287,14 +293,14 @@ The `conversations` table uses nullable foreign keys with an XOR constraint: eac
 | `src/components/Dashboard/AgentForm.jsx` | Create/edit agent modal |
 | `src/components/AgentDetailView.jsx` | Split view: prompt editor + conversation list |
 | `src/pages/AgentDetailPage.jsx` | Route wrapper for agent detail |
-| `src/components/AgentNewConversationModal.jsx` | Modal for starting agent conversations |
+| `src/components/AgentNewConversationModal.jsx` | Adapter wrapper for agent conversation modal |
 
 ### File Storage
 
 Agent prompts are stored as markdown files following the same pattern as tasks:
 
 ```
-{repo}/.claude-ui/agents/agent-{id}.md
+{repo}/.claude-ui/agents/agent-{id}/prompt.md
 ```
 
 ### API Endpoints
@@ -423,7 +429,7 @@ The `TaskContext` manages all navigation and data state:
 
 | Type | Purpose |
 |------|---------|
-| `claude-command` | Send message to Claude (with taskId/conversationId) |
+| `claude-command` | Send message to Claude (with conversationId) |
 | `subscribe-session` | Subscribe to updates for specific conversation |
 | `unsubscribe-session` | Unsubscribe from conversation updates |
 | `subscribe-task` | Subscribe to task-level updates (new conversations, agent runs) |
@@ -556,11 +562,13 @@ Dashboard ─────► Board View ─────► Task Detail ───
 ### Context Injection
 
 - `server/services/documentation.js:buildContextPrompt()` - Combines project + task docs
+- `server/services/documentation.js:buildAgentContextPrompt()` - Combines project docs + agent prompt + attachments
 - `server/services/conversationAdapter.js:mapOptionsToSDK()` - Maps options to SDK format
 
 ### Conversation Lifecycle (ConversationAdapter)
 
 - `conversationAdapter.startConversation()` - Start new conversation for a task
+- `conversationAdapter.startAgentConversation()` - Start new conversation for a custom agent
 - `conversationAdapter.sendMessage()` - Send message to existing conversation (resume)
 - `conversationAdapter.abortSession()` - Abort active session
 - `conversationAdapter.isSessionActive()` - Check if session is currently streaming
@@ -573,7 +581,7 @@ Dashboard ─────► Board View ─────► Task Detail ───
 
 ### Message Handling
 
-- `ChatInterface.jsx:handleSubmit()` - Sends via WebSocket with taskId/conversationId
+- `ChatInterface.jsx:handleSubmit()` - Sends via WebSocket with conversationId (resume only)
 - `server/index.js` - WebSocket handler for `claude-command`, delegates to ConversationAdapter
 - `server/services/sessions.js:getSessionMessages()` - Reads JSONL files for history
 
@@ -586,8 +594,8 @@ Dashboard ─────► Board View ─────► Task Detail ───
 ### Custom Agents
 
 - `AgentContext.jsx:loadAgents()` - Load agents for current project
-- `AgentContext.jsx:createAgentConversation()` - Start conversation with agent prompt as system prompt
-- `conversationAdapter.startConversation()` - Accepts `agentId` option for agent-owned conversations
+- `AgentContext.jsx:createAgentConversation()` - Create an agent conversation record
+- `conversationAdapter.startAgentConversation()` - Starts agent conversation with agent prompt as system prompt
 
 ### Dashboard & Board Components
 
