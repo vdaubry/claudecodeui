@@ -1,6 +1,7 @@
 import express from 'express';
 import multer from 'multer';
 import path from 'path';
+import { WebSocket } from 'ws';
 import { projectsDb, agentsDb, conversationsDb } from '../database/db.js';
 import {
   readAgentPrompt,
@@ -14,6 +15,7 @@ import {
   deleteAgentOutputFile,
   ATTACHMENT_CONFIG
 } from '../services/documentation.js';
+import { startAgentConversation } from '../services/conversationAdapter.js';
 
 const router = express.Router();
 
@@ -332,11 +334,20 @@ router.get('/agents/:agentId/conversations', (req, res) => {
 /**
  * POST /api/agents/:agentId/conversations
  * Create a new conversation for an agent
+ *
+ * If `message` is provided in the body, creates the conversation AND starts
+ * the Claude session synchronously, returning the real claude_conversation_id.
+ * This is the preferred method for new conversations (modal-first flow).
+ *
+ * Body (optional):
+ * - message: string - First message to send to Claude
+ * - permissionMode: string - Permission mode (default: 'bypassPermissions')
  */
-router.post('/agents/:agentId/conversations', (req, res) => {
+router.post('/agents/:agentId/conversations', async (req, res) => {
   try {
     const userId = req.user.id;
     const agentId = parseInt(req.params.agentId, 10);
+    const { message, permissionMode } = req.body || {};
 
     if (isNaN(agentId)) {
       return res.status(400).json({ error: 'Invalid agent ID' });
@@ -354,8 +365,46 @@ router.post('/agents/:agentId/conversations', (req, res) => {
       return res.status(404).json({ error: 'Agent not found' });
     }
 
-    const conversation = conversationsDb.createForAgent(agentId);
-    res.status(201).json(conversation);
+    // If no message provided, just create conversation record (backward compatible)
+    if (!message) {
+      const conversation = conversationsDb.createForAgent(agentId);
+      return res.status(201).json(conversation);
+    }
+
+    // Message provided - create session synchronously via adapter
+    console.log('[REST] Creating conversation with first message for agent:', agentId);
+
+    try {
+      // Create broadcast function for WebSocket
+      const wss = req.app.locals.wss;
+      const broadcastFn = (convId, msg) => {
+        if (!wss) return;
+        wss.clients.forEach(client => {
+          if (client.readyState === WebSocket.OPEN) {
+            client.send(JSON.stringify(msg));
+          }
+        });
+      };
+
+      // Use adapter to start agent conversation (handles all lifecycle events)
+      const { conversationId, claudeSessionId } = await startAgentConversation(agentId, message.trim(), {
+        broadcastFn,
+        userId,
+        permissionMode: permissionMode || 'bypassPermissions'
+      });
+
+      // Return complete conversation with real session ID
+      const conversation = conversationsDb.getById(conversationId);
+      return res.status(201).json({
+        ...conversation,
+        claude_conversation_id: claudeSessionId
+      });
+
+    } catch (sessionError) {
+      console.error('[REST] Failed to create agent session:', sessionError);
+      return res.status(500).json({ error: 'Session creation failed: ' + sessionError.message });
+    }
+
   } catch (error) {
     console.error('Error creating agent conversation:', error);
     res.status(500).json({ error: 'Failed to create conversation' });

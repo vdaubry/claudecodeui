@@ -23,7 +23,7 @@ export default function AgentNewConversationModal({
   const [isSending, setIsSending] = useState(false);
   const [error, setError] = useState(null);
   const [permissionMode, setPermissionMode] = useState('bypassPermissions');
-  const { isConnected, sendMessage: sendWsMessage } = useWebSocket();
+  const { isConnected } = useWebSocket();
   const textareaRef = useRef(null);
 
   // Get the project path for slash commands
@@ -70,27 +70,22 @@ export default function AgentNewConversationModal({
     setError(null);
 
     try {
-      // First create the agent conversation
-      const createResponse = await api.agents.createConversation(agent.id);
+      // Single REST call that creates conversation AND starts Claude session
+      // Returns conversation with REAL claude_conversation_id
+      const response = await api.agents.createConversationWithMessage(agent.id, {
+        message: input.trim(),
+        permissionMode: permissionMode
+      });
 
-      if (!createResponse.ok) {
-        const errorData = await createResponse.json();
+      if (!response.ok) {
+        const errorData = await response.json();
         throw new Error(errorData.error || 'Failed to create conversation');
       }
 
-      const conversation = await createResponse.json();
+      const conversation = await response.json();
 
-      // Then start the Claude session via WebSocket
-      sendWsMessage('claude-command', {
-        command: input.trim(),
-        options: {
-          conversationId: conversation.id,
-          agentId: agent.id,
-          isNewConversation: true,
-          permissionMode: permissionMode
-        }
-      });
-
+      // conversation.claude_conversation_id is GUARANTEED to be set
+      // Claude is already streaming in the background
       // Attach the initial message for immediate display in ChatInterface
       onConversationCreated({
         ...conversation,
@@ -102,7 +97,7 @@ export default function AgentNewConversationModal({
       setError(err.message);
       setIsSending(false);
     }
-  }, [input, isSending, agent, projectPath, permissionMode, sendWsMessage, onConversationCreated]);
+  }, [input, isSending, agent, permissionMode, onConversationCreated]);
 
   // Calculate command menu position relative to modal
   const getCommandMenuPosition = useCallback(() => {

@@ -190,6 +190,12 @@ export const api = {
       authenticatedFetch(`/api/agents/${agentId}/conversations`, {
         method: 'POST',
       }),
+    // Create conversation with first message - returns conversation with real claude_conversation_id
+    createConversationWithMessage: (agentId, { message, permissionMode }) =>
+      authenticatedFetch(`/api/agents/${agentId}/conversations`, {
+        method: 'POST',
+        body: JSON.stringify({ message, permissionMode }),
+      }),
     // Agent attachments
     listAttachments: (agentId) => authenticatedFetch(`/api/agents/${agentId}/attachments`),
     uploadAttachment: (agentId, file) => {

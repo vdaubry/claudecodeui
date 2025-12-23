@@ -192,16 +192,15 @@ function ChatInterface({
   }, [refreshSessionMessages]);
 
   // Create a session-like object for the streaming hook
-  // For new conversations (e.g., from agent modal), we may not have a claudeSessionId yet
-  // but we still need to subscribe to WebSocket messages to receive streaming responses.
-  // Use conversationId as a fallback to enable subscription.
+  // Only subscribe to streaming when we have a real Claude session ID
+  // Modal-first flow guarantees this is always set before ChatInterface renders
   const sessionForStreaming = useMemo(() => {
-    if (!conversationId) return null;
+    if (!claudeSessionId) return null;
     return {
-      id: claudeSessionId || `pending-${conversationId}`,
+      id: claudeSessionId,
       __provider: 'claude'
     };
-  }, [conversationId, claudeSessionId]);
+  }, [claudeSessionId]);
 
   // Session streaming via hook (handles streaming, abort, status, WebSocket subscriptions)
   const {
@@ -272,9 +271,17 @@ function ChatInterface({
   }, [activeConversation, subscribe, unsubscribe, handleTokenBudget]);
 
   // Handle message submission
+  // New conversations must be started via modal → REST API
+  // handleSubmit only handles resuming existing conversations
   const handleSubmit = useCallback((e) => {
     e.preventDefault();
     if (!input.trim() || isSending || isStreaming || !selectedProject || !isConnected) return;
+
+    // Require a real Claude session ID - new conversations must use the modal
+    if (!claudeSessionId) {
+      console.error('[ChatInterface] Cannot send message: no claude session ID');
+      return;
+    }
 
     const messageText = input.trim();
     setIsSending(true);
@@ -288,28 +295,19 @@ function ChatInterface({
     };
     setStreamingMessages([userMessage]);
 
-    // Determine if this is a new conversation or resume
-    // New conversation: has taskId/agentId but no claudeSessionId
-    // Resume: has claudeSessionId (from previous messages)
-    const isNewConversation = !claudeSessionId && (!!selectedTask?.id || !!selectedAgent?.id);
-
     sendMessage('claude-command', {
       command: messageText,
       options: {
         projectPath: projectPath,
         cwd: projectPath,
         sessionId: claudeSessionId,
-        resume: !!claudeSessionId,
+        resume: true,
         permissionMode: permissionMode,
-        // Task or Agent conversation flow
-        conversationId: activeConversation?.id,
-        taskId: selectedTask?.id,
-        agentId: selectedAgent?.id, // NEW: Support for agent conversations
-        isNewConversation: isNewConversation
+        conversationId: activeConversation?.id
       }
     });
     // Note: isSending is cleared when claude-complete is received
-  }, [input, isSending, isStreaming, selectedProject, claudeSessionId, isConnected, sendMessage, permissionMode, projectPath, activeConversation, selectedTask, selectedAgent]);
+  }, [input, isSending, isStreaming, selectedProject, claudeSessionId, isConnected, sendMessage, permissionMode, projectPath, activeConversation]);
 
   // Convert raw messages to displayable format, including streaming messages
   const displayMessages = useMemo(() => {

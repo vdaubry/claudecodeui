@@ -57,8 +57,6 @@ import fetch from 'node-fetch';
 import mime from 'mime-types';
 
 import {
-  startConversation,
-  startAgentConversation,
   sendMessage,
   abortSession,
   isSessionActive,
@@ -75,7 +73,6 @@ import agentRunsRoutes from './routes/agent-runs.js';
 import agentsRoutes from './routes/agents.js';
 import { initializeDatabase, projectsDb, tasksDb, conversationsDb, agentRunsDb, agentsDb } from './database/db.js';
 import { readAgentPrompt } from './services/documentation.js';
-import { buildContextPrompt } from './services/documentation.js';
 import { transcribeAudio } from './services/transcription.js';
 import { validateApiKey, authenticateToken, authenticateWebSocket } from './middleware/auth.js';
 
@@ -273,8 +270,8 @@ function handleChatConnection(ws, request) {
             if (data.type === 'claude-command') {
                 console.log('[DEBUG] User message:', data.command || '[Continue/Resume]');
 
-                // Check for task-based or agent-based conversation flow
-                const { taskId, agentId, conversationId, isNewConversation, images, permissionMode } = data.options || {};
+                // Extract conversation options (new conversations must be created via REST API)
+                const { conversationId, images, permissionMode } = data.options || {};
                 const userId = request?.user?.id;
 
                 // Create broadcast function that sends to all WebSocket clients
@@ -284,62 +281,11 @@ function handleChatConnection(ws, request) {
                 };
 
                 try {
-                    if (taskId && isNewConversation) {
-                        // NEW TASK CONVERSATION FLOW
-                        console.log('[DEBUG] Starting new conversation for taskId:', taskId);
-
-                        // Build context prompt
-                        const taskWithProject = tasksDb.getWithProject(taskId);
-                        if (!taskWithProject) {
-                            ws.send(JSON.stringify({
-                                type: 'claude-error',
-                                error: `Task ${taskId} not found`
-                            }));
-                            return;
-                        }
-
-                        const contextPrompt = buildContextPrompt(taskWithProject.repo_folder_path, taskId);
-
-                        // Use adapter to start conversation
-                        await startConversation(taskId, data.command, {
-                            broadcastFn,
-                            broadcastToTaskSubscribersFn: broadcastToTaskSubscribers,
-                            userId,
-                            customSystemPrompt: contextPrompt,
-                            conversationId, // Use existing if provided
-                            images,
-                            permissionMode: permissionMode || 'bypassPermissions'
-                        });
-
-                    } else if (agentId && isNewConversation) {
-                        // NEW AGENT CONVERSATION FLOW
-                        console.log('[DEBUG] Starting new conversation for agentId:', agentId);
-
-                        // Verify agent exists
-                        const agentWithProject = agentsDb.getWithProject(agentId);
-                        if (!agentWithProject) {
-                            ws.send(JSON.stringify({
-                                type: 'claude-error',
-                                error: `Agent ${agentId} not found`
-                            }));
-                            return;
-                        }
-
-                        // Use adapter to start agent conversation
-                        await startAgentConversation(agentId, data.command, {
-                            broadcastFn,
-                            broadcastToTaskSubscribersFn: broadcastToTaskSubscribers,
-                            userId,
-                            conversationId, // Use existing if provided
-                            images,
-                            permissionMode: permissionMode || 'bypassPermissions'
-                        });
-
-                    } else if (conversationId && !isNewConversation) {
+                    if (conversationId) {
                         // RESUME CONVERSATION FLOW (works for both task and agent conversations)
+                        // New conversations must be created via REST API (modal-first flow)
                         console.log('[DEBUG] Resuming conversation:', conversationId);
 
-                        // Use adapter to send message
                         await sendMessage(conversationId, data.command, {
                             broadcastFn,
                             broadcastToTaskSubscribersFn: broadcastToTaskSubscribers,
@@ -347,12 +293,11 @@ function handleChatConnection(ws, request) {
                             images,
                             permissionMode: permissionMode || 'bypassPermissions'
                         });
-
                     } else {
-                        // Legacy flow (no task or agent context) - error
+                        // Error - new conversations must use REST API
                         ws.send(JSON.stringify({
                             type: 'claude-error',
-                            error: 'Task or Agent context required. Please provide taskId or agentId.'
+                            error: 'New conversations must be created via REST API. Use the modal to start a conversation.'
                         }));
                     }
                 } catch (error) {
