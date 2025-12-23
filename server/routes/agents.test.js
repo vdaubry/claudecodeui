@@ -17,8 +17,15 @@ vi.mock('../database/db.js', () => ({
   },
   conversationsDb: {
     getByAgent: vi.fn(),
-    createForAgent: vi.fn()
+    createForAgent: vi.fn(),
+    getById: vi.fn(),
+    delete: vi.fn()
   }
+}));
+
+// Mock the conversationAdapter service
+vi.mock('../services/conversationAdapter.js', () => ({
+  startAgentConversation: vi.fn()
 }));
 
 // Mock the documentation service
@@ -41,6 +48,7 @@ vi.mock('../services/documentation.js', () => ({
 import agentsRoutes from './agents.js';
 import { projectsDb, agentsDb, conversationsDb } from '../database/db.js';
 import { readAgentPrompt, writeAgentPrompt, deleteAgentPrompt, listAgentInputFiles, saveAgentInputFile, deleteAgentInputFile, listAgentOutputFiles, readAgentOutputFile, deleteAgentOutputFile, ATTACHMENT_CONFIG } from '../services/documentation.js';
+import { startAgentConversation } from '../services/conversationAdapter.js';
 
 describe('Agents Routes', () => {
   let app;
@@ -479,6 +487,123 @@ describe('Agents Routes', () => {
 
       expect(response.status).toBe(400);
       expect(response.body.error).toBe('Invalid agent ID');
+    });
+
+    // Tests for the "with message" flow (modal-first conversation creation)
+    describe('with message parameter (modal-first flow)', () => {
+      it('should create conversation and start Claude session when message is provided', async () => {
+        const mockAgentWithProject = {
+          id: 1,
+          project_id: 1,
+          user_id: testUserId,
+          repo_folder_path: '/path/to/repo'
+        };
+        const newConversation = { id: 5, agent_id: 1, claude_conversation_id: null };
+
+        agentsDb.getWithProject.mockReturnValue(mockAgentWithProject);
+        conversationsDb.createForAgent.mockReturnValue(newConversation);
+        conversationsDb.getById.mockReturnValue({ ...newConversation, claude_conversation_id: 'real-claude-session-id' });
+        startAgentConversation.mockResolvedValue({
+          conversationId: 5,
+          claudeSessionId: 'real-claude-session-id'
+        });
+
+        const response = await request(app)
+          .post('/api/agents/1/conversations')
+          .send({
+            message: 'Hello Claude, help me with this task',
+            permissionMode: 'bypassPermissions'
+          });
+
+        expect(response.status).toBe(201);
+        expect(response.body.claude_conversation_id).toBe('real-claude-session-id');
+        expect(startAgentConversation).toHaveBeenCalledWith(
+          1, // agentId
+          'Hello Claude, help me with this task', // message
+          expect.objectContaining({
+            permissionMode: 'bypassPermissions'
+          })
+        );
+      });
+
+      it('should use default permissionMode when not provided', async () => {
+        const mockAgentWithProject = {
+          id: 1,
+          project_id: 1,
+          user_id: testUserId,
+          repo_folder_path: '/path/to/repo'
+        };
+        const newConversation = { id: 5, agent_id: 1, claude_conversation_id: null };
+
+        agentsDb.getWithProject.mockReturnValue(mockAgentWithProject);
+        conversationsDb.createForAgent.mockReturnValue(newConversation);
+        conversationsDb.getById.mockReturnValue({ ...newConversation, claude_conversation_id: 'session-123' });
+        startAgentConversation.mockResolvedValue({
+          conversationId: 5,
+          claudeSessionId: 'session-123'
+        });
+
+        const response = await request(app)
+          .post('/api/agents/1/conversations')
+          .send({ message: 'Test message' });
+
+        expect(response.status).toBe(201);
+        expect(startAgentConversation).toHaveBeenCalledWith(
+          1,
+          'Test message',
+          expect.objectContaining({
+            permissionMode: 'bypassPermissions'
+          })
+        );
+      });
+
+      it('should return 500 if startAgentConversation fails', async () => {
+        const mockAgentWithProject = {
+          id: 1,
+          project_id: 1,
+          user_id: testUserId,
+          repo_folder_path: '/path/to/repo'
+        };
+
+        agentsDb.getWithProject.mockReturnValue(mockAgentWithProject);
+        startAgentConversation.mockRejectedValue(new Error('Claude SDK error'));
+
+        const response = await request(app)
+          .post('/api/agents/1/conversations')
+          .send({ message: 'Test message' });
+
+        expect(response.status).toBe(500);
+        expect(response.body.error).toContain('Session creation failed');
+      });
+
+      it('should trim message whitespace before sending to Claude', async () => {
+        const mockAgentWithProject = {
+          id: 1,
+          project_id: 1,
+          user_id: testUserId,
+          repo_folder_path: '/path/to/repo'
+        };
+        const newConversation = { id: 5, agent_id: 1, claude_conversation_id: null };
+
+        agentsDb.getWithProject.mockReturnValue(mockAgentWithProject);
+        conversationsDb.createForAgent.mockReturnValue(newConversation);
+        conversationsDb.getById.mockReturnValue({ ...newConversation, claude_conversation_id: 'session-123' });
+        startAgentConversation.mockResolvedValue({
+          conversationId: 5,
+          claudeSessionId: 'session-123'
+        });
+
+        const response = await request(app)
+          .post('/api/agents/1/conversations')
+          .send({ message: '  Hello with whitespace  ' });
+
+        expect(response.status).toBe(201);
+        expect(startAgentConversation).toHaveBeenCalledWith(
+          1,
+          'Hello with whitespace', // Trimmed
+          expect.any(Object)
+        );
+      });
     });
   });
 

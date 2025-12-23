@@ -25,9 +25,26 @@ vi.mock('../services/sessions.js', () => ({
   getSessionMessages: vi.fn()
 }));
 
+// Mock the conversationAdapter service
+vi.mock('../services/conversationAdapter.js', () => ({
+  startConversation: vi.fn()
+}));
+
+// Mock the documentation service
+vi.mock('../services/documentation.js', () => ({
+  buildContextPrompt: vi.fn()
+}));
+
+// Mock the notifications service
+vi.mock('../services/notifications.js', () => ({
+  updateUserBadge: vi.fn().mockResolvedValue()
+}));
+
 import conversationsRoutes from './conversations.js';
 import { tasksDb, conversationsDb, projectsDb } from '../database/db.js';
 import { getSessionMessages } from '../services/sessions.js';
+import { startConversation } from '../services/conversationAdapter.js';
+import { buildContextPrompt } from '../services/documentation.js';
 
 describe('Conversations Routes - Phase 3', () => {
   let app;
@@ -151,6 +168,202 @@ describe('Conversations Routes - Phase 3', () => {
 
       expect(response.status).toBe(201);
       expect(tasksDb.updateStatus).not.toHaveBeenCalled();
+    });
+
+    // Tests for the "with message" flow (modal-first conversation creation)
+    describe('with message parameter (modal-first flow)', () => {
+      it('should create conversation and start Claude session when message is provided', async () => {
+        const mockTaskWithProject = {
+          id: 1,
+          user_id: testUserId,
+          status: 'pending',
+          project_id: 1,
+          repo_folder_path: '/path/to/repo'
+        };
+        const newConversation = { id: 5, task_id: 1, claude_conversation_id: null };
+
+        tasksDb.getWithProject.mockReturnValue(mockTaskWithProject);
+        conversationsDb.create.mockReturnValue(newConversation);
+        conversationsDb.getById.mockReturnValue({ ...newConversation, claude_conversation_id: 'real-claude-session-id' });
+        buildContextPrompt.mockReturnValue('Task context prompt');
+        startConversation.mockResolvedValue({
+          conversationId: 5,
+          claudeSessionId: 'real-claude-session-id'
+        });
+
+        const response = await request(app)
+          .post('/api/tasks/1/conversations')
+          .send({
+            message: 'Hello Claude, help me with this task',
+            permissionMode: 'bypassPermissions'
+          });
+
+        expect(response.status).toBe(201);
+        expect(response.body.claude_conversation_id).toBe('real-claude-session-id');
+        expect(startConversation).toHaveBeenCalledWith(
+          1, // taskId
+          'Hello Claude, help me with this task', // message
+          expect.objectContaining({
+            permissionMode: 'bypassPermissions',
+            customSystemPrompt: 'Task context prompt'
+          })
+        );
+      });
+
+      it('should build context prompt from project and task docs', async () => {
+        const mockTaskWithProject = {
+          id: 1,
+          user_id: testUserId,
+          status: 'in_progress',
+          project_id: 1,
+          repo_folder_path: '/path/to/repo'
+        };
+        const newConversation = { id: 5, task_id: 1, claude_conversation_id: null };
+
+        tasksDb.getWithProject.mockReturnValue(mockTaskWithProject);
+        conversationsDb.create.mockReturnValue(newConversation);
+        conversationsDb.getById.mockReturnValue({ ...newConversation, claude_conversation_id: 'session-123' });
+        buildContextPrompt.mockReturnValue('# Task Context\nThis is the task context.');
+        startConversation.mockResolvedValue({
+          conversationId: 5,
+          claudeSessionId: 'session-123'
+        });
+
+        await request(app)
+          .post('/api/tasks/1/conversations')
+          .send({ message: 'Test message' });
+
+        expect(buildContextPrompt).toHaveBeenCalledWith('/path/to/repo', 1);
+      });
+
+      it('should use default permissionMode when not provided', async () => {
+        const mockTaskWithProject = {
+          id: 1,
+          user_id: testUserId,
+          status: 'in_progress',
+          repo_folder_path: '/path/to/repo'
+        };
+        const newConversation = { id: 5, task_id: 1, claude_conversation_id: null };
+
+        tasksDb.getWithProject.mockReturnValue(mockTaskWithProject);
+        conversationsDb.create.mockReturnValue(newConversation);
+        conversationsDb.getById.mockReturnValue({ ...newConversation, claude_conversation_id: 'session-123' });
+        startConversation.mockResolvedValue({
+          conversationId: 5,
+          claudeSessionId: 'session-123'
+        });
+
+        const response = await request(app)
+          .post('/api/tasks/1/conversations')
+          .send({ message: 'Test message' });
+
+        expect(response.status).toBe(201);
+        expect(startConversation).toHaveBeenCalledWith(
+          1,
+          'Test message',
+          expect.objectContaining({
+            permissionMode: 'bypassPermissions'
+          })
+        );
+      });
+
+      it('should return 500 if startConversation fails', async () => {
+        const mockTaskWithProject = {
+          id: 1,
+          user_id: testUserId,
+          status: 'in_progress',
+          repo_folder_path: '/path/to/repo'
+        };
+        const newConversation = { id: 5, task_id: 1, claude_conversation_id: null };
+
+        tasksDb.getWithProject.mockReturnValue(mockTaskWithProject);
+        conversationsDb.create.mockReturnValue(newConversation);
+        startConversation.mockRejectedValue(new Error('Claude SDK error'));
+
+        const response = await request(app)
+          .post('/api/tasks/1/conversations')
+          .send({ message: 'Test message' });
+
+        expect(response.status).toBe(500);
+        expect(response.body.error).toContain('Session creation failed');
+      });
+
+      it('should delete conversation if session creation fails', async () => {
+        const mockTaskWithProject = {
+          id: 1,
+          user_id: testUserId,
+          status: 'in_progress',
+          repo_folder_path: '/path/to/repo'
+        };
+        const newConversation = { id: 5, task_id: 1, claude_conversation_id: null };
+
+        tasksDb.getWithProject.mockReturnValue(mockTaskWithProject);
+        conversationsDb.create.mockReturnValue(newConversation);
+        conversationsDb.delete.mockReturnValue(true);
+        startConversation.mockRejectedValue(new Error('Claude SDK error'));
+
+        await request(app)
+          .post('/api/tasks/1/conversations')
+          .send({ message: 'Test message' });
+
+        // Conversation should be cleaned up on failure
+        expect(conversationsDb.delete).toHaveBeenCalledWith(5);
+      });
+
+      it('should trim message whitespace before sending to Claude', async () => {
+        const mockTaskWithProject = {
+          id: 1,
+          user_id: testUserId,
+          status: 'in_progress',
+          repo_folder_path: '/path/to/repo'
+        };
+        const newConversation = { id: 5, task_id: 1, claude_conversation_id: null };
+
+        tasksDb.getWithProject.mockReturnValue(mockTaskWithProject);
+        conversationsDb.create.mockReturnValue(newConversation);
+        conversationsDb.getById.mockReturnValue({ ...newConversation, claude_conversation_id: 'session-123' });
+        startConversation.mockResolvedValue({
+          conversationId: 5,
+          claudeSessionId: 'session-123'
+        });
+
+        const response = await request(app)
+          .post('/api/tasks/1/conversations')
+          .send({ message: '  Hello with whitespace  ' });
+
+        expect(response.status).toBe(201);
+        expect(startConversation).toHaveBeenCalledWith(
+          1,
+          'Hello with whitespace', // Trimmed
+          expect.any(Object)
+        );
+      });
+
+      it('should update task status to in_progress when pending and message provided', async () => {
+        const mockTaskWithProject = {
+          id: 1,
+          user_id: testUserId,
+          status: 'pending',
+          repo_folder_path: '/path/to/repo'
+        };
+        const newConversation = { id: 5, task_id: 1, claude_conversation_id: null };
+
+        tasksDb.getWithProject.mockReturnValue(mockTaskWithProject);
+        tasksDb.updateStatus.mockReturnValue({ ...mockTaskWithProject, status: 'in_progress' });
+        conversationsDb.create.mockReturnValue(newConversation);
+        conversationsDb.getById.mockReturnValue({ ...newConversation, claude_conversation_id: 'session-123' });
+        startConversation.mockResolvedValue({
+          conversationId: 5,
+          claudeSessionId: 'session-123'
+        });
+
+        const response = await request(app)
+          .post('/api/tasks/1/conversations')
+          .send({ message: 'Start working on this task' });
+
+        expect(response.status).toBe(201);
+        expect(tasksDb.updateStatus).toHaveBeenCalledWith(1, 'in_progress');
+      });
     });
   });
 

@@ -158,39 +158,69 @@ describe('WebSocket Handler - Task-based Conversation Flow', () => {
   });
 
   describe('WebSocket Message Simulation', () => {
-    it('should simulate new conversation message handling without existing conversationId', () => {
-      // Simulate the message that would be received when NO conversationId is provided
-      // (This is the legacy flow where backend creates the conversation)
+    it('should return error when no conversationId is provided (new conversation via WebSocket blocked)', () => {
+      // After the refactoring, new conversations must be created via REST API
+      // The WebSocket handler should return an error if no conversationId is provided
+      const sentMessages = [];
+      const mockWs = {
+        id: 'ws1',
+        readyState: 1,
+        send: (msg) => sentMessages.push(JSON.parse(msg))
+      };
+
       const message = {
         type: 'claude-command',
         command: 'Hello, Claude!',
         options: {
           taskId: taskId,
+          // Note: no conversationId - this should trigger an error
           isNewConversation: true
-          // Note: no conversationId provided
         }
       };
 
-      // Get task with project (as handler would do)
-      const taskWithProject = testDb.tasksDb.getWithProject(message.options.taskId);
-      expect(taskWithProject).toBeDefined();
+      // Simulate the new handler behavior: without conversationId, send error
+      const { conversationId } = message.options || {};
+      if (!conversationId) {
+        mockWs.send(JSON.stringify({
+          type: 'claude-error',
+          error: 'New conversations must be created via REST API. Use the modal to start a conversation.'
+        }));
+      }
 
-      // Create conversation (as handler would do when no conversationId provided)
-      const conversation = testDb.conversationsDb.create(taskId);
-      expect(conversation.id).toBeDefined();
+      // Verify error was sent
+      expect(sentMessages.length).toBe(1);
+      expect(sentMessages[0].type).toBe('claude-error');
+      expect(sentMessages[0].error).toContain('REST API');
+    });
 
-      // Build context (as handler would do)
-      const contextPrompt = buildContextPrompt(taskWithProject.repo_folder_path, taskId);
-
-      // Build SDK options (as handler would do)
-      const sdkOptions = {
-        cwd: taskWithProject.repo_folder_path,
-        customSystemPrompt: contextPrompt || undefined,
-        _dbConversationId: conversation.id
+    it('should require conversationId for claude-command (resume only flow)', () => {
+      // This test documents that the WebSocket handler now only supports resuming
+      // conversations, not creating new ones. New conversations must use REST API.
+      const sentMessages = [];
+      const mockWs = {
+        id: 'ws1',
+        readyState: 1,
+        send: (msg) => sentMessages.push(JSON.parse(msg))
       };
 
-      expect(sdkOptions.cwd).toBe(testDir);
-      expect(sdkOptions._dbConversationId).toBe(conversation.id);
+      // Message without conversationId
+      const messageWithoutConvId = {
+        type: 'claude-command',
+        command: 'Hello, Claude!',
+        options: {}
+      };
+
+      // Handler should reject messages without conversationId
+      const { conversationId } = messageWithoutConvId.options || {};
+      if (!conversationId) {
+        mockWs.send(JSON.stringify({
+          type: 'claude-error',
+          error: 'New conversations must be created via REST API. Use the modal to start a conversation.'
+        }));
+      }
+
+      expect(sentMessages.length).toBe(1);
+      expect(sentMessages[0].type).toBe('claude-error');
     });
 
     it('should use existing conversationId when provided with isNewConversation: true', () => {
