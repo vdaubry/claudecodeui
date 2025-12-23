@@ -387,66 +387,60 @@ async function handleAgentChaining(taskId, agentType, context) {
 // MAIN ENTRY POINTS
 // ============================================================================
 
-/**
- * Start a new conversation for a task
- *
- * @param {number} taskId - Task ID
- * @param {string} message - First message to send
- * @param {Object} options - Options
- * @param {Function} options.broadcastFn - WebSocket broadcast function
- * @param {number} options.userId - User ID for notifications
- * @param {string} options.customSystemPrompt - Custom system prompt
- * @param {string} options.permissionMode - Permission mode (default: 'bypassPermissions')
- * @param {number} options.conversationId - Existing conversation ID (optional)
- * @param {Array} options.images - Images to include (optional)
- * @returns {Promise<{conversationId: number, claudeSessionId: string}>}
- */
-export async function startConversation(taskId, message, options = {}) {
-  // Validate and normalize options
-  const normalizedOptions = validateAndNormalizeOptions(options, 'startConversation');
-  const { broadcastFn, broadcastToTaskSubscribersFn, userId, customSystemPrompt, permissionMode, images } = normalizedOptions;
+async function startNewConversation({
+  entityId,
+  message,
+  options,
+  source,
+  entityLabel,
+  getEntityWithProject,
+  createConversationRecord,
+  customSystemPrompt,
+  resolveCustomSystemPrompt,
+  contextOverrides,
+  broadcastClaudeStatus,
+  onSessionCreated
+}) {
+  const normalizedOptions = validateAndNormalizeOptions(options, source);
+  const { broadcastFn, broadcastToTaskSubscribersFn, userId, permissionMode, images } = normalizedOptions;
 
-  // Get task and project info
-  const taskWithProject = tasksDb.getWithProject(taskId);
-  if (!taskWithProject) {
-    throw new Error(`Task ${taskId} not found`);
+  const entityWithProject = getEntityWithProject(entityId);
+  if (!entityWithProject) {
+    throw new Error(`${entityLabel} ${entityId} not found`);
   }
 
-  const projectPath = taskWithProject.repo_folder_path;
+  const projectPath = entityWithProject.repo_folder_path;
+  const resolvedSystemPrompt = resolveCustomSystemPrompt
+    ? resolveCustomSystemPrompt(entityWithProject, entityId)
+    : customSystemPrompt;
 
-  // Create or use existing conversation
   let conversationId = options.conversationId;
   if (!conversationId) {
-    const conversation = conversationsDb.create(taskId);
+    const conversation = createConversationRecord(entityId);
     conversationId = conversation.id;
-    console.log(`[ConversationAdapter] Created conversation ${conversationId} for task ${taskId}`);
+    console.log(`[ConversationAdapter] Created conversation ${conversationId} for ${entityLabel.toLowerCase()} ${entityId}`);
   }
 
-  // Build SDK options (permissionMode already validated/normalized)
   const sdkOptions = mapOptionsToSDK({
     cwd: projectPath,
     permissionMode,
-    customSystemPrompt
+    customSystemPrompt: resolvedSystemPrompt
   });
 
-  // Load MCP configuration
   const mcpServers = await loadMcpConfig(projectPath);
   if (mcpServers) {
     sdkOptions.mcpServers = mcpServers;
   }
 
-  // Handle images
   const imageResult = await handleImages(message, images, projectPath);
   const finalMessage = imageResult.modifiedCommand;
   const { tempImagePaths, tempDir } = imageResult;
 
-  // Create SDK query instance
   const queryInstance = query({
     prompt: finalMessage,
     options: sdkOptions
   });
 
-  // Process streaming
   return new Promise((resolve, reject) => {
     const timeout = setTimeout(() => {
       reject(new Error('Session creation timeout'));
@@ -457,23 +451,21 @@ export async function startConversation(taskId, message, options = {}) {
 
     const context = {
       conversationId,
-      taskId,
       claudeSessionId: null,
       userId,
       broadcastFn,
-      broadcastToTaskSubscribersFn
+      broadcastToTaskSubscribersFn,
+      ...contextOverrides
     };
 
     (async () => {
       try {
         for await (const sdkMessage of queryInstance) {
-          // Capture session ID from first message
           if (sdkMessage.session_id && !claudeSessionId) {
             claudeSessionId = sdkMessage.session_id;
             context.claudeSessionId = claudeSessionId;
             clearTimeout(timeout);
 
-            // Track session
             activeSessions.set(claudeSessionId, {
               instance: queryInstance,
               startTime: Date.now(),
@@ -482,14 +474,11 @@ export async function startConversation(taskId, message, options = {}) {
               tempDir
             });
 
-            // Update conversation with Claude session ID
             conversationsDb.updateClaudeId(conversationId, claudeSessionId);
             console.log(`[ConversationAdapter] Updated conversation ${conversationId} with session ${claudeSessionId}`);
 
-            // Handle streaming started
             handleStreamingStarted(context);
 
-            // Broadcast conversation-created
             if (broadcastFn) {
               broadcastFn(conversationId, {
                 type: 'conversation-created',
@@ -498,31 +487,19 @@ export async function startConversation(taskId, message, options = {}) {
               });
             }
 
-            // Broadcast conversation-added to task subscribers (for live updates on Task Detail page)
-            if (broadcastToTaskSubscribersFn) {
-              broadcastToTaskSubscribersFn(taskId, {
-                type: 'conversation-added',
-                conversation: {
-                  id: conversationId,
-                  task_id: taskId,
-                  claude_conversation_id: claudeSessionId,
-                  created_at: new Date().toISOString()
-                }
-              });
+            if (onSessionCreated) {
+              onSessionCreated({ conversationId, claudeSessionId, context, entityWithProject });
             }
 
-            // Resolve immediately with IDs
             resolve({ conversationId, claudeSessionId });
           }
 
-          // Broadcast message to WebSocket clients
           if (broadcastFn) {
             broadcastFn(conversationId, {
               type: 'claude-response',
               data: sdkMessage
             });
 
-            // Broadcast session-created once
             if (claudeSessionId && !sessionCreatedBroadcast) {
               sessionCreatedBroadcast = true;
               broadcastFn(conversationId, {
@@ -531,7 +508,6 @@ export async function startConversation(taskId, message, options = {}) {
               });
             }
 
-            // Extract and send token budget from result message
             if (sdkMessage.type === 'result') {
               const tokenBudget = extractTokenBudget(sdkMessage);
               if (tokenBudget) {
@@ -542,8 +518,7 @@ export async function startConversation(taskId, message, options = {}) {
               }
             }
 
-            // Try to extract token count from assistant message (if SDK includes it)
-            if (sdkMessage.type === 'assistant' && sdkMessage.message?.usage) {
+            if (broadcastClaudeStatus && sdkMessage.type === 'assistant' && sdkMessage.message?.usage) {
               const usage = sdkMessage.message.usage;
               const tokens = (usage.input_tokens || 0) + (usage.output_tokens || 0);
               if (tokens > 0) {
@@ -560,15 +535,12 @@ export async function startConversation(taskId, message, options = {}) {
           }
         }
 
-        // Clean up session
         if (claudeSessionId) {
           activeSessions.delete(claudeSessionId);
         }
 
-        // Clean up temp files
         await cleanupTempFiles(tempImagePaths, tempDir);
 
-        // Broadcast completion
         if (broadcastFn) {
           broadcastFn(conversationId, {
             type: 'claude-complete',
@@ -578,26 +550,22 @@ export async function startConversation(taskId, message, options = {}) {
           });
         }
 
-        // Handle streaming complete (centralized lifecycle)
         await handleStreamingComplete(context, false);
 
       } catch (error) {
         console.error('[ConversationAdapter] Streaming error:', error);
 
-        // Clean up
         if (claudeSessionId) {
           activeSessions.delete(claudeSessionId);
         }
         await cleanupTempFiles(tempImagePaths, tempDir);
 
-        // If not resolved yet, reject
         if (!claudeSessionId) {
           clearTimeout(timeout);
           reject(error);
           return;
         }
 
-        // Broadcast error
         if (broadcastFn) {
           broadcastFn(conversationId, {
             type: 'claude-error',
@@ -605,10 +573,51 @@ export async function startConversation(taskId, message, options = {}) {
           });
         }
 
-        // Handle streaming complete with error
         await handleStreamingComplete(context, true);
       }
     })();
+  });
+}
+
+/**
+ * Start a new conversation for a task
+ *
+ * @param {number} taskId - Task ID
+ * @param {string} message - First message to send
+ * @param {Object} options - Options
+ * @param {Function} options.broadcastFn - WebSocket broadcast function
+ * @param {number} options.userId - User ID for notifications
+ * @param {string} options.customSystemPrompt - Custom system prompt
+ * @param {string} options.permissionMode - Permission mode (default: 'bypassPermissions')
+ * @param {number} options.conversationId - Existing conversation ID (optional)
+ * @param {Array} options.images - Images to include (optional)
+ * @returns {Promise<{conversationId: number, claudeSessionId: string}>}
+ */
+export async function startConversation(taskId, message, options = {}) {
+  return startNewConversation({
+    entityId: taskId,
+    message,
+    options,
+    source: 'startConversation',
+    entityLabel: 'Task',
+    getEntityWithProject: (id) => tasksDb.getWithProject(id),
+    createConversationRecord: (id) => conversationsDb.create(id),
+    customSystemPrompt: options.customSystemPrompt,
+    contextOverrides: { taskId, agentId: null },
+    broadcastClaudeStatus: true,
+    onSessionCreated: ({ conversationId, claudeSessionId, context }) => {
+      if (context.broadcastToTaskSubscribersFn) {
+        context.broadcastToTaskSubscribersFn(taskId, {
+          type: 'conversation-added',
+          conversation: {
+            id: conversationId,
+            task_id: taskId,
+            claude_conversation_id: claudeSessionId,
+            created_at: new Date().toISOString()
+          }
+        });
+      }
+    }
   });
 }
 
@@ -626,217 +635,21 @@ export async function startConversation(taskId, message, options = {}) {
  * @returns {Promise<{conversationId: number, claudeSessionId: string}>}
  */
 export async function startAgentConversation(agentId, message, options = {}) {
-  // Validate and normalize options
-  const normalizedOptions = validateAndNormalizeOptions(options, 'startAgentConversation');
-  const { broadcastFn, broadcastToTaskSubscribersFn, userId, permissionMode, images } = normalizedOptions;
-
-  // Get agent and project info
-  const agentWithProject = agentsDb.getWithProject(agentId);
-  if (!agentWithProject) {
-    throw new Error(`Agent ${agentId} not found`);
-  }
-
-  const projectPath = agentWithProject.repo_folder_path;
-
-  // Build context prompt from project doc + agent prompt (similar to task conversations)
-  const agentContextPrompt = buildAgentContextPrompt(projectPath, agentId);
-
-  // Create or use existing conversation
-  let conversationId = options.conversationId;
-  if (!conversationId) {
-    const conversation = conversationsDb.createForAgent(agentId);
-    conversationId = conversation.id;
-    console.log(`[ConversationAdapter] Created conversation ${conversationId} for agent ${agentId}`);
-  }
-
-  // Build SDK options - agent context (project doc + agent prompt) becomes the system prompt
-  const sdkOptions = mapOptionsToSDK({
-    cwd: projectPath,
-    permissionMode,
-    customSystemPrompt: agentContextPrompt || undefined
-  });
-
-  // Load MCP configuration
-  const mcpServers = await loadMcpConfig(projectPath);
-  if (mcpServers) {
-    sdkOptions.mcpServers = mcpServers;
-  }
-
-  // Handle images
-  const imageResult = await handleImages(message, images, projectPath);
-  const finalMessage = imageResult.modifiedCommand;
-  const { tempImagePaths, tempDir } = imageResult;
-
-  // Create SDK query instance
-  const queryInstance = query({
-    prompt: finalMessage,
-    options: sdkOptions
-  });
-
-  // Process streaming
-  return new Promise((resolve, reject) => {
-    const timeout = setTimeout(() => {
-      reject(new Error('Session creation timeout'));
-    }, 30000);
-
-    let claudeSessionId = null;
-    let sessionCreatedBroadcast = false;
-
-    // Context for lifecycle events - agentId instead of taskId
-    const context = {
-      conversationId,
-      agentId,
-      taskId: null, // No task for agent conversations
-      claudeSessionId: null,
-      userId,
-      broadcastFn,
-      broadcastToTaskSubscribersFn
-    };
-
-    (async () => {
-      try {
-        for await (const sdkMessage of queryInstance) {
-          // Capture session ID from first message
-          if (sdkMessage.session_id && !claudeSessionId) {
-            claudeSessionId = sdkMessage.session_id;
-            context.claudeSessionId = claudeSessionId;
-            clearTimeout(timeout);
-
-            // Track session
-            activeSessions.set(claudeSessionId, {
-              instance: queryInstance,
-              startTime: Date.now(),
-              status: 'active',
-              tempImagePaths,
-              tempDir
-            });
-
-            // Update conversation with Claude session ID
-            conversationsDb.updateClaudeId(conversationId, claudeSessionId);
-            console.log(`[ConversationAdapter] Updated conversation ${conversationId} with session ${claudeSessionId}`);
-
-            // Track active streaming session (for agent, taskId is null)
-            activeStreamingSessions.set(claudeSessionId, { taskId: null, agentId, conversationId });
-
-            // Broadcast conversation-created
-            if (broadcastFn) {
-              broadcastFn(conversationId, {
-                type: 'streaming-started',
-                agentId,
-                conversationId,
-                claudeSessionId
-              });
-
-              broadcastFn(conversationId, {
-                type: 'conversation-created',
-                conversationId,
-                claudeSessionId
-              });
-            }
-
-            // Resolve immediately with IDs
-            resolve({ conversationId, claudeSessionId });
-          }
-
-          // Broadcast message to WebSocket clients
-          if (broadcastFn) {
-            broadcastFn(conversationId, {
-              type: 'claude-response',
-              data: sdkMessage
-            });
-
-            // Broadcast session-created once
-            if (claudeSessionId && !sessionCreatedBroadcast) {
-              sessionCreatedBroadcast = true;
-              broadcastFn(conversationId, {
-                type: 'session-created',
-                sessionId: claudeSessionId
-              });
-            }
-
-            // Extract and send token budget from result message
-            if (sdkMessage.type === 'result') {
-              const tokenBudget = extractTokenBudget(sdkMessage);
-              if (tokenBudget) {
-                broadcastFn(conversationId, {
-                  type: 'token-budget',
-                  data: tokenBudget
-                });
-              }
-            }
-          }
-        }
-
-        // Clean up session
-        if (claudeSessionId) {
-          activeSessions.delete(claudeSessionId);
-          activeStreamingSessions.delete(claudeSessionId);
-        }
-
-        // Clean up temp files
-        await cleanupTempFiles(tempImagePaths, tempDir);
-
-        // Broadcast completion
-        if (broadcastFn) {
-          broadcastFn(conversationId, {
-            type: 'streaming-ended',
-            agentId,
-            conversationId
-          });
-
-          broadcastFn(conversationId, {
-            type: 'claude-complete',
-            sessionId: claudeSessionId,
-            exitCode: 0,
-            isNewSession: true
-          });
-        }
-
-        // Send push notification (for agent conversations)
-        if (userId) {
-          const agentName = agentWithProject.name;
-          notifyClaudeComplete(userId, `Agent: ${agentName}`, null, conversationId, {
-            agentType: 'custom',
-            workflowComplete: false
-          }).catch(err => {
-            console.error('[ConversationAdapter] Failed to send notification:', err);
-          });
-        }
-
-        console.log(`[ConversationAdapter] Agent conversation ${conversationId} completed`);
-
-      } catch (error) {
-        console.error('[ConversationAdapter] Agent streaming error:', error);
-
-        // Clean up
-        if (claudeSessionId) {
-          activeSessions.delete(claudeSessionId);
-          activeStreamingSessions.delete(claudeSessionId);
-        }
-        await cleanupTempFiles(tempImagePaths, tempDir);
-
-        // If not resolved yet, reject
-        if (!claudeSessionId) {
-          clearTimeout(timeout);
-          reject(error);
-          return;
-        }
-
-        // Broadcast error
-        if (broadcastFn) {
-          broadcastFn(conversationId, {
-            type: 'streaming-ended',
-            agentId,
-            conversationId
-          });
-
-          broadcastFn(conversationId, {
-            type: 'claude-error',
-            error: error.message
-          });
-        }
-      }
-    })();
+  return startNewConversation({
+    entityId: agentId,
+    message,
+    options,
+    source: 'startAgentConversation',
+    entityLabel: 'Agent',
+    getEntityWithProject: (id) => agentsDb.getWithProject(id),
+    createConversationRecord: (id) => conversationsDb.createForAgent(id),
+    resolveCustomSystemPrompt: (agentWithProject, id) =>
+      options.customSystemPrompt
+        || buildAgentContextPrompt(agentWithProject.repo_folder_path, id)
+        || undefined,
+    contextOverrides: { taskId: null, agentId },
+    broadcastClaudeStatus: false,
+    onSessionCreated: null
   });
 }
 

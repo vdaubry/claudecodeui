@@ -26,6 +26,12 @@ export const authenticatedFetch = (url, options = {}) => {
   });
 };
 
+const createConversationWithMessage = (kind, id, payload) =>
+  authenticatedFetch(`/api/${kind}/${id}/conversations`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+
 // API endpoints
 export const api = {
   // Auth endpoints (no token required)
@@ -118,10 +124,7 @@ export const api = {
       }),
     // Create conversation with first message - returns conversation with real claude_conversation_id
     createWithMessage: (taskId, { message, projectPath, permissionMode }) =>
-      authenticatedFetch(`/api/tasks/${taskId}/conversations`, {
-        method: 'POST',
-        body: JSON.stringify({ message, projectPath, permissionMode }),
-      }),
+      createConversationWithMessage('tasks', taskId, { message, projectPath, permissionMode }),
     get: (id) => authenticatedFetch(`/api/conversations/${id}`),
     delete: (id) =>
       authenticatedFetch(`/api/conversations/${id}`, {
@@ -192,10 +195,7 @@ export const api = {
       }),
     // Create conversation with first message - returns conversation with real claude_conversation_id
     createConversationWithMessage: (agentId, { message, permissionMode }) =>
-      authenticatedFetch(`/api/agents/${agentId}/conversations`, {
-        method: 'POST',
-        body: JSON.stringify({ message, permissionMode }),
-      }),
+      createConversationWithMessage('agents', agentId, { message, permissionMode }),
     // Agent attachments
     listAttachments: (agentId) => authenticatedFetch(`/api/agents/${agentId}/attachments`),
     uploadAttachment: (agentId, file) => {
