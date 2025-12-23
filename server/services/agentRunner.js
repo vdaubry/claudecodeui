@@ -37,7 +37,7 @@ export async function startAgentRun(taskId, agentType, options = {}) {
   }
 
   const projectPath = taskWithProject.repo_folder_path;
-  const taskDocPath = `.claude-ui/tasks/task-${taskId}.md`;
+  const taskDocPath = `${projectPath}/.claude-ui/tasks/task-${taskId}.md`;
 
   // Generate message based on agent type
   let message;

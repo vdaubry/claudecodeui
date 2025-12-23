@@ -105,7 +105,7 @@ describe('agentRunner', () => {
     it('should create agent run and conversation for planification agent', async () => {
       const result = await startAgentRun(1, 'planification');
 
-      expect(generatePlanificationMessage).toHaveBeenCalledWith('.claude-ui/tasks/task-1.md', 1);
+      expect(generatePlanificationMessage).toHaveBeenCalledWith('/path/to/project/.claude-ui/tasks/task-1.md', 1);
       expect(agentRunsDb.create).toHaveBeenCalledWith(1, 'planification', null);
       expect(conversationsDb.create).toHaveBeenCalledWith(1);
       expect(agentRunsDb.linkConversation).toHaveBeenCalledWith(1, 1);
@@ -116,7 +116,7 @@ describe('agentRunner', () => {
     it('should create agent run and conversation for implementation agent', async () => {
       const result = await startAgentRun(1, 'implementation');
 
-      expect(generateImplementationMessage).toHaveBeenCalledWith('.claude-ui/tasks/task-1.md', 1);
+      expect(generateImplementationMessage).toHaveBeenCalledWith('/path/to/project/.claude-ui/tasks/task-1.md', 1);
       expect(agentRunsDb.create).toHaveBeenCalledWith(1, 'implementation', null);
       expect(conversationsDb.create).toHaveBeenCalledWith(1);
       expect(result.agentRun).toEqual(mockAgentRun);
@@ -125,7 +125,7 @@ describe('agentRunner', () => {
     it('should create agent run and conversation for review agent', async () => {
       const result = await startAgentRun(1, 'review');
 
-      expect(generateReviewMessage).toHaveBeenCalledWith('.claude-ui/tasks/task-1.md', 1);
+      expect(generateReviewMessage).toHaveBeenCalledWith('/path/to/project/.claude-ui/tasks/task-1.md', 1);
       expect(agentRunsDb.create).toHaveBeenCalledWith(1, 'review', null);
       expect(conversationsDb.create).toHaveBeenCalledWith(1);
       expect(result.agentRun).toEqual(mockAgentRun);

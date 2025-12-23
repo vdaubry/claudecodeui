@@ -1,5 +1,5 @@
 // Service Worker for Claude Code UI PWA
-const CACHE_NAME = 'claude-ui-v1';
+const CACHE_NAME = 'claude-ui-v2';
 const urlsToCache = [
   '/',
   '/index.html',
@@ -19,6 +19,15 @@ self.addEventListener('install', event => {
 
 // Fetch event
 self.addEventListener('fetch', event => {
+  const url = new URL(event.request.url);
+
+  // Never cache API requests - always go to network
+  if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/ws')) {
+    event.respondWith(fetch(event.request));
+    return;
+  }
+
+  // For static assets, use cache-first with network fallback
   event.respondWith(
     caches.match(event.request)
       .then(response => {
