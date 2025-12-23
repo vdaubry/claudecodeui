@@ -1,24 +1,12 @@
 import express from 'express';
-import { WebSocket } from 'ws';
 import { tasksDb, conversationsDb, projectsDb, agentsDb } from '../database/db.js';
 import { getSessionMessages, getSessionTokenUsage } from '../services/sessions.js';
 import { updateUserBadge } from '../services/notifications.js';
 import { startConversation } from '../services/conversationAdapter.js';
 import { buildContextPrompt } from '../services/documentation.js';
+import { createConversationHandler } from './conversationHandlers.js';
 
 const router = express.Router();
-
-// Broadcast message to all WebSocket clients
-function broadcastToAll(req, message) {
-  const wss = req.app.locals.wss;
-  if (!wss) return;
-
-  wss.clients.forEach(client => {
-    if (client.readyState === WebSocket.OPEN) {
-      client.send(JSON.stringify(message));
-    }
-  });
-}
 
 /**
  * GET /api/tasks/:taskId/conversations
@@ -66,91 +54,32 @@ router.get('/tasks/:taskId/conversations', (req, res) => {
  * - projectPath: string - Project working directory (optional, uses task's project)
  * - permissionMode: string - Permission mode (default: 'bypassPermissions')
  */
-router.post('/tasks/:taskId/conversations', async (req, res) => {
-  try {
-    const userId = req.user.id;
-    const taskId = parseInt(req.params.taskId, 10);
-    const { message, projectPath, permissionMode } = req.body || {};
-
-    if (isNaN(taskId)) {
-      return res.status(400).json({ error: 'Invalid task ID' });
-    }
-
-    // Get task with project info to verify ownership
-    const taskWithProject = tasksDb.getWithProject(taskId);
-
-    if (!taskWithProject) {
-      return res.status(404).json({ error: 'Task not found' });
-    }
-
-    // Verify the project belongs to the user
-    if (taskWithProject.user_id !== userId) {
-      return res.status(404).json({ error: 'Task not found' });
-    }
-
-    // Create conversation record
-    const conversation = conversationsDb.create(taskId);
-
-    // Set task status to 'in_progress' if it's currently 'pending'
-    if (taskWithProject.status === 'pending') {
-      tasksDb.updateStatus(taskId, 'in_progress');
-
-      // Send badge update notification (fire and forget)
+const createTaskConversationHandler = createConversationHandler({
+  getId: (req) => parseInt(req.params.taskId, 10),
+  invalidIdMessage: 'Invalid task ID',
+  notFoundMessage: 'Task not found',
+  generalErrorMessage: 'Failed to create conversation',
+  generalErrorLogPrefix: 'Error creating conversation:',
+  sessionErrorLogPrefix: '[REST] Failed to create session:',
+  precreateConversation: true,
+  getEntityWithProject: (taskId) => tasksDb.getWithProject(taskId),
+  createConversation: (taskId) => conversationsDb.create(taskId),
+  deleteConversation: (conversationId) => conversationsDb.delete(conversationId),
+  cleanupConversationOnSessionError: true,
+  getConversationById: (conversationId) => conversationsDb.getById(conversationId),
+  buildSystemPrompt: (projectPath, taskId) => buildContextPrompt(projectPath, taskId),
+  startSession: (taskId, message, options) => startConversation(taskId, message, options),
+  onConversationCreated: ({ userId, entityId, entityWithProject }) => {
+    if (entityWithProject.status === 'pending') {
+      tasksDb.updateStatus(entityId, 'in_progress');
       updateUserBadge(userId).catch(err => {
         console.error('[Notifications] Failed to update badge on conversation creation:', err);
       });
     }
-
-    // If no message provided, return immediately (backward compatible)
-    if (!message) {
-      return res.status(201).json(conversation);
-    }
-
-    // Message provided - create session synchronously via adapter
-    console.log('[REST] Creating conversation with first message for task:', taskId);
-
-    try {
-      // Build context prompt from project.md and task markdown
-      const contextPrompt = buildContextPrompt(taskWithProject.repo_folder_path, taskId);
-
-      // Create broadcast function for WebSocket
-      const wss = req.app.locals.wss;
-      const broadcastFn = (convId, msg) => {
-        if (!wss) return;
-        wss.clients.forEach(client => {
-          if (client.readyState === WebSocket.OPEN) {
-            client.send(JSON.stringify(msg));
-          }
-        });
-      };
-
-      // Use adapter to start conversation (handles all lifecycle events)
-      const { conversationId: convId, claudeSessionId } = await startConversation(taskId, message.trim(), {
-        broadcastFn,
-        userId,
-        customSystemPrompt: contextPrompt,
-        permissionMode: permissionMode || 'bypassPermissions',
-        conversationId: conversation.id
-      });
-
-      // Return complete conversation with real session ID
-      return res.status(201).json({
-        ...conversation,
-        claude_conversation_id: claudeSessionId
-      });
-
-    } catch (sessionError) {
-      console.error('[REST] Failed to create session:', sessionError);
-      // Clean up the conversation record since session creation failed
-      conversationsDb.delete(conversation.id);
-      return res.status(500).json({ error: 'Session creation failed: ' + sessionError.message });
-    }
-
-  } catch (error) {
-    console.error('Error creating conversation:', error);
-    res.status(500).json({ error: 'Failed to create conversation' });
   }
 });
+
+router.post('/tasks/:taskId/conversations', createTaskConversationHandler);
 
 /**
  * GET /api/conversations/:id

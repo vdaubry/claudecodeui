@@ -14,6 +14,8 @@ import {
   deleteAgentOutputFile,
   ATTACHMENT_CONFIG
 } from '../services/documentation.js';
+import { startAgentConversation } from '../services/conversationAdapter.js';
+import { createConversationHandler } from './conversationHandlers.js';
 
 const router = express.Router();
 
@@ -332,35 +334,33 @@ router.get('/agents/:agentId/conversations', (req, res) => {
 /**
  * POST /api/agents/:agentId/conversations
  * Create a new conversation for an agent
+ *
+ * If `message` is provided in the body, creates the conversation AND starts
+ * the Claude session synchronously, returning the real claude_conversation_id.
+ * This is the preferred method for new conversations (modal-first flow).
+ *
+ * Body (optional):
+ * - message: string - First message to send to Claude
+ * - permissionMode: string - Permission mode (default: 'bypassPermissions')
  */
-router.post('/agents/:agentId/conversations', (req, res) => {
-  try {
-    const userId = req.user.id;
-    const agentId = parseInt(req.params.agentId, 10);
-
-    if (isNaN(agentId)) {
-      return res.status(400).json({ error: 'Invalid agent ID' });
-    }
-
-    // Get agent with project info to verify ownership
-    const agentWithProject = agentsDb.getWithProject(agentId);
-
-    if (!agentWithProject) {
-      return res.status(404).json({ error: 'Agent not found' });
-    }
-
-    // Verify the project belongs to the user
-    if (agentWithProject.user_id !== userId) {
-      return res.status(404).json({ error: 'Agent not found' });
-    }
-
-    const conversation = conversationsDb.createForAgent(agentId);
-    res.status(201).json(conversation);
-  } catch (error) {
-    console.error('Error creating agent conversation:', error);
-    res.status(500).json({ error: 'Failed to create conversation' });
-  }
+const createAgentConversationHandler = createConversationHandler({
+  getId: (req) => parseInt(req.params.agentId, 10),
+  invalidIdMessage: 'Invalid agent ID',
+  notFoundMessage: 'Agent not found',
+  generalErrorMessage: 'Failed to create conversation',
+  generalErrorLogPrefix: 'Error creating agent conversation:',
+  sessionErrorLogPrefix: '[REST] Failed to create agent session:',
+  precreateConversation: false,
+  getEntityWithProject: (agentId) => agentsDb.getWithProject(agentId),
+  createConversation: (agentId) => conversationsDb.createForAgent(agentId),
+  deleteConversation: (conversationId) => conversationsDb.delete(conversationId),
+  cleanupConversationOnSessionError: false,
+  getConversationById: (conversationId) => conversationsDb.getById(conversationId),
+  buildSystemPrompt: null,
+  startSession: (agentId, message, options) => startAgentConversation(agentId, message, options),
 });
+
+router.post('/agents/:agentId/conversations', createAgentConversationHandler);
 
 /**
  * GET /api/agents/:id/attachments
