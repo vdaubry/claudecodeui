@@ -26,6 +26,7 @@ function AgentDetailPage() {
   const {
     agents,
     loadAgents,
+    updateAgent,
     agentConversations,
     loadAgentConversations,
     agentPrompt,
@@ -42,6 +43,8 @@ function AgentDetailPage() {
     loadAgentOutputFiles,
     downloadAgentOutputFile,
     deleteAgentOutputFile,
+    validateCronExpression,
+    triggerAgent,
     isLoadingAgents,
     isLoadingAgentConversations,
     isLoadingAgentPrompt
@@ -124,6 +127,12 @@ function AgentDetailPage() {
     }
   }, [agent, navigate, projectId, agentId, getTokenParam]);
 
+  const handleEditAgent = useCallback(() => {
+    if (agent) {
+      navigate(`/projects/${projectId}/agents/${agentId}/edit${getTokenParam()}`);
+    }
+  }, [agent, navigate, projectId, agentId, getTokenParam]);
+
   // Conversation handlers
   const handleNewConversation = useCallback(() => {
     if (!agent) return;
@@ -168,6 +177,24 @@ function AgentDetailPage() {
     return await deleteAgentOutputFile(agent.id, filename);
   }, [agent, deleteAgentOutputFile]);
 
+  // Schedule handlers
+  const handleUpdateAgent = useCallback(async (agentId, data) => {
+    const result = await updateAgent(agentId, data);
+    if (result.success && result.agent) {
+      // Update local agent state with the new data
+      setAgent(result.agent);
+    }
+    return result;
+  }, [updateAgent]);
+
+  const handleValidateCron = useCallback(async (expression) => {
+    return await validateCronExpression(expression);
+  }, [validateCronExpression]);
+
+  const handleTriggerAgent = useCallback(async (agentId) => {
+    return await triggerAgent(agentId);
+  }, [triggerAgent]);
+
   // Loading state
   if (isLoading || isLoadingProjects || isLoadingAgents || !project || !agent) {
     return (
@@ -199,11 +226,15 @@ function AgentDetailPage() {
         isLoadingOutputFiles={isLoadingOutputFiles}
         onDownloadOutputFile={handleDownloadOutputFile}
         onDeleteOutputFile={handleDeleteOutputFile}
+        onUpdateAgent={handleUpdateAgent}
+        onValidateCron={handleValidateCron}
+        onTriggerAgent={handleTriggerAgent}
         onBack={handleBack}
         onProjectClick={handleProjectClick}
         onHomeClick={handleHomeClick}
         onSavePrompt={handleSavePrompt}
         onEditPrompt={handleEditPrompt}
+        onEditAgent={handleEditAgent}
         onNewConversation={handleNewConversation}
         onResumeConversation={handleResumeConversation}
         onDeleteConversation={handleDeleteConversation}

@@ -219,6 +219,16 @@ export const api = {
       authenticatedFetch(`/api/agents/${agentId}/output-files/${encodeURIComponent(filename)}`, {
         method: 'DELETE',
       }),
+    // Cron scheduling
+    validateCron: (expression) =>
+      authenticatedFetch('/api/agents/validate-cron', {
+        method: 'POST',
+        body: JSON.stringify({ expression }),
+      }),
+    trigger: (agentId) =>
+      authenticatedFetch(`/api/agents/${agentId}/trigger`, {
+        method: 'POST',
+      }),
   },
 
   // Streaming sessions (for live indicator)

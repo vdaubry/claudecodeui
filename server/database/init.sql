@@ -65,16 +65,23 @@ CREATE INDEX IF NOT EXISTS idx_conversations_claude_id ON conversations(claude_c
 
 -- Custom Agents table - Reusable agent configurations with prompts
 -- Agents belong to a project and have a system prompt stored in markdown files
+-- Schedule fields enable cron-triggered automatic execution
 CREATE TABLE IF NOT EXISTS agents (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     project_id INTEGER NOT NULL,
     name TEXT NOT NULL,
+    schedule TEXT DEFAULT NULL,
+    cron_prompt TEXT DEFAULT NULL,
+    schedule_enabled INTEGER DEFAULT 0 NOT NULL,
+    last_run_at DATETIME DEFAULT NULL,
+    next_run_at DATETIME DEFAULT NULL,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
 );
 
 CREATE INDEX IF NOT EXISTS idx_agents_project_id ON agents(project_id);
+-- Note: idx_agents_schedule_enabled is created by migration in db.js for existing databases
 
 -- Task Agent Runs table - Tracks automated agent runs for tasks
 -- Agent types: 'planification', 'implementation', 'review'

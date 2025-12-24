@@ -16,6 +16,7 @@ import {
 } from '../services/documentation.js';
 import { startAgentConversation } from '../services/conversationAdapter.js';
 import { createConversationHandler } from './conversationHandlers.js';
+import { validateCronExpression, recalculateAgentNextRun } from '../services/cronScheduler.js';
 
 const router = express.Router();
 
@@ -171,8 +172,35 @@ router.put('/agents/:id', (req, res) => {
       updates.name = req.body.name.trim();
     }
 
+    // Handle schedule fields
+    if (req.body.schedule !== undefined) {
+      if (req.body.schedule !== null && req.body.schedule !== '') {
+        const validation = validateCronExpression(req.body.schedule);
+        if (!validation.valid) {
+          return res.status(400).json({ error: `Invalid cron expression: ${validation.error}` });
+        }
+      }
+      updates.schedule = req.body.schedule || null;
+    }
+
+    if (req.body.cron_prompt !== undefined) {
+      updates.cron_prompt = req.body.cron_prompt || null;
+    }
+
+    if (req.body.schedule_enabled !== undefined) {
+      updates.schedule_enabled = req.body.schedule_enabled ? 1 : 0;
+    }
+
     const agent = agentsDb.update(agentId, updates);
-    res.json(agent);
+
+    // Recalculate next run time if schedule or enabled state changed
+    if (updates.schedule !== undefined || updates.schedule_enabled !== undefined) {
+      recalculateAgentNextRun(agentId);
+    }
+
+    // Return the updated agent (refetch to get all fields including next_run_at)
+    const updatedAgent = agentsDb.getById(agentId);
+    res.json(updatedAgent);
   } catch (error) {
     console.error('Error updating agent:', error);
     res.status(500).json({ error: 'Failed to update agent' });
@@ -613,6 +641,84 @@ router.delete('/agents/:id/output-files/:filename', (req, res) => {
   } catch (error) {
     console.error('Error deleting agent output file:', error);
     res.status(500).json({ error: 'Failed to delete file' });
+  }
+});
+
+/**
+ * POST /api/agents/validate-cron
+ * Validate a cron expression and return human-readable description
+ */
+router.post('/agents/validate-cron', (req, res) => {
+  try {
+    const { expression } = req.body;
+
+    if (!expression) {
+      return res.status(400).json({ error: 'Expression is required' });
+    }
+
+    const validation = validateCronExpression(expression);
+    res.json(validation);
+  } catch (error) {
+    console.error('Error validating cron expression:', error);
+    res.status(500).json({ error: 'Failed to validate cron expression' });
+  }
+});
+
+/**
+ * POST /api/agents/:id/trigger
+ * Manually trigger a scheduled agent run (uses cron_prompt)
+ */
+router.post('/agents/:id/trigger', async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const agentId = parseInt(req.params.id, 10);
+
+    if (isNaN(agentId)) {
+      return res.status(400).json({ error: 'Invalid agent ID' });
+    }
+
+    // Get agent with project info to verify ownership
+    const agentWithProject = agentsDb.getWithProject(agentId);
+
+    if (!agentWithProject) {
+      return res.status(404).json({ error: 'Agent not found' });
+    }
+
+    // Verify the project belongs to the user
+    if (agentWithProject.user_id !== userId) {
+      return res.status(404).json({ error: 'Agent not found' });
+    }
+
+    // Check if agent has a cron_prompt configured
+    if (!agentWithProject.cron_prompt) {
+      return res.status(400).json({ error: 'Agent has no cron prompt configured' });
+    }
+
+    // Create conversation with triggered_by = 'manual' (even though using cron prompt)
+    const conversation = conversationsDb.createForAgentWithTrigger(agentId, 'manual');
+
+    // Get WebSocket server for broadcasting
+    const wss = req.app.get('wss');
+    const broadcastFn = wss ? (convId, msg) => {
+      wss.clients.forEach(client => {
+        if (client.readyState === 1) { // WebSocket.OPEN
+          client.send(JSON.stringify(msg));
+        }
+      });
+    } : null;
+
+    // Start agent conversation with cron_prompt
+    await startAgentConversation(agentId, agentWithProject.cron_prompt, {
+      broadcastFn,
+      conversationId: conversation.id,
+      userId,
+      permissionMode: 'bypassPermissions'
+    });
+
+    res.json({ success: true, conversationId: conversation.id });
+  } catch (error) {
+    console.error('Error triggering agent:', error);
+    res.status(500).json({ error: 'Failed to trigger agent' });
   }
 });
 

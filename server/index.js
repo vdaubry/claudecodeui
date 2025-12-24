@@ -75,6 +75,7 @@ import { initializeDatabase, projectsDb, tasksDb, conversationsDb, agentRunsDb, 
 import { readAgentPrompt } from './services/documentation.js';
 import { transcribeAudio } from './services/transcription.js';
 import { validateApiKey, authenticateToken, authenticateWebSocket } from './middleware/auth.js';
+import { initCronScheduler, stopCronScheduler } from './services/cronScheduler.js';
 
 // Track which session each client is subscribed to for targeted message delivery
 const clientSubscriptions = new Map(); // Map<WebSocket, { sessionId: string | null, provider: string }>
@@ -543,11 +544,40 @@ async function startServer() {
             console.log(`${c.info('[INFO]')} Installed at: ${c.dim(appInstallPath)}`);
             console.log(`${c.tip('[TIP]')}  Run "cloudcli status" for full configuration details`);
             console.log('');
+
+            // Initialize cron scheduler for agent scheduled execution
+            const broadcastFn = (conversationId, msg) => {
+                wss.clients.forEach(client => {
+                    if (client.readyState === WebSocket.OPEN) {
+                        client.send(JSON.stringify(msg));
+                    }
+                });
+            };
+            initCronScheduler(broadcastFn);
         });
     } catch (error) {
         console.error('[ERROR] Failed to start server:', error);
         process.exit(1);
     }
 }
+
+// Graceful shutdown handler
+process.on('SIGTERM', () => {
+    console.log('[Server] SIGTERM received, shutting down gracefully...');
+    stopCronScheduler();
+    server.close(() => {
+        console.log('[Server] HTTP server closed');
+        process.exit(0);
+    });
+});
+
+process.on('SIGINT', () => {
+    console.log('[Server] SIGINT received, shutting down gracefully...');
+    stopCronScheduler();
+    server.close(() => {
+        console.log('[Server] HTTP server closed');
+        process.exit(0);
+    });
+});
 
 startServer();

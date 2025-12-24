@@ -6,7 +6,7 @@
  */
 
 import React from 'react';
-import { Bot, MessageSquare, Pencil, Trash2 } from 'lucide-react';
+import { Bot, MessageSquare, Pencil, Trash2, Clock } from 'lucide-react';
 import { cn } from '../../lib/utils';
 
 function AgentCard({
@@ -50,6 +50,15 @@ function AgentCard({
         'border-border hover:border-primary/30'
       )}
     >
+      {/* Schedule indicator - top right */}
+      {agent.schedule_enabled === 1 && (
+        <div className="absolute top-2 right-2" title="Scheduled">
+          <div className="p-1 rounded-full bg-amber-100 dark:bg-amber-900/30">
+            <Clock className="w-3 h-3 text-amber-600 dark:text-amber-400" />
+          </div>
+        </div>
+      )}
+
       {/* Agent icon and name */}
       <div className="flex items-center gap-3">
         <div className="p-2 rounded-lg bg-primary/10">

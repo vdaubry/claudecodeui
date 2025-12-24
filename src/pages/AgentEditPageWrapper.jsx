@@ -12,16 +12,29 @@ import {
   Save,
   Trash2,
   Bot,
-  AlertTriangle
+  AlertTriangle,
+  Clock,
+  Check,
+  AlertCircle
 } from 'lucide-react';
 import MDEditor from '@uiw/react-md-editor';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
+import { Textarea } from '../components/ui/textarea';
 import { MicButton } from '../components/MicButton';
 import { useTaskContext } from '../contexts/TaskContext';
 import { useAgentContext } from '../contexts/AgentContext';
 import { useAuthToken } from '../hooks/useAuthToken';
 import { cn } from '../lib/utils';
+
+// Schedule presets for common cron patterns
+const SCHEDULE_PRESETS = [
+  { label: 'Every hour', value: '0 * * * *' },
+  { label: 'Every day at 9 AM', value: '0 9 * * *' },
+  { label: 'Every day at 6 PM', value: '0 18 * * *' },
+  { label: 'Every Monday at 9 AM', value: '0 9 * * 1' },
+  { label: 'Every 1st of month', value: '0 9 1 * *' },
+];
 
 function AgentEditPageWrapper() {
   const { projectId, agentId } = useParams();
@@ -40,6 +53,7 @@ function AgentEditPageWrapper() {
     updateAgent,
     deleteAgent,
     saveAgentPrompt,
+    validateCronExpression,
     isLoadingAgents,
     isLoadingAgentPrompt
   } = useAgentContext();
@@ -56,6 +70,13 @@ function AgentEditPageWrapper() {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [error, setError] = useState(null);
   const [hasChanges, setHasChanges] = useState(false);
+
+  // Schedule state
+  const [scheduleEnabled, setScheduleEnabled] = useState(false);
+  const [schedule, setSchedule] = useState('');
+  const [cronPrompt, setCronPrompt] = useState('');
+  const [cronValidation, setCronValidation] = useState(null);
+  const [isValidatingCron, setIsValidatingCron] = useState(false);
 
   const nameInputRef = useRef(null);
 
@@ -106,6 +127,9 @@ function AgentEditPageWrapper() {
     if (agent) {
       setName(agent.name || '');
       setPrompt(agentPrompt || '');
+      setScheduleEnabled(!!agent.schedule_enabled);
+      setSchedule(agent.schedule || '');
+      setCronPrompt(agent.cron_prompt || '');
       setHasChanges(false);
       setError(null);
     }
@@ -116,8 +140,33 @@ function AgentEditPageWrapper() {
     if (!agent) return;
     const nameChanged = name !== (agent.name || '');
     const promptChanged = prompt !== (agentPrompt || '');
-    setHasChanges(nameChanged || promptChanged);
-  }, [name, prompt, agent, agentPrompt]);
+    const scheduleEnabledChanged = scheduleEnabled !== !!agent.schedule_enabled;
+    const scheduleChanged = schedule !== (agent.schedule || '');
+    const cronPromptChanged = cronPrompt !== (agent.cron_prompt || '');
+    setHasChanges(nameChanged || promptChanged || scheduleEnabledChanged || scheduleChanged || cronPromptChanged);
+  }, [name, prompt, agent, agentPrompt, scheduleEnabled, schedule, cronPrompt]);
+
+  // Validate cron expression when schedule changes
+  useEffect(() => {
+    if (!schedule) {
+      setCronValidation(null);
+      return;
+    }
+
+    const validateTimeout = setTimeout(async () => {
+      setIsValidatingCron(true);
+      try {
+        const result = await validateCronExpression(schedule);
+        setCronValidation(result);
+      } catch (err) {
+        setCronValidation({ valid: false, error: err.message });
+      } finally {
+        setIsValidatingCron(false);
+      }
+    }, 500);
+
+    return () => clearTimeout(validateTimeout);
+  }, [schedule, validateCronExpression]);
 
   // Handle save
   const handleSave = useCallback(async () => {
@@ -128,13 +177,22 @@ function AgentEditPageWrapper() {
       return;
     }
 
+    // Validate cron expression if schedule is enabled
+    if (scheduleEnabled && schedule && cronValidation && !cronValidation.valid) {
+      setError('Invalid cron expression');
+      return;
+    }
+
     setIsSaving(true);
     setError(null);
 
     try {
-      // Update agent metadata
+      // Update agent metadata including schedule
       const agentResult = await updateAgent(agent.id, {
-        name: name.trim()
+        name: name.trim(),
+        schedule: schedule || null,
+        cron_prompt: cronPrompt || null,
+        schedule_enabled: scheduleEnabled
       });
 
       if (!agentResult.success) {
@@ -156,7 +214,7 @@ function AgentEditPageWrapper() {
     } finally {
       setIsSaving(false);
     }
-  }, [agent, name, prompt, updateAgent, saveAgentPrompt, navigate, projectId, agentId, getTokenParam]);
+  }, [agent, name, prompt, scheduleEnabled, schedule, cronPrompt, cronValidation, updateAgent, saveAgentPrompt, navigate, projectId, agentId, getTokenParam]);
 
   // Handle delete
   const handleDelete = useCallback(async () => {
@@ -335,6 +393,108 @@ function AgentEditPageWrapper() {
                 />
               </div>
             )}
+          </div>
+
+          {/* Schedule Section */}
+          <div className="space-y-4 pt-4 border-t border-border">
+            <div className="flex items-center gap-2">
+              <Clock className="w-4 h-4 text-muted-foreground" />
+              <h3 className="text-sm font-medium text-foreground">Scheduled Execution</h3>
+            </div>
+
+            {/* Enable/Disable Toggle */}
+            <div className="flex items-center justify-between">
+              <div>
+                <label className="text-sm font-medium text-foreground">
+                  Enable Schedule
+                </label>
+                <p className="text-xs text-muted-foreground">
+                  Automatically run this agent on a schedule
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setScheduleEnabled(!scheduleEnabled)}
+                className={cn(
+                  'relative inline-flex h-6 w-11 items-center rounded-full transition-colors',
+                  scheduleEnabled ? 'bg-primary' : 'bg-muted'
+                )}
+                data-testid="schedule-toggle"
+              >
+                <span
+                  className={cn(
+                    'inline-block h-4 w-4 transform rounded-full bg-white transition-transform',
+                    scheduleEnabled ? 'translate-x-6' : 'translate-x-1'
+                  )}
+                />
+              </button>
+            </div>
+
+            {/* Frequency (Cron Expression) */}
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-foreground">
+                Frequency
+              </label>
+              <div className="flex flex-wrap gap-1.5 mb-2">
+                {SCHEDULE_PRESETS.map((preset) => (
+                  <button
+                    key={preset.value}
+                    type="button"
+                    onClick={() => setSchedule(preset.value)}
+                    className={cn(
+                      'px-2 py-1 text-xs rounded-md border transition-colors',
+                      schedule === preset.value
+                        ? 'border-primary bg-primary/10 text-primary'
+                        : 'border-border hover:border-muted-foreground text-muted-foreground hover:text-foreground'
+                    )}
+                  >
+                    {preset.label}
+                  </button>
+                ))}
+              </div>
+              <Input
+                value={schedule}
+                onChange={(e) => setSchedule(e.target.value)}
+                placeholder="Cron expression: * * * * * (min hour day month weekday)"
+                className="font-mono text-sm"
+                data-testid="schedule-input"
+              />
+              {schedule && (
+                <div className="flex items-start gap-2 text-xs">
+                  {isValidatingCron ? (
+                    <span className="text-muted-foreground">Validating...</span>
+                  ) : cronValidation?.valid ? (
+                    <>
+                      <Check className="w-3.5 h-3.5 text-green-500 flex-shrink-0 mt-0.5" />
+                      <span className="text-green-600">{cronValidation.description}</span>
+                    </>
+                  ) : cronValidation?.error ? (
+                    <>
+                      <AlertCircle className="w-3.5 h-3.5 text-destructive flex-shrink-0 mt-0.5" />
+                      <span className="text-destructive">{cronValidation.error}</span>
+                    </>
+                  ) : null}
+                </div>
+              )}
+            </div>
+
+            {/* Cron Prompt */}
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-foreground">
+                Scheduled Prompt
+              </label>
+              <p className="text-xs text-muted-foreground">
+                This message will be sent to Claude when the schedule triggers.
+              </p>
+              <Textarea
+                value={cronPrompt}
+                onChange={(e) => setCronPrompt(e.target.value)}
+                placeholder="Enter the prompt to send when the schedule triggers..."
+                rows={3}
+                className="resize-none"
+                data-testid="cron-prompt-input"
+              />
+            </div>
           </div>
 
           {/* Action buttons */}
