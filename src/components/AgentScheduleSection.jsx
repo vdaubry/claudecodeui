@@ -33,6 +33,7 @@ function AgentScheduleSection({
   onValidateCron,
   onTriggerAgent,
   isUpdating = false,
+  isTabbed = false,
   className
 }) {
   const [isExpanded, setIsExpanded] = useState(false);
@@ -134,32 +135,37 @@ function AgentScheduleSection({
 
   if (!agent) return null;
 
-  return (
-    <div className={cn('border-t border-border', className)}>
-      {/* Collapsible Header */}
-      <button
-        onClick={() => setIsExpanded(!isExpanded)}
-        className="w-full px-4 py-3 flex items-center justify-between hover:bg-muted/50 transition-colors"
-      >
-        <div className="flex items-center gap-2">
-          <Clock className="w-4 h-4 text-muted-foreground" />
-          <span className="text-sm font-medium text-foreground">Schedule</span>
-          {agent.schedule_enabled && (
-            <span className="px-1.5 py-0.5 text-[10px] font-medium bg-primary/10 text-primary rounded">
-              ACTIVE
-            </span>
-          )}
-        </div>
-        {isExpanded ? (
-          <ChevronUp className="w-4 h-4 text-muted-foreground" />
-        ) : (
-          <ChevronDown className="w-4 h-4 text-muted-foreground" />
-        )}
-      </button>
+  // When in tabbed mode, always show content without collapsible header
+  const showContent = isTabbed || isExpanded;
 
-      {/* Expanded Content */}
-      {isExpanded && (
-        <div className="px-4 pb-4 space-y-4">
+  return (
+    <div className={cn(isTabbed ? '' : 'border-t border-border', className)}>
+      {/* Collapsible Header - only shown when not in tabbed mode */}
+      {!isTabbed && (
+        <button
+          onClick={() => setIsExpanded(!isExpanded)}
+          className="w-full px-4 py-3 flex items-center justify-between hover:bg-muted/50 transition-colors"
+        >
+          <div className="flex items-center gap-2">
+            <Clock className="w-4 h-4 text-muted-foreground" />
+            <span className="text-sm font-medium text-foreground">Schedule</span>
+            {!!agent.schedule_enabled && (
+              <span className="px-1.5 py-0.5 text-[10px] font-medium bg-primary/10 text-primary rounded">
+                ACTIVE
+              </span>
+            )}
+          </div>
+          {isExpanded ? (
+            <ChevronUp className="w-4 h-4 text-muted-foreground" />
+          ) : (
+            <ChevronDown className="w-4 h-4 text-muted-foreground" />
+          )}
+        </button>
+      )}
+
+      {/* Content */}
+      {showContent && (
+        <div className={cn('space-y-4', isTabbed ? 'p-4' : 'px-4 pb-4')}>
           {/* Enable Toggle */}
           <div className="flex items-center justify-between">
             <label className="text-sm text-muted-foreground">
@@ -251,7 +257,7 @@ function AgentScheduleSection({
           </div>
 
           {/* Next Run Info */}
-          {agent.schedule_enabled && agent.next_run_at && (
+          {!!agent.schedule_enabled && agent.next_run_at && (
             <div className="flex items-center gap-2 text-xs text-muted-foreground bg-muted/50 px-3 py-2 rounded-md">
               <Calendar className="w-3.5 h-3.5" />
               <span>Next run: {formatNextRun(agent.next_run_at)}</span>

@@ -1,14 +1,14 @@
 /**
  * AgentFilesTabBar.jsx - Tab navigation for Agent Files section
  *
- * Switches between "Input Attachments" and "Output Files" tabs.
+ * Switches between "Input Attachments", "Output Files", and "Schedule" tabs.
  */
 
 import React from 'react';
-import { Paperclip, FolderOutput } from 'lucide-react';
+import { Paperclip, FolderOutput, Clock } from 'lucide-react';
 import { cn } from '../lib/utils';
 
-function AgentFilesTabBar({ activeTab, onTabChange, inputCount = 0, outputCount = 0 }) {
+function AgentFilesTabBar({ activeTab, onTabChange, inputCount = 0, outputCount = 0, scheduleEnabled = false }) {
   return (
     <div className="flex items-center gap-1 p-2 border-b border-border bg-muted/30">
       <button
@@ -42,6 +42,23 @@ function AgentFilesTabBar({ activeTab, onTabChange, inputCount = 0, outputCount 
         {outputCount > 0 && (
           <span className="ml-0.5 px-1.5 py-0.5 rounded-full bg-primary/20 text-primary text-xs font-semibold">
             {outputCount}
+          </span>
+        )}
+      </button>
+      <button
+        onClick={() => onTabChange('schedule')}
+        className={cn(
+          'flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors',
+          activeTab === 'schedule'
+            ? 'bg-background text-foreground shadow-sm'
+            : 'text-muted-foreground hover:text-foreground hover:bg-background/50'
+        )}
+      >
+        <Clock className="w-3.5 h-3.5" />
+        Schedule
+        {!!scheduleEnabled && (
+          <span className="ml-0.5 px-1.5 py-0.5 rounded-full bg-green-500/20 text-green-600 text-[10px] font-semibold">
+            ON
           </span>
         )}
       </button>

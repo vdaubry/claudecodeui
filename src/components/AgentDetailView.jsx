@@ -121,9 +121,9 @@ function AgentDetailView({
         </div>
 
         {/* Right panel - Agent Prompt + Attachments */}
-        <div className="flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden">
+        <div className="flex-1 flex flex-col min-h-0 min-w-0 overflow-auto">
           {/* Agent Prompt Section */}
-          <div className="flex flex-col flex-1 min-h-0">
+          <div className="flex flex-col min-h-[300px]">
             <div className="px-4 pt-4 pb-2 border-b border-border">
               <h3 className="text-sm font-medium text-foreground">Agent System Prompt</h3>
               <p className="text-xs text-muted-foreground mt-0.5">
@@ -140,15 +140,16 @@ function AgentDetailView({
             />
           </div>
 
-          {/* Files Section with Tabs */}
+          {/* Files & Schedule Section with Tabs */}
           <div className="border-t border-border flex-shrink-0">
             <AgentFilesTabBar
               activeTab={filesTab}
               onTabChange={setFilesTab}
               inputCount={agentAttachments.length}
               outputCount={agentOutputFiles.length}
+              scheduleEnabled={agent.schedule_enabled}
             />
-            {filesTab === 'input' ? (
+            {filesTab === 'input' && (
               <AgentAttachments
                 attachments={agentAttachments}
                 isLoading={isLoadingAttachments}
@@ -156,7 +157,8 @@ function AgentDetailView({
                 onDelete={onDeleteAttachment}
                 className="max-h-56 overflow-auto"
               />
-            ) : (
+            )}
+            {filesTab === 'output' && (
               <AgentOutputFiles
                 files={agentOutputFiles}
                 isLoading={isLoadingOutputFiles}
@@ -165,15 +167,16 @@ function AgentDetailView({
                 className="max-h-56 overflow-auto"
               />
             )}
+            {filesTab === 'schedule' && (
+              <AgentScheduleSection
+                agent={agent}
+                onUpdateAgent={onUpdateAgent}
+                onValidateCron={onValidateCron}
+                onTriggerAgent={onTriggerAgent}
+                isTabbed={true}
+              />
+            )}
           </div>
-
-          {/* Schedule Section */}
-          <AgentScheduleSection
-            agent={agent}
-            onUpdateAgent={onUpdateAgent}
-            onValidateCron={onValidateCron}
-            onTriggerAgent={onTriggerAgent}
-          />
         </div>
       </div>
     </div>
