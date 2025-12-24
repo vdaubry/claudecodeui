@@ -306,10 +306,11 @@ async function handleStreamingComplete(context, isError) {
     if (!isError && userId) {
       const taskInfo = tasksDb.getById(taskId);
       const taskTitle = taskInfo?.title || null;
+      const projectId = taskInfo?.project_id || null;
       const workflowComplete = !!taskInfo?.workflow_complete;
       const agentType = linkedAgentRun?.agent_type || null;
 
-      notifyClaudeComplete(userId, taskTitle, taskId, conversationId, {
+      notifyClaudeComplete(userId, taskTitle, taskId, conversationId, projectId, {
         agentType,
         workflowComplete
       }).catch(err => {
@@ -321,8 +322,9 @@ async function handleStreamingComplete(context, isError) {
   else if (agentId && !isError && userId) {
     const agent = agentsDb.getById(agentId);
     const agentName = agent?.name || 'Custom Agent';
+    const projectId = agent?.project_id || null;
 
-    notifyClaudeComplete(userId, `Agent: ${agentName}`, null, conversationId, {
+    notifyClaudeComplete(userId, `Agent: ${agentName}`, null, conversationId, projectId, {
       agentType: 'custom',
       workflowComplete: false
     }).catch(err => {

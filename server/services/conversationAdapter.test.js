@@ -461,6 +461,7 @@ describe('conversationAdapter', () => {
         'Test Task',
         1,
         1,
+        1, // projectId
         expect.objectContaining({ agentType: null, workflowComplete: false })
       );
     });
