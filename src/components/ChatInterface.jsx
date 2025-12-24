@@ -320,6 +320,8 @@ function ChatInterface({
   }, [sessionMessages, streamingMessages]);
 
   // Load messages when conversation changes
+  // For NEW conversations: skip loading - use __initialMessage + WebSocket streaming
+  // For RESUMED conversations: load history from JSONL via REST API
   useEffect(() => {
     async function loadMessages() {
       if (!activeConversation) {
@@ -327,6 +329,14 @@ function ChatInterface({
         return;
       }
 
+      // New conversation: __initialMessage is set, use streaming only
+      // This prevents duplicate messages (user message appears in both JSONL and __initialMessage)
+      if (activeConversation.__initialMessage) {
+        setSessionMessages([]);
+        return;
+      }
+
+      // Resume conversation: load history from JSONL
       setIsLoading(true);
       try {
         const response = await api.conversations.getMessages(activeConversation.id, 1000, 0);
