@@ -326,7 +326,8 @@ async function handleStreamingComplete(context, isError) {
 
     notifyClaudeComplete(userId, `Agent: ${agentName}`, null, conversationId, projectId, {
       agentType: 'custom',
-      workflowComplete: false
+      workflowComplete: false,
+      agentId
     }).catch(err => {
       console.error('[ConversationAdapter] Failed to send notification:', err);
     });

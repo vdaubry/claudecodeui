@@ -105,7 +105,7 @@ async function sendBannerNotification(userId, title, message, data = {}) {
         notification.ios_interruption_level = 'active';
 
         const response = await onesignalClient.createNotification(notification);
-        console.log(`[OneSignal] Banner notification sent to user ${userId}: id=${response.id}, projectId=${data.projectId}, taskId=${data.taskId}, conversationId=${data.conversationId}, deepLink=${data.deepLink}`);
+        console.log(`[OneSignal] Banner notification sent to user ${userId}: id=${response.id}, projectId=${data.projectId}, taskId=${data.taskId}, agentId=${data.agentId}, conversationId=${data.conversationId}, deepLink=${data.deepLink}`);
         return response;
     } catch (error) {
         console.error('[OneSignal] Failed to send banner notification:', error.message);
@@ -195,10 +195,11 @@ async function updateUserBadge(userId) {
  * @param {object} options - Additional options
  * @param {string|null} options.agentType - Agent type ('planification', 'implementation', 'review', or null for user)
  * @param {boolean} options.workflowComplete - Whether workflow_complete was just set to true
+ * @param {number|null} options.agentId - Agent ID for deep linking (for custom agent conversations)
  * @returns {Promise<object|null>} OneSignal response or null
  */
 async function notifyClaudeComplete(userId, taskTitle, taskId, conversationId, projectId, options = {}) {
-    const { agentType = null, workflowComplete = false } = options;
+    const { agentType = null, workflowComplete = false, agentId = null } = options;
 
     // Determine if we should send notification
     // 1. User-initiated conversations (no agent) - always notify
@@ -220,13 +221,17 @@ async function notifyClaudeComplete(userId, taskTitle, taskId, conversationId, p
         : (workflowComplete ? 'Task workflow complete, ready for review' : 'Claude has finished responding');
 
     // Build deep link URL for iOS app
-    const deepLink = projectId && taskId
-        ? `claudeui://projects/${projectId}/tasks/${taskId}/chat/${conversationId}`
-        : null;
+    let deepLink = null;
+    if (projectId && taskId) {
+        deepLink = `claudeui://projects/${projectId}/tasks/${taskId}/chat/${conversationId}`;
+    } else if (projectId && agentId) {
+        deepLink = `claudeui://projects/${projectId}/agents/${agentId}/chat/${conversationId}`;
+    }
 
     return sendBannerNotification(userId, title, message, {
         type: workflowComplete ? 'workflow_complete' : 'claude_complete',
-        taskId: String(taskId),
+        taskId: taskId ? String(taskId) : null,
+        agentId: agentId ? String(agentId) : null,
         conversationId: String(conversationId),
         projectId: projectId ? String(projectId) : null,
         deepLink
