@@ -302,6 +302,41 @@ export function AgentContextProvider({ children }) {
     }
   }, []);
 
+  // ========== Agent Schedule API ==========
+
+  const validateCronExpression = useCallback(async (expression) => {
+    try {
+      const response = await api.agents.validateCron(expression);
+      if (response.ok) {
+        return await response.json();
+      } else {
+        const error = await response.json();
+        return { valid: false, error: error.error || 'Validation failed' };
+      }
+    } catch (error) {
+      console.error('Error validating cron expression:', error);
+      return { valid: false, error: error.message };
+    }
+  }, []);
+
+  const triggerAgent = useCallback(async (agentId) => {
+    try {
+      const response = await api.agents.trigger(agentId);
+      if (response.ok) {
+        const data = await response.json();
+        // Reload conversations to show the new one
+        await loadAgentConversations(agentId);
+        return { success: true, conversationId: data.conversationId };
+      } else {
+        const error = await response.json();
+        return { success: false, error: error.error || 'Failed to trigger agent' };
+      }
+    } catch (error) {
+      console.error('Error triggering agent:', error);
+      return { success: false, error: error.message };
+    }
+  }, []);
+
   // ========== Agent Conversations API ==========
 
   const loadAgentConversations = useCallback(async (agentId) => {
@@ -443,6 +478,10 @@ export function AgentContextProvider({ children }) {
     loadAgentOutputFiles,
     downloadAgentOutputFile,
     deleteAgentOutputFile,
+
+    // Agent schedule API
+    validateCronExpression,
+    triggerAgent,
 
     // Agent conversations API
     loadAgentConversations,

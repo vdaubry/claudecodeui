@@ -179,6 +179,31 @@ const runMigrations = () => {
       `);
     }
 
+    // Agents table migrations for cron scheduling
+    const agentsTableInfo = db.prepare("PRAGMA table_info(agents)").all();
+    const agentColumnNames = agentsTableInfo.map(col => col.name);
+
+    if (!agentColumnNames.includes('schedule')) {
+      console.log('Running migration: Adding schedule columns to agents');
+      db.exec(`
+        ALTER TABLE agents ADD COLUMN schedule TEXT DEFAULT NULL;
+        ALTER TABLE agents ADD COLUMN cron_prompt TEXT DEFAULT NULL;
+        ALTER TABLE agents ADD COLUMN schedule_enabled INTEGER DEFAULT 0 NOT NULL;
+        ALTER TABLE agents ADD COLUMN last_run_at DATETIME DEFAULT NULL;
+        ALTER TABLE agents ADD COLUMN next_run_at DATETIME DEFAULT NULL;
+      `);
+      db.exec('CREATE INDEX IF NOT EXISTS idx_agents_schedule_enabled ON agents(schedule_enabled, next_run_at)');
+    }
+
+    // Conversations table migration for triggered_by field
+    const convTableInfoUpdated = db.prepare("PRAGMA table_info(conversations)").all();
+    const convColumnNamesUpdated = convTableInfoUpdated.map(col => col.name);
+
+    if (!convColumnNamesUpdated.includes('triggered_by')) {
+      console.log('Running migration: Adding triggered_by column to conversations');
+      db.exec("ALTER TABLE conversations ADD COLUMN triggered_by TEXT DEFAULT 'manual'");
+    }
+
     console.log('Database migrations completed successfully');
   } catch (error) {
     console.error('Error running migrations:', error.message);
@@ -548,6 +573,17 @@ const conversationsDb = {
     }
   },
 
+  // Create a new conversation for an agent with trigger type (manual or cron)
+  createForAgentWithTrigger: (agentId, triggeredBy = 'manual') => {
+    try {
+      const stmt = db.prepare('INSERT INTO conversations (task_id, agent_id, triggered_by) VALUES (NULL, ?, ?)');
+      const result = stmt.run(agentId, triggeredBy);
+      return { id: result.lastInsertRowid, task_id: null, agent_id: agentId, claude_conversation_id: null, triggered_by: triggeredBy };
+    } catch (err) {
+      throw err;
+    }
+  },
+
   // Get all conversations for a task
   getByTask: (taskId) => {
     try {
@@ -771,7 +807,7 @@ const agentsDb = {
   // Update an agent
   update: (id, updates) => {
     try {
-      const allowedFields = ['name'];
+      const allowedFields = ['name', 'schedule', 'cron_prompt', 'schedule_enabled'];
       const setClause = [];
       const values = [];
 
@@ -796,6 +832,55 @@ const agentsDb = {
         return null;
       }
 
+      return agentsDb.getById(id);
+    } catch (err) {
+      throw err;
+    }
+  },
+
+  // Get all agents due for scheduled run
+  getScheduledAgentsDue: (now) => {
+    try {
+      const rows = db.prepare(`
+        SELECT a.*, p.repo_folder_path, p.user_id
+        FROM agents a
+        JOIN projects p ON a.project_id = p.id
+        WHERE a.schedule_enabled = 1
+          AND a.schedule IS NOT NULL
+          AND a.cron_prompt IS NOT NULL
+          AND a.next_run_at IS NOT NULL
+          AND a.next_run_at <= ?
+      `).all(now.toISOString());
+      return rows;
+    } catch (err) {
+      throw err;
+    }
+  },
+
+  // Update schedule run timestamps after execution
+  updateScheduleStatus: (id, lastRunAt, nextRunAt) => {
+    try {
+      const stmt = db.prepare(`
+        UPDATE agents
+        SET last_run_at = ?, next_run_at = ?, updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+      `);
+      stmt.run(
+        lastRunAt ? lastRunAt.toISOString() : null,
+        nextRunAt ? nextRunAt.toISOString() : null,
+        id
+      );
+      return agentsDb.getById(id);
+    } catch (err) {
+      throw err;
+    }
+  },
+
+  // Update just next_run_at (for recalculation after schedule change)
+  updateNextRunAt: (id, nextRunAt) => {
+    try {
+      const stmt = db.prepare('UPDATE agents SET next_run_at = ? WHERE id = ?');
+      stmt.run(nextRunAt ? nextRunAt.toISOString() : null, id);
       return agentsDb.getById(id);
     } catch (err) {
       throw err;

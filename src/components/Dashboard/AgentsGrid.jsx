@@ -81,11 +81,10 @@ function AgentsGrid({ project, triggerButtonId }) {
     navigate(`/projects/${project.id}/agents/${agent.id}${getTokenParam()}`);
   }, [navigate, project.id, getTokenParam]);
 
-  // Handle edit click
+  // Handle edit click - navigate to full-page edit form
   const handleEditClick = useCallback((agent) => {
-    setEditingAgent(agent);
-    setShowForm(true);
-  }, []);
+    navigate(`/projects/${project.id}/agents/${agent.id}/edit${getTokenParam()}`);
+  }, [navigate, project.id, getTokenParam]);
 
   // Handle delete click
   const handleDeleteClick = useCallback(async (agent) => {

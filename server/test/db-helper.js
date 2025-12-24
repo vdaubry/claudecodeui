@@ -260,12 +260,25 @@ export function createTestDatabase() {
 
   const conversationsDb = {
     create: (taskId) => {
-      const stmt = db.prepare('INSERT INTO conversations (task_id) VALUES (?)');
+      const stmt = db.prepare('INSERT INTO conversations (task_id, agent_id) VALUES (?, NULL)');
       const result = stmt.run(taskId);
       return { id: result.lastInsertRowid, taskId, claudeConversationId: null };
     },
+    createForAgent: (agentId) => {
+      const stmt = db.prepare('INSERT INTO conversations (task_id, agent_id) VALUES (NULL, ?)');
+      const result = stmt.run(agentId);
+      return { id: result.lastInsertRowid, task_id: null, agent_id: agentId, claudeConversationId: null };
+    },
+    createForAgentWithTrigger: (agentId, triggeredBy = 'manual') => {
+      const stmt = db.prepare('INSERT INTO conversations (task_id, agent_id, triggered_by) VALUES (NULL, ?, ?)');
+      const result = stmt.run(agentId, triggeredBy);
+      return { id: result.lastInsertRowid, task_id: null, agent_id: agentId, claudeConversationId: null, triggered_by: triggeredBy };
+    },
     getByTask: (taskId) => {
       return db.prepare('SELECT * FROM conversations WHERE task_id = ? ORDER BY created_at DESC').all(taskId);
+    },
+    getByAgent: (agentId) => {
+      return db.prepare('SELECT * FROM conversations WHERE agent_id = ? ORDER BY created_at DESC, id DESC').all(agentId);
     },
     getById: (id) => {
       return db.prepare('SELECT * FROM conversations WHERE id = ?').get(id);
@@ -282,6 +295,91 @@ export function createTestDatabase() {
     }
   };
 
+  const agentsDb = {
+    create: (projectId, name) => {
+      const stmt = db.prepare('INSERT INTO agents (project_id, name) VALUES (?, ?)');
+      const result = stmt.run(projectId, name);
+      return { id: result.lastInsertRowid, project_id: projectId, name };
+    },
+    getByProject: (projectId) => {
+      return db.prepare('SELECT * FROM agents WHERE project_id = ? ORDER BY name ASC').all(projectId);
+    },
+    getById: (id) => {
+      return db.prepare('SELECT * FROM agents WHERE id = ?').get(id);
+    },
+    getWithProject: (agentId) => {
+      return db.prepare(`
+        SELECT a.*, p.user_id, p.name as project_name, p.repo_folder_path
+        FROM agents a
+        JOIN projects p ON a.project_id = p.id
+        WHERE a.id = ?
+      `).get(agentId);
+    },
+    update: (id, updates) => {
+      const allowedFields = ['name', 'schedule', 'cron_prompt', 'schedule_enabled'];
+      const setClause = [];
+      const values = [];
+
+      for (const field of allowedFields) {
+        if (updates[field] !== undefined) {
+          setClause.push(`${field} = ?`);
+          values.push(updates[field]);
+        }
+      }
+
+      if (setClause.length === 0) {
+        return agentsDb.getById(id);
+      }
+
+      setClause.push('updated_at = CURRENT_TIMESTAMP');
+      values.push(id);
+
+      const stmt = db.prepare(`UPDATE agents SET ${setClause.join(', ')} WHERE id = ?`);
+      const result = stmt.run(...values);
+
+      if (result.changes === 0) {
+        return null;
+      }
+
+      return agentsDb.getById(id);
+    },
+    getScheduledAgentsDue: (now) => {
+      return db.prepare(`
+        SELECT a.*, p.repo_folder_path, p.user_id
+        FROM agents a
+        JOIN projects p ON a.project_id = p.id
+        WHERE a.schedule_enabled = 1
+          AND a.schedule IS NOT NULL
+          AND a.cron_prompt IS NOT NULL
+          AND a.next_run_at IS NOT NULL
+          AND a.next_run_at <= ?
+      `).all(now.toISOString());
+    },
+    updateScheduleStatus: (id, lastRunAt, nextRunAt) => {
+      const stmt = db.prepare(`
+        UPDATE agents
+        SET last_run_at = ?, next_run_at = ?, updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+      `);
+      stmt.run(
+        lastRunAt ? lastRunAt.toISOString() : null,
+        nextRunAt ? nextRunAt.toISOString() : null,
+        id
+      );
+      return agentsDb.getById(id);
+    },
+    updateNextRunAt: (id, nextRunAt) => {
+      const stmt = db.prepare('UPDATE agents SET next_run_at = ? WHERE id = ?');
+      stmt.run(nextRunAt ? nextRunAt.toISOString() : null, id);
+      return agentsDb.getById(id);
+    },
+    delete: (id) => {
+      const stmt = db.prepare('DELETE FROM agents WHERE id = ?');
+      const result = stmt.run(id);
+      return result.changes > 0;
+    }
+  };
+
   return {
     db,
     userDb,
@@ -289,6 +387,7 @@ export function createTestDatabase() {
     tasksDb,
     conversationsDb,
     agentRunsDb,
+    agentsDb,
     close: () => db.close()
   };
 }

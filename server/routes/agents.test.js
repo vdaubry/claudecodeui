@@ -18,9 +18,16 @@ vi.mock('../database/db.js', () => ({
   conversationsDb: {
     getByAgent: vi.fn(),
     createForAgent: vi.fn(),
+    createForAgentWithTrigger: vi.fn(),
     getById: vi.fn(),
     delete: vi.fn()
   }
+}));
+
+// Mock the cronScheduler service
+vi.mock('../services/cronScheduler.js', () => ({
+  validateCronExpression: vi.fn(),
+  recalculateAgentNextRun: vi.fn()
 }));
 
 // Mock the conversationAdapter service
@@ -49,6 +56,7 @@ import agentsRoutes from './agents.js';
 import { projectsDb, agentsDb, conversationsDb } from '../database/db.js';
 import { readAgentPrompt, writeAgentPrompt, deleteAgentPrompt, listAgentInputFiles, saveAgentInputFile, deleteAgentInputFile, listAgentOutputFiles, readAgentOutputFile, deleteAgentOutputFile, ATTACHMENT_CONFIG } from '../services/documentation.js';
 import { startAgentConversation } from '../services/conversationAdapter.js';
+import { validateCronExpression, recalculateAgentNextRun } from '../services/cronScheduler.js';
 
 describe('Agents Routes', () => {
   let app;
@@ -217,6 +225,7 @@ describe('Agents Routes', () => {
       const updatedAgent = { id: 1, project_id: 1, name: 'Updated Name' };
       agentsDb.getWithProject.mockReturnValue(mockAgentWithProject);
       agentsDb.update.mockReturnValue(updatedAgent);
+      agentsDb.getById.mockReturnValue(updatedAgent); // Route calls getById after update
 
       const response = await request(app)
         .put('/api/agents/1')
@@ -1011,6 +1020,252 @@ describe('Agents Routes', () => {
 
       expect(response.status).toBe(400);
       expect(response.body.error).toBe('Invalid agent ID');
+    });
+  });
+
+  describe('PUT /api/agents/:id - Schedule Fields', () => {
+    it('should update agent with schedule fields', async () => {
+      const mockAgentWithProject = { id: 1, project_id: 1, user_id: testUserId };
+      const updatedAgent = {
+        id: 1,
+        project_id: 1,
+        name: 'Agent',
+        schedule: '0 9 * * *',
+        cron_prompt: 'Hello from cron',
+        schedule_enabled: 1
+      };
+      agentsDb.getWithProject.mockReturnValue(mockAgentWithProject);
+      agentsDb.update.mockReturnValue(updatedAgent);
+      agentsDb.getById.mockReturnValue(updatedAgent); // Route calls getById after update
+      validateCronExpression.mockReturnValue({ valid: true });
+
+      const response = await request(app)
+        .put('/api/agents/1')
+        .send({
+          name: 'Agent',
+          schedule: '0 9 * * *',
+          cron_prompt: 'Hello from cron',
+          schedule_enabled: true
+        });
+
+      expect(response.status).toBe(200);
+      expect(response.body.schedule).toBe('0 9 * * *');
+      expect(response.body.cron_prompt).toBe('Hello from cron');
+      expect(response.body.schedule_enabled).toBe(1);
+      expect(recalculateAgentNextRun).toHaveBeenCalledWith(1);
+    });
+
+    it('should validate cron expression when schedule is provided', async () => {
+      const mockAgentWithProject = { id: 1, project_id: 1, user_id: testUserId };
+      agentsDb.getWithProject.mockReturnValue(mockAgentWithProject);
+      validateCronExpression.mockReturnValue({ valid: false, error: 'Invalid cron' });
+
+      const response = await request(app)
+        .put('/api/agents/1')
+        .send({
+          name: 'Agent',
+          schedule: 'invalid cron',
+          schedule_enabled: true
+        });
+
+      expect(response.status).toBe(400);
+      expect(response.body.error).toBe('Invalid cron expression: Invalid cron');
+    });
+
+    it('should allow empty schedule', async () => {
+      const mockAgentWithProject = { id: 1, project_id: 1, user_id: testUserId };
+      const updatedAgent = {
+        id: 1,
+        project_id: 1,
+        name: 'Agent',
+        schedule: null,
+        cron_prompt: null,
+        schedule_enabled: 0
+      };
+      agentsDb.getWithProject.mockReturnValue(mockAgentWithProject);
+      agentsDb.update.mockReturnValue(updatedAgent);
+      agentsDb.getById.mockReturnValue(updatedAgent); // Route calls getById after update
+
+      const response = await request(app)
+        .put('/api/agents/1')
+        .send({
+          name: 'Agent',
+          schedule: null,
+          schedule_enabled: false
+        });
+
+      expect(response.status).toBe(200);
+      expect(response.body.schedule).toBeNull();
+      expect(recalculateAgentNextRun).toHaveBeenCalledWith(1);
+    });
+
+    it('should recalculate next run after schedule update', async () => {
+      const mockAgentWithProject = { id: 1, project_id: 1, user_id: testUserId };
+      const updatedAgent = { id: 1, schedule: '0 9 * * *' };
+      agentsDb.getWithProject.mockReturnValue(mockAgentWithProject);
+      agentsDb.update.mockReturnValue(updatedAgent);
+      agentsDb.getById.mockReturnValue(updatedAgent); // Route calls getById after update
+      validateCronExpression.mockReturnValue({ valid: true });
+
+      await request(app)
+        .put('/api/agents/1')
+        .send({ name: 'Agent', schedule: '0 9 * * *' });
+
+      expect(recalculateAgentNextRun).toHaveBeenCalledWith(1);
+    });
+  });
+
+  describe('POST /api/agents/validate-cron', () => {
+    it('should validate a valid cron expression', async () => {
+      validateCronExpression.mockReturnValue({
+        valid: true,
+        description: 'At 09:00 AM',
+        nextRun: '2025-01-01T09:00:00.000Z'
+      });
+
+      const response = await request(app)
+        .post('/api/agents/validate-cron')
+        .send({ expression: '0 9 * * *' });
+
+      expect(response.status).toBe(200);
+      expect(response.body.valid).toBe(true);
+      expect(response.body.description).toBe('At 09:00 AM');
+      expect(response.body.nextRun).toBeDefined();
+    });
+
+    it('should return error for invalid cron expression', async () => {
+      validateCronExpression.mockReturnValue({
+        valid: false,
+        error: 'Invalid cron expression'
+      });
+
+      const response = await request(app)
+        .post('/api/agents/validate-cron')
+        .send({ expression: 'invalid' });
+
+      expect(response.status).toBe(200);
+      expect(response.body.valid).toBe(false);
+      expect(response.body.error).toBeDefined();
+    });
+
+    it('should return 400 for missing expression', async () => {
+      const response = await request(app)
+        .post('/api/agents/validate-cron')
+        .send({});
+
+      expect(response.status).toBe(400);
+      expect(response.body.error).toBe('Expression is required');
+    });
+  });
+
+  describe('POST /api/agents/:id/trigger', () => {
+    it('should trigger agent with cron prompt', async () => {
+      const mockAgentWithProject = {
+        id: 1,
+        project_id: 1,
+        user_id: testUserId,
+        cron_prompt: 'Run scheduled task',
+        repo_folder_path: '/path/to/repo'
+      };
+      const mockConversation = { id: 100 };
+
+      agentsDb.getWithProject.mockReturnValue(mockAgentWithProject);
+      conversationsDb.createForAgentWithTrigger.mockReturnValue(mockConversation);
+      startAgentConversation.mockResolvedValue({});
+
+      const response = await request(app)
+        .post('/api/agents/1/trigger')
+        .send({});
+
+      expect(response.status).toBe(200);
+      expect(response.body.success).toBe(true);
+      expect(response.body.conversationId).toBe(100);
+      expect(conversationsDb.createForAgentWithTrigger).toHaveBeenCalledWith(1, 'manual');
+      expect(startAgentConversation).toHaveBeenCalledWith(
+        1,
+        'Run scheduled task',
+        expect.objectContaining({
+          conversationId: 100,
+          permissionMode: 'bypassPermissions'
+        })
+      );
+    });
+
+    it('should return 400 if agent has no cron prompt', async () => {
+      const mockAgentWithProject = {
+        id: 1,
+        project_id: 1,
+        user_id: testUserId,
+        cron_prompt: null
+      };
+
+      agentsDb.getWithProject.mockReturnValue(mockAgentWithProject);
+
+      const response = await request(app)
+        .post('/api/agents/1/trigger')
+        .send({});
+
+      expect(response.status).toBe(400);
+      expect(response.body.error).toBe('Agent has no cron prompt configured');
+    });
+
+    it('should return 404 if agent not found', async () => {
+      agentsDb.getWithProject.mockReturnValue(undefined);
+
+      const response = await request(app)
+        .post('/api/agents/999/trigger')
+        .send({});
+
+      expect(response.status).toBe(404);
+      expect(response.body.error).toBe('Agent not found');
+    });
+
+    it('should return 404 if agent belongs to different user', async () => {
+      const mockAgentWithProject = {
+        id: 1,
+        project_id: 1,
+        user_id: 999, // Different user
+        cron_prompt: 'Test'
+      };
+
+      agentsDb.getWithProject.mockReturnValue(mockAgentWithProject);
+
+      const response = await request(app)
+        .post('/api/agents/1/trigger')
+        .send({});
+
+      expect(response.status).toBe(404);
+      expect(response.body.error).toBe('Agent not found');
+    });
+
+    it('should return 400 for invalid agent ID', async () => {
+      const response = await request(app)
+        .post('/api/agents/abc/trigger')
+        .send({});
+
+      expect(response.status).toBe(400);
+      expect(response.body.error).toBe('Invalid agent ID');
+    });
+
+    it('should return 500 if conversation start fails', async () => {
+      const mockAgentWithProject = {
+        id: 1,
+        project_id: 1,
+        user_id: testUserId,
+        cron_prompt: 'Test prompt'
+      };
+      const mockConversation = { id: 100 };
+
+      agentsDb.getWithProject.mockReturnValue(mockAgentWithProject);
+      conversationsDb.createForAgentWithTrigger.mockReturnValue(mockConversation);
+      startAgentConversation.mockRejectedValue(new Error('Conversation failed'));
+
+      const response = await request(app)
+        .post('/api/agents/1/trigger')
+        .send({});
+
+      expect(response.status).toBe(500);
+      expect(response.body.error).toBe('Failed to trigger agent');
     });
   });
 });

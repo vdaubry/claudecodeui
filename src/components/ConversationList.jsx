@@ -142,6 +142,11 @@ function ConversationList({
                       <div className="flex items-center gap-2 mt-1 text-xs text-muted-foreground">
                         <Clock className="w-3 h-3" />
                         <span>{formatTimeAgo(conversation.created_at)}</span>
+                        {conversation.triggered_by === 'cron' && (
+                          <span className="text-[10px] font-medium bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 px-1.5 py-0.5 rounded">
+                            CRON
+                          </span>
+                        )}
                         {conversation.claude_conversation_id && (
                           <span className="text-xs bg-muted px-1.5 py-0.5 rounded">
                             Linked

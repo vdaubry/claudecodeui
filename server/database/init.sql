@@ -51,30 +51,44 @@ CREATE TABLE IF NOT EXISTS tasks (
 CREATE INDEX IF NOT EXISTS idx_tasks_project_id ON tasks(project_id);
 -- Note: idx_tasks_status index is created in migration (db.js) for existing databases
 
--- Conversations table - Links Claude sessions to tasks
-CREATE TABLE IF NOT EXISTS conversations (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    task_id INTEGER NOT NULL,
-    claude_conversation_id TEXT,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE
-);
-
-CREATE INDEX IF NOT EXISTS idx_conversations_task_id ON conversations(task_id);
-CREATE INDEX IF NOT EXISTS idx_conversations_claude_id ON conversations(claude_conversation_id);
-
 -- Custom Agents table - Reusable agent configurations with prompts
 -- Agents belong to a project and have a system prompt stored in markdown files
+-- Schedule fields enable cron-triggered automatic execution
+-- NOTE: Must be defined BEFORE conversations table (foreign key reference)
 CREATE TABLE IF NOT EXISTS agents (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     project_id INTEGER NOT NULL,
     name TEXT NOT NULL,
+    schedule TEXT DEFAULT NULL,
+    cron_prompt TEXT DEFAULT NULL,
+    schedule_enabled INTEGER DEFAULT 0 NOT NULL,
+    last_run_at DATETIME DEFAULT NULL,
+    next_run_at DATETIME DEFAULT NULL,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
 );
 
 CREATE INDEX IF NOT EXISTS idx_agents_project_id ON agents(project_id);
+-- Note: idx_agents_schedule_enabled is created by migration in db.js for existing databases
+
+-- Conversations table - Links Claude sessions to tasks or agents
+-- Either task_id or agent_id must be set (mutually exclusive)
+CREATE TABLE IF NOT EXISTS conversations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    task_id INTEGER NULL,
+    agent_id INTEGER NULL,
+    claude_conversation_id TEXT,
+    triggered_by TEXT DEFAULT 'manual',
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE,
+    FOREIGN KEY (agent_id) REFERENCES agents(id) ON DELETE CASCADE,
+    CHECK ((task_id IS NULL) != (agent_id IS NULL))
+);
+
+CREATE INDEX IF NOT EXISTS idx_conversations_task_id ON conversations(task_id);
+CREATE INDEX IF NOT EXISTS idx_conversations_agent_id ON conversations(agent_id);
+CREATE INDEX IF NOT EXISTS idx_conversations_claude_id ON conversations(claude_conversation_id);
 
 -- Task Agent Runs table - Tracks automated agent runs for tasks
 -- Agent types: 'planification', 'implementation', 'review'

@@ -10,7 +10,7 @@
  */
 
 import React, { useState } from 'react';
-import { Bot, ArrowLeft } from 'lucide-react';
+import { Bot, ArrowLeft, Pencil } from 'lucide-react';
 import { Button } from './ui/button';
 import Breadcrumb from './Breadcrumb';
 import MarkdownEditor from './MarkdownEditor';
@@ -18,6 +18,7 @@ import ConversationList from './ConversationList';
 import AgentAttachments from './AgentAttachments';
 import AgentOutputFiles from './AgentOutputFiles';
 import AgentFilesTabBar from './AgentFilesTabBar';
+import AgentScheduleSection from './AgentScheduleSection';
 import { cn } from '../lib/utils';
 
 function AgentDetailView({
@@ -37,12 +38,17 @@ function AgentDetailView({
   isLoadingOutputFiles = false,
   onDownloadOutputFile,
   onDeleteOutputFile,
+  // Schedule callbacks
+  onUpdateAgent,
+  onValidateCron,
+  onTriggerAgent,
   // Callbacks
   onBack,
   onProjectClick,
   onHomeClick,
   onSavePrompt,
   onEditPrompt,
+  onEditAgent,
   onNewConversation,
   onResumeConversation,
   onDeleteConversation,
@@ -86,6 +92,17 @@ function AgentDetailView({
               Custom Agent in {project?.name || 'Unknown Project'}
             </p>
           </div>
+          {/* Edit button */}
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={onEditAgent}
+            className="flex-shrink-0"
+            data-testid="edit-agent-button"
+          >
+            <Pencil className="w-4 h-4 mr-1.5" />
+            Edit
+          </Button>
         </div>
       </div>
 
@@ -149,6 +166,14 @@ function AgentDetailView({
               />
             )}
           </div>
+
+          {/* Schedule Section */}
+          <AgentScheduleSection
+            agent={agent}
+            onUpdateAgent={onUpdateAgent}
+            onValidateCron={onValidateCron}
+            onTriggerAgent={onTriggerAgent}
+          />
         </div>
       </div>
     </div>
