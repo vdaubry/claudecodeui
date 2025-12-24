@@ -3,7 +3,7 @@ import { createTestDatabase } from '../test/db-helper.js';
 
 describe('Database Layer - Phase 1', () => {
   let testDb;
-  let userDb, projectsDb, tasksDb, conversationsDb, agentRunsDb;
+  let userDb, projectsDb, tasksDb, conversationsDb, agentRunsDb, agentsDb;
   let testUserId;
 
   beforeEach(() => {
@@ -13,6 +13,7 @@ describe('Database Layer - Phase 1', () => {
     tasksDb = testDb.tasksDb;
     conversationsDb = testDb.conversationsDb;
     agentRunsDb = testDb.agentRunsDb;
+    agentsDb = testDb.agentsDb;
 
     // Create a test user for all tests
     const user = userDb.createUser('testuser', 'hashedpassword');
@@ -917,6 +918,459 @@ describe('Database Layer - Phase 1', () => {
 
         const fetched = agentRunsDb.getById(agentRun.id);
         expect(fetched.conversation_id).toBeNull();
+      });
+    });
+  });
+
+  describe('agentsDb', () => {
+    let testProjectId;
+
+    beforeEach(() => {
+      const project = projectsDb.create(testUserId, 'Test Project', '/path/project');
+      testProjectId = project.id;
+    });
+
+    describe('create', () => {
+      it('should create an agent with name', () => {
+        const agent = agentsDb.create(testProjectId, 'My Agent');
+
+        expect(agent).toBeDefined();
+        expect(agent.id).toBeDefined();
+        expect(agent.project_id).toBe(testProjectId);
+        expect(agent.name).toBe('My Agent');
+      });
+
+      it('should create multiple agents in same project', () => {
+        agentsDb.create(testProjectId, 'Agent 1');
+        agentsDb.create(testProjectId, 'Agent 2');
+
+        const agents = agentsDb.getByProject(testProjectId);
+        expect(agents).toHaveLength(2);
+      });
+    });
+
+    describe('getById', () => {
+      it('should return agent by id', () => {
+        const created = agentsDb.create(testProjectId, 'My Agent');
+
+        const agent = agentsDb.getById(created.id);
+
+        expect(agent).toBeDefined();
+        expect(agent.id).toBe(created.id);
+        expect(agent.name).toBe('My Agent');
+      });
+
+      it('should return undefined for non-existent agent', () => {
+        const agent = agentsDb.getById(999);
+
+        expect(agent).toBeUndefined();
+      });
+    });
+
+    describe('getByProject', () => {
+      it('should return all agents for a project', () => {
+        agentsDb.create(testProjectId, 'Agent A');
+        agentsDb.create(testProjectId, 'Agent B');
+
+        const agents = agentsDb.getByProject(testProjectId);
+
+        expect(agents).toHaveLength(2);
+      });
+
+      it('should return agents sorted by name', () => {
+        agentsDb.create(testProjectId, 'Zebra Agent');
+        agentsDb.create(testProjectId, 'Alpha Agent');
+
+        const agents = agentsDb.getByProject(testProjectId);
+
+        expect(agents[0].name).toBe('Alpha Agent');
+        expect(agents[1].name).toBe('Zebra Agent');
+      });
+
+      it('should return empty array when project has no agents', () => {
+        const agents = agentsDb.getByProject(testProjectId);
+
+        expect(agents).toHaveLength(0);
+      });
+    });
+
+    describe('getWithProject', () => {
+      it('should return agent with project info', () => {
+        const created = agentsDb.create(testProjectId, 'My Agent');
+
+        const agentWithProject = agentsDb.getWithProject(created.id);
+
+        expect(agentWithProject).toBeDefined();
+        expect(agentWithProject.id).toBe(created.id);
+        expect(agentWithProject.name).toBe('My Agent');
+        expect(agentWithProject.user_id).toBe(testUserId);
+        expect(agentWithProject.project_name).toBe('Test Project');
+        expect(agentWithProject.repo_folder_path).toBe('/path/project');
+      });
+
+      it('should return undefined for non-existent agent', () => {
+        const agentWithProject = agentsDb.getWithProject(999);
+
+        expect(agentWithProject).toBeUndefined();
+      });
+    });
+
+    describe('update', () => {
+      it('should update agent name', () => {
+        const created = agentsDb.create(testProjectId, 'Old Name');
+
+        const updated = agentsDb.update(created.id, { name: 'New Name' });
+
+        expect(updated.name).toBe('New Name');
+      });
+
+      it('should return null when updating non-existent agent', () => {
+        const updated = agentsDb.update(999, { name: 'New Name' });
+
+        expect(updated).toBeNull();
+      });
+
+      it('should return existing agent when no updates provided', () => {
+        const created = agentsDb.create(testProjectId, 'My Agent');
+
+        const updated = agentsDb.update(created.id, {});
+
+        expect(updated.name).toBe('My Agent');
+      });
+    });
+
+    describe('delete', () => {
+      it('should delete an agent', () => {
+        const created = agentsDb.create(testProjectId, 'My Agent');
+
+        const deleted = agentsDb.delete(created.id);
+
+        expect(deleted).toBe(true);
+        expect(agentsDb.getById(created.id)).toBeUndefined();
+      });
+
+      it('should return false when deleting non-existent agent', () => {
+        const deleted = agentsDb.delete(999);
+
+        expect(deleted).toBe(false);
+      });
+    });
+
+    describe('schedule fields', () => {
+      it('should default schedule fields to null/disabled', () => {
+        const agent = agentsDb.create(testProjectId, 'My Agent');
+        const fetched = agentsDb.getById(agent.id);
+
+        expect(fetched.schedule).toBeNull();
+        expect(fetched.cron_prompt).toBeNull();
+        expect(fetched.schedule_enabled).toBe(0);
+        expect(fetched.last_run_at).toBeNull();
+        expect(fetched.next_run_at).toBeNull();
+      });
+
+      it('should update schedule fields', () => {
+        const agent = agentsDb.create(testProjectId, 'My Agent');
+
+        const updated = agentsDb.update(agent.id, {
+          schedule: '0 9 * * *',
+          cron_prompt: 'Run daily task',
+          schedule_enabled: 1
+        });
+
+        expect(updated.schedule).toBe('0 9 * * *');
+        expect(updated.cron_prompt).toBe('Run daily task');
+        expect(updated.schedule_enabled).toBe(1);
+      });
+
+      it('should preserve schedule fields when updating name only', () => {
+        const agent = agentsDb.create(testProjectId, 'My Agent');
+        agentsDb.update(agent.id, {
+          schedule: '0 9 * * *',
+          cron_prompt: 'Daily task',
+          schedule_enabled: 1
+        });
+
+        const updated = agentsDb.update(agent.id, { name: 'Updated Name' });
+
+        expect(updated.name).toBe('Updated Name');
+        expect(updated.schedule).toBe('0 9 * * *');
+        expect(updated.cron_prompt).toBe('Daily task');
+        expect(updated.schedule_enabled).toBe(1);
+      });
+
+      it('should disable schedule', () => {
+        const agent = agentsDb.create(testProjectId, 'My Agent');
+        agentsDb.update(agent.id, {
+          schedule: '0 9 * * *',
+          cron_prompt: 'Daily task',
+          schedule_enabled: 1
+        });
+
+        const updated = agentsDb.update(agent.id, { schedule_enabled: 0 });
+
+        expect(updated.schedule_enabled).toBe(0);
+        // Schedule and prompt should remain
+        expect(updated.schedule).toBe('0 9 * * *');
+        expect(updated.cron_prompt).toBe('Daily task');
+      });
+    });
+
+    describe('updateNextRunAt', () => {
+      it('should update next_run_at', () => {
+        const agent = agentsDb.create(testProjectId, 'My Agent');
+        const nextRun = new Date('2025-12-25T09:00:00Z');
+
+        const updated = agentsDb.updateNextRunAt(agent.id, nextRun);
+
+        expect(updated.next_run_at).toBe('2025-12-25T09:00:00.000Z');
+      });
+
+      it('should set next_run_at to null', () => {
+        const agent = agentsDb.create(testProjectId, 'My Agent');
+        agentsDb.updateNextRunAt(agent.id, new Date());
+
+        const updated = agentsDb.updateNextRunAt(agent.id, null);
+
+        expect(updated.next_run_at).toBeNull();
+      });
+    });
+
+    describe('updateScheduleStatus', () => {
+      it('should update both last_run_at and next_run_at', () => {
+        const agent = agentsDb.create(testProjectId, 'My Agent');
+        const lastRun = new Date('2025-12-24T09:00:00Z');
+        const nextRun = new Date('2025-12-25T09:00:00Z');
+
+        const updated = agentsDb.updateScheduleStatus(agent.id, lastRun, nextRun);
+
+        expect(updated.last_run_at).toBe('2025-12-24T09:00:00.000Z');
+        expect(updated.next_run_at).toBe('2025-12-25T09:00:00.000Z');
+      });
+
+      it('should set last_run_at only when next_run_at is null', () => {
+        const agent = agentsDb.create(testProjectId, 'My Agent');
+        const lastRun = new Date('2025-12-24T09:00:00Z');
+
+        const updated = agentsDb.updateScheduleStatus(agent.id, lastRun, null);
+
+        expect(updated.last_run_at).toBe('2025-12-24T09:00:00.000Z');
+        expect(updated.next_run_at).toBeNull();
+      });
+    });
+
+    describe('getScheduledAgentsDue', () => {
+      it('should return agents due for execution', () => {
+        const agent = agentsDb.create(testProjectId, 'Scheduled Agent');
+        agentsDb.update(agent.id, {
+          schedule: '0 9 * * *',
+          cron_prompt: 'Daily task',
+          schedule_enabled: 1
+        });
+        // Set next_run_at to the past
+        const pastTime = new Date('2025-12-23T09:00:00Z');
+        agentsDb.updateNextRunAt(agent.id, pastTime);
+
+        // Check for agents due now
+        const now = new Date('2025-12-24T10:00:00Z');
+        const dueAgents = agentsDb.getScheduledAgentsDue(now);
+
+        expect(dueAgents).toHaveLength(1);
+        expect(dueAgents[0].id).toBe(agent.id);
+        expect(dueAgents[0].repo_folder_path).toBe('/path/project');
+        expect(dueAgents[0].user_id).toBe(testUserId);
+      });
+
+      it('should not return agents not yet due', () => {
+        const agent = agentsDb.create(testProjectId, 'Scheduled Agent');
+        agentsDb.update(agent.id, {
+          schedule: '0 9 * * *',
+          cron_prompt: 'Daily task',
+          schedule_enabled: 1
+        });
+        // Set next_run_at to the future
+        const futureTime = new Date('2025-12-25T09:00:00Z');
+        agentsDb.updateNextRunAt(agent.id, futureTime);
+
+        // Check for agents due now (before the scheduled time)
+        const now = new Date('2025-12-24T10:00:00Z');
+        const dueAgents = agentsDb.getScheduledAgentsDue(now);
+
+        expect(dueAgents).toHaveLength(0);
+      });
+
+      it('should not return disabled agents', () => {
+        const agent = agentsDb.create(testProjectId, 'Scheduled Agent');
+        agentsDb.update(agent.id, {
+          schedule: '0 9 * * *',
+          cron_prompt: 'Daily task',
+          schedule_enabled: 0 // Disabled
+        });
+        const pastTime = new Date('2025-12-23T09:00:00Z');
+        agentsDb.updateNextRunAt(agent.id, pastTime);
+
+        const now = new Date('2025-12-24T10:00:00Z');
+        const dueAgents = agentsDb.getScheduledAgentsDue(now);
+
+        expect(dueAgents).toHaveLength(0);
+      });
+
+      it('should not return agents without cron_prompt', () => {
+        const agent = agentsDb.create(testProjectId, 'Scheduled Agent');
+        agentsDb.update(agent.id, {
+          schedule: '0 9 * * *',
+          cron_prompt: null, // No prompt
+          schedule_enabled: 1
+        });
+        const pastTime = new Date('2025-12-23T09:00:00Z');
+        agentsDb.updateNextRunAt(agent.id, pastTime);
+
+        const now = new Date('2025-12-24T10:00:00Z');
+        const dueAgents = agentsDb.getScheduledAgentsDue(now);
+
+        expect(dueAgents).toHaveLength(0);
+      });
+
+      it('should not return agents without schedule', () => {
+        const agent = agentsDb.create(testProjectId, 'Scheduled Agent');
+        agentsDb.update(agent.id, {
+          schedule: null, // No schedule
+          cron_prompt: 'Daily task',
+          schedule_enabled: 1
+        });
+        const pastTime = new Date('2025-12-23T09:00:00Z');
+        agentsDb.updateNextRunAt(agent.id, pastTime);
+
+        const now = new Date('2025-12-24T10:00:00Z');
+        const dueAgents = agentsDb.getScheduledAgentsDue(now);
+
+        expect(dueAgents).toHaveLength(0);
+      });
+
+      it('should not return agents without next_run_at', () => {
+        const agent = agentsDb.create(testProjectId, 'Scheduled Agent');
+        agentsDb.update(agent.id, {
+          schedule: '0 9 * * *',
+          cron_prompt: 'Daily task',
+          schedule_enabled: 1
+        });
+        // Don't set next_run_at
+
+        const now = new Date('2025-12-24T10:00:00Z');
+        const dueAgents = agentsDb.getScheduledAgentsDue(now);
+
+        expect(dueAgents).toHaveLength(0);
+      });
+
+      it('should return multiple due agents', () => {
+        // Create two scheduled agents
+        const agent1 = agentsDb.create(testProjectId, 'Agent 1');
+        agentsDb.update(agent1.id, {
+          schedule: '0 9 * * *',
+          cron_prompt: 'Task 1',
+          schedule_enabled: 1
+        });
+        agentsDb.updateNextRunAt(agent1.id, new Date('2025-12-23T09:00:00Z'));
+
+        const agent2 = agentsDb.create(testProjectId, 'Agent 2');
+        agentsDb.update(agent2.id, {
+          schedule: '0 10 * * *',
+          cron_prompt: 'Task 2',
+          schedule_enabled: 1
+        });
+        agentsDb.updateNextRunAt(agent2.id, new Date('2025-12-23T10:00:00Z'));
+
+        const now = new Date('2025-12-24T10:00:00Z');
+        const dueAgents = agentsDb.getScheduledAgentsDue(now);
+
+        expect(dueAgents).toHaveLength(2);
+      });
+    });
+
+    describe('cascade delete', () => {
+      it('should cascade delete agents when project is deleted', () => {
+        const agent = agentsDb.create(testProjectId, 'My Agent');
+
+        projectsDb.delete(testProjectId, testUserId);
+
+        expect(agentsDb.getById(agent.id)).toBeUndefined();
+      });
+
+      it('should cascade delete agent conversations when agent is deleted', () => {
+        const agent = agentsDb.create(testProjectId, 'My Agent');
+        const conversation = conversationsDb.createForAgent(agent.id);
+
+        agentsDb.delete(agent.id);
+
+        expect(conversationsDb.getById(conversation.id)).toBeUndefined();
+      });
+    });
+  });
+
+  describe('conversationsDb - Agent Support', () => {
+    let testProjectId;
+    let testAgentId;
+
+    beforeEach(() => {
+      const project = projectsDb.create(testUserId, 'Test Project', '/path/project');
+      testProjectId = project.id;
+      const agent = agentsDb.create(testProjectId, 'Test Agent');
+      testAgentId = agent.id;
+    });
+
+    describe('createForAgent', () => {
+      it('should create a conversation for an agent', () => {
+        const conversation = conversationsDb.createForAgent(testAgentId);
+
+        expect(conversation).toBeDefined();
+        expect(conversation.id).toBeDefined();
+        expect(conversation.task_id).toBeNull();
+        expect(conversation.agent_id).toBe(testAgentId);
+      });
+    });
+
+    describe('createForAgentWithTrigger', () => {
+      it('should create a conversation with manual trigger by default', () => {
+        const conversation = conversationsDb.createForAgentWithTrigger(testAgentId);
+
+        expect(conversation).toBeDefined();
+        expect(conversation.agent_id).toBe(testAgentId);
+        expect(conversation.triggered_by).toBe('manual');
+      });
+
+      it('should create a conversation with cron trigger', () => {
+        const conversation = conversationsDb.createForAgentWithTrigger(testAgentId, 'cron');
+
+        expect(conversation).toBeDefined();
+        expect(conversation.agent_id).toBe(testAgentId);
+        expect(conversation.triggered_by).toBe('cron');
+      });
+    });
+
+    describe('getByAgent', () => {
+      it('should return all conversations for an agent', () => {
+        conversationsDb.createForAgent(testAgentId);
+        conversationsDb.createForAgent(testAgentId);
+
+        const conversations = conversationsDb.getByAgent(testAgentId);
+
+        expect(conversations).toHaveLength(2);
+      });
+
+      it('should return empty array when agent has no conversations', () => {
+        const conversations = conversationsDb.getByAgent(testAgentId);
+
+        expect(conversations).toHaveLength(0);
+      });
+
+      it('should return conversations ordered by created_at DESC', () => {
+        const conv1 = conversationsDb.createForAgent(testAgentId);
+        const conv2 = conversationsDb.createForAgent(testAgentId);
+
+        const conversations = conversationsDb.getByAgent(testAgentId);
+
+        // Most recent first (higher id means created later in tests)
+        expect(conversations[0].id).toBe(conv2.id);
+        expect(conversations[1].id).toBe(conv1.id);
       });
     });
   });
