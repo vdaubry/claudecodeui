@@ -48,12 +48,12 @@ function BoardView({ className, project }) {
   // Tab state from URL query param
   const activeTab = searchParams.get('tab') || 'development';
 
-  // Load agents when switching to agents tab or when project changes
+  // Load agents when project changes (needed for tab count display)
   useEffect(() => {
-    if (project && activeTab === 'agents') {
+    if (project) {
       loadAgents(project.id);
     }
-  }, [project, activeTab, loadAgents]);
+  }, [project, loadAgents]);
 
   // Handle tab change
   const handleTabChange = useCallback((tab) => {
