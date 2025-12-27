@@ -481,7 +481,7 @@ const MessageInput = memo(function MessageInput({
           title="Show commands"
         >
           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 8h10M7 12h4m1 8l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-3l-4 4z" />
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 20L17 4" />
           </svg>
           {slashCommands.length > 0 && (
             <span className="absolute -top-1 -right-1 bg-blue-600 text-white text-xs font-bold rounded-full w-5 h-5 flex items-center justify-center" style={{ fontSize: '10px' }}>

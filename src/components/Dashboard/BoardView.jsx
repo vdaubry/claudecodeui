@@ -245,15 +245,15 @@ function BoardView({ className, project }) {
           </div>
         </div>
 
-        {/* Tab bar */}
-        <div className="flex items-center justify-between mt-3">
+        {/* Tab bar + Project path */}
+        <div className="flex flex-col gap-2 mt-3 md:flex-row md:items-center md:justify-between">
           <BoardTabBar
             activeTab={activeTab}
             onTabChange={handleTabChange}
             agentsCount={agents.length}
           />
           {/* Project path */}
-          <p className="text-xs text-muted-foreground truncate max-w-[200px] md:max-w-none">
+          <p className="text-xs text-muted-foreground truncate">
             {project.repo_folder_path}
           </p>
         </div>

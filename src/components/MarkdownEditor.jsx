@@ -259,7 +259,7 @@ function MarkdownEditor({
   }
 
   return (
-    <div className={cn('flex flex-col h-full', className)}>
+    <div className={cn('flex flex-col md:h-full', className)}>
       {/* Header with actions */}
       <div className="flex items-center justify-between p-3 border-b border-border">
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
