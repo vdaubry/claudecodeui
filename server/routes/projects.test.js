@@ -23,9 +23,15 @@ vi.mock('../services/documentation.js', () => ({
   writeProjectDoc: vi.fn()
 }));
 
+// Mock the worktree service
+vi.mock('../services/worktree.js', () => ({
+  isGitRepository: vi.fn()
+}));
+
 import projectsRoutes from './projects.js';
 import { projectsDb } from '../database/db.js';
 import { ensureClaudeUIFolder, readProjectDoc, writeProjectDoc } from '../services/documentation.js';
+import { isGitRepository } from '../services/worktree.js';
 
 describe('Projects Routes - Phase 3', () => {
   let app;
@@ -255,6 +261,47 @@ describe('Projects Routes - Phase 3', () => {
 
       expect(response.status).toBe(404);
       expect(response.body.error).toBe('Project not found');
+    });
+  });
+
+  describe('GET /api/projects/:id/is-git-repo', () => {
+    it('should return true for git repository', async () => {
+      const mockProject = { id: 1, user_id: testUserId, repo_folder_path: '/path/to/git-repo' };
+      projectsDb.getById.mockReturnValue(mockProject);
+      isGitRepository.mockResolvedValue(true);
+
+      const response = await request(app).get('/api/projects/1/is-git-repo');
+
+      expect(response.status).toBe(200);
+      expect(response.body).toEqual({ isGitRepo: true });
+      expect(isGitRepository).toHaveBeenCalledWith('/path/to/git-repo');
+    });
+
+    it('should return false for non-git folder', async () => {
+      const mockProject = { id: 1, user_id: testUserId, repo_folder_path: '/path/to/folder' };
+      projectsDb.getById.mockReturnValue(mockProject);
+      isGitRepository.mockResolvedValue(false);
+
+      const response = await request(app).get('/api/projects/1/is-git-repo');
+
+      expect(response.status).toBe(200);
+      expect(response.body).toEqual({ isGitRepo: false });
+    });
+
+    it('should return 404 for non-existent project', async () => {
+      projectsDb.getById.mockReturnValue(undefined);
+
+      const response = await request(app).get('/api/projects/999/is-git-repo');
+
+      expect(response.status).toBe(404);
+      expect(response.body.error).toBe('Project not found');
+    });
+
+    it('should return 400 for invalid project ID', async () => {
+      const response = await request(app).get('/api/projects/invalid/is-git-repo');
+
+      expect(response.status).toBe(400);
+      expect(response.body.error).toBe('Invalid project ID');
     });
   });
 });

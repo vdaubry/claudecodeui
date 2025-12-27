@@ -8,14 +8,15 @@
  * - Conversation history with +/Resume buttons
  */
 
-import React, { useState, useCallback } from 'react';
-import { FileText, ArrowLeft, ChevronDown, Check, CheckCircle2 } from 'lucide-react';
+import React, { useState, useCallback, useEffect } from 'react';
+import { FileText, ArrowLeft, ChevronDown, Check, CheckCircle2, GitBranch, RefreshCw, ExternalLink, GitMerge, Copy, ArrowUpRight, ArrowDownLeft } from 'lucide-react';
 import { Button } from './ui/button';
 import Breadcrumb from './Breadcrumb';
 import MarkdownEditor from './MarkdownEditor';
 import ConversationList from './ConversationList';
 import AgentSection from './AgentSection';
 import { cn } from '../lib/utils';
+import { api } from '../utils/api';
 
 // Status configuration
 const STATUS_OPTIONS = [
@@ -52,6 +53,138 @@ function TaskDetailView({
   const [showStatusDropdown, setShowStatusDropdown] = useState(false);
   const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
   const [isUpdatingWorkflow, setIsUpdatingWorkflow] = useState(false);
+
+  // Worktree state
+  const [worktreeStatus, setWorktreeStatus] = useState(null);
+  const [prStatus, setPrStatus] = useState(null);
+  const [isLoadingWorktree, setIsLoadingWorktree] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [isCreatingPR, setIsCreatingPR] = useState(false);
+  const [isMerging, setIsMerging] = useState(false);
+  const [worktreeError, setWorktreeError] = useState(null);
+
+  // Fetch worktree status when task changes
+  useEffect(() => {
+    const loadWorktreeStatus = async () => {
+      if (!task?.id) return;
+
+      setIsLoadingWorktree(true);
+      setWorktreeError(null);
+      try {
+        const response = await api.tasks.getWorktree(task.id);
+        if (response.ok) {
+          const data = await response.json();
+          if (data.success) {
+            setWorktreeStatus(data);
+            // Also fetch PR status
+            const prResponse = await api.tasks.getPR(task.id);
+            if (prResponse.ok) {
+              const prData = await prResponse.json();
+              setPrStatus(prData);
+            }
+          } else {
+            setWorktreeStatus(null);
+          }
+        } else {
+          setWorktreeStatus(null);
+        }
+      } catch (error) {
+        console.error('Error loading worktree status:', error);
+        setWorktreeStatus(null);
+      } finally {
+        setIsLoadingWorktree(false);
+      }
+    };
+
+    loadWorktreeStatus();
+  }, [task?.id]);
+
+  // Worktree handlers
+  const handleSyncWorktree = async () => {
+    if (!task?.id) return;
+    setIsSyncing(true);
+    setWorktreeError(null);
+    try {
+      const response = await api.tasks.syncWorktree(task.id);
+      if (response.ok) {
+        const data = await response.json();
+        if (!data.success) {
+          setWorktreeError(data.error || 'Sync failed');
+        } else {
+          // Refresh status
+          const statusResponse = await api.tasks.getWorktree(task.id);
+          if (statusResponse.ok) {
+            const statusData = await statusResponse.json();
+            if (statusData.success) {
+              setWorktreeStatus(statusData);
+            }
+          }
+        }
+      }
+    } catch (error) {
+      setWorktreeError(error.message);
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
+  const handleCreatePR = async () => {
+    if (!task?.id) return;
+    setIsCreatingPR(true);
+    setWorktreeError(null);
+    try {
+      const title = task.title || `Task ${task.id}`;
+      const body = `## Task\n\n${task.title || 'No title'}\n\n## Description\n\nImplemented as part of task #${task.id}`;
+      const response = await api.tasks.createPR(task.id, title, body);
+      if (response.ok) {
+        const data = await response.json();
+        if (data.success) {
+          setPrStatus({ exists: true, url: data.url, state: 'OPEN' });
+          // Open the PR URL
+          if (data.url) {
+            window.open(data.url, '_blank');
+          }
+        } else {
+          setWorktreeError(data.error || 'Failed to create PR');
+        }
+      }
+    } catch (error) {
+      setWorktreeError(error.message);
+    } finally {
+      setIsCreatingPR(false);
+    }
+  };
+
+  const handleMergeAndCleanup = async () => {
+    if (!task?.id) return;
+    if (!confirm('This will merge the PR, delete the worktree, and clean up the branch. Continue?')) {
+      return;
+    }
+    setIsMerging(true);
+    setWorktreeError(null);
+    try {
+      const response = await api.tasks.mergeAndCleanup(task.id);
+      if (response.ok) {
+        const data = await response.json();
+        if (data.success) {
+          setWorktreeStatus(null);
+          setPrStatus(null);
+        } else {
+          setWorktreeError(data.error || 'Merge failed');
+        }
+      }
+    } catch (error) {
+      setWorktreeError(error.message);
+    } finally {
+      setIsMerging(false);
+    }
+  };
+
+  const copyWorktreePath = () => {
+    if (worktreeStatus?.worktreePath) {
+      navigator.clipboard.writeText(worktreeStatus.worktreePath);
+    }
+  };
 
   if (!task) return null;
 
@@ -202,6 +335,120 @@ function TaskDetailView({
           </div>
         </div>
       </div>
+
+      {/* Worktree section - only show if worktree exists */}
+      {worktreeStatus && (
+        <div className="px-4 py-3 border-b border-border bg-muted/30">
+          <div className="flex flex-wrap items-center gap-3">
+            {/* Branch info */}
+            <div className="flex items-center gap-2">
+              <GitBranch className="w-4 h-4 text-muted-foreground" />
+              <span className="text-sm font-mono bg-muted px-2 py-0.5 rounded">
+                {worktreeStatus.branch}
+              </span>
+            </div>
+
+            {/* Ahead/behind indicators */}
+            <div className="flex items-center gap-3 text-sm text-muted-foreground">
+              {worktreeStatus.ahead > 0 && (
+                <span className="flex items-center gap-1 text-green-600 dark:text-green-400">
+                  <ArrowUpRight className="w-3.5 h-3.5" />
+                  {worktreeStatus.ahead} ahead
+                </span>
+              )}
+              {worktreeStatus.behind > 0 && (
+                <span className="flex items-center gap-1 text-yellow-600 dark:text-yellow-400">
+                  <ArrowDownLeft className="w-3.5 h-3.5" />
+                  {worktreeStatus.behind} behind
+                </span>
+              )}
+              {worktreeStatus.ahead === 0 && worktreeStatus.behind === 0 && (
+                <span className="text-muted-foreground">Up to date with {worktreeStatus.mainBranch}</span>
+              )}
+            </div>
+
+            {/* Actions */}
+            <div className="flex items-center gap-2 ml-auto">
+              {/* Sync button */}
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleSyncWorktree}
+                disabled={isSyncing}
+                className="h-7 text-xs"
+              >
+                <RefreshCw className={cn('w-3.5 h-3.5 mr-1.5', isSyncing && 'animate-spin')} />
+                Sync
+              </Button>
+
+              {/* Create PR / View PR */}
+              {!prStatus?.exists ? (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleCreatePR}
+                  disabled={isCreatingPR || worktreeStatus.ahead === 0}
+                  className="h-7 text-xs"
+                  title={worktreeStatus.ahead === 0 ? 'No commits to push' : 'Create pull request'}
+                >
+                  {isCreatingPR ? (
+                    <div className="w-3.5 h-3.5 border-2 border-current border-t-transparent rounded-full animate-spin mr-1.5" />
+                  ) : (
+                    <ExternalLink className="w-3.5 h-3.5 mr-1.5" />
+                  )}
+                  Create PR
+                </Button>
+              ) : (
+                <>
+                  <a
+                    href={prStatus.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1.5 h-7 px-2.5 text-xs font-medium rounded-md border border-border bg-background hover:bg-accent transition-colors"
+                  >
+                    <ExternalLink className="w-3.5 h-3.5" />
+                    View PR
+                  </a>
+                  {prStatus.mergeable === 'MERGEABLE' && (
+                    <Button
+                      variant="default"
+                      size="sm"
+                      onClick={handleMergeAndCleanup}
+                      disabled={isMerging}
+                      className="h-7 text-xs bg-green-600 hover:bg-green-700"
+                    >
+                      {isMerging ? (
+                        <div className="w-3.5 h-3.5 border-2 border-current border-t-transparent rounded-full animate-spin mr-1.5" />
+                      ) : (
+                        <GitMerge className="w-3.5 h-3.5 mr-1.5" />
+                      )}
+                      Merge & Cleanup
+                    </Button>
+                  )}
+                </>
+              )}
+
+              {/* Copy path */}
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={copyWorktreePath}
+                className="h-7 w-7 p-0"
+                title={`Copy path: ${worktreeStatus.worktreePath}`}
+              >
+                <Copy className="w-3.5 h-3.5" />
+              </Button>
+            </div>
+          </div>
+
+          {/* Error message */}
+          {worktreeError && (
+            <div className="mt-2 p-2 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded text-xs text-red-700 dark:text-red-300">
+              {worktreeError}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Content - Split view */}
       <div className="flex-1 flex flex-col md:flex-row overflow-auto md:overflow-hidden">

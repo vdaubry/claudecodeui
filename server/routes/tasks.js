@@ -7,6 +7,17 @@ import {
 } from '../services/documentation.js';
 import { notifyTaskStatusChange } from '../services/notifications.js';
 import { forceCompleteRunningAgents } from '../services/agentRunner.js';
+import {
+  isGitRepository,
+  createWorktree,
+  removeWorktree,
+  worktreeExists,
+  getWorktreeStatus,
+  syncWithMain,
+  createPullRequest,
+  getPullRequestStatus,
+  mergeAndCleanup
+} from '../services/worktree.js';
 
 const router = express.Router();
 
@@ -67,8 +78,11 @@ router.get('/projects/:projectId/tasks', (req, res) => {
 /**
  * POST /api/projects/:projectId/tasks
  * Create a new task for a project
+ * Body:
+ *   - title: Task title (optional)
+ *   - skip_worktree: If true, skip worktree creation (default: false)
  */
-router.post('/projects/:projectId/tasks', (req, res) => {
+router.post('/projects/:projectId/tasks', async (req, res) => {
   try {
     const userId = req.user.id;
     const projectId = parseInt(req.params.projectId, 10);
@@ -83,8 +97,30 @@ router.post('/projects/:projectId/tasks', (req, res) => {
       return res.status(404).json({ error: 'Project not found' });
     }
 
-    const { title } = req.body;
+    const { title, skip_worktree } = req.body;
+
+    // Check if project is a git repo (for worktree support)
+    const isGit = await isGitRepository(project.repo_folder_path);
+
+    // Create the task in database
     const task = tasksDb.create(projectId, title?.trim() || null);
+
+    // If git repo and worktree not skipped, create worktree
+    if (isGit && !skip_worktree) {
+      const result = await createWorktree(project.repo_folder_path, task.id, title);
+
+      if (!result.success) {
+        // Rollback: delete the task we just created
+        tasksDb.delete(task.id);
+        return res.status(500).json({
+          error: `Failed to create worktree: ${result.error}`
+        });
+      }
+
+      // Add worktree info to response
+      task.worktree_path = result.worktreePath;
+      task.worktree_branch = result.branch;
+    }
 
     // Auto-create task-{id}.md file (empty)
     try {
@@ -207,8 +243,9 @@ router.put('/tasks/:id', async (req, res) => {
 /**
  * DELETE /api/tasks/:id
  * Delete a task
+ * Also removes the associated worktree if it exists
  */
-router.delete('/tasks/:id', (req, res) => {
+router.delete('/tasks/:id', async (req, res) => {
   try {
     const userId = req.user.id;
     const taskId = parseInt(req.params.id, 10);
@@ -227,6 +264,15 @@ router.delete('/tasks/:id', (req, res) => {
     // Verify the project belongs to the user
     if (taskWithProject.user_id !== userId) {
       return res.status(404).json({ error: 'Task not found' });
+    }
+
+    // Remove worktree if it exists
+    if (await worktreeExists(taskWithProject.repo_folder_path, taskId)) {
+      const result = await removeWorktree(taskWithProject.repo_folder_path, taskId);
+      if (!result.success) {
+        console.error(`Failed to remove worktree for task ${taskId}:`, result.error);
+        // Continue with task deletion even if worktree removal fails
+      }
     }
 
     // Delete the task from database (cascade deletes conversations)
@@ -435,6 +481,187 @@ router.put('/tasks/:id/workflow-complete', (req, res) => {
   } catch (error) {
     console.error('Error updating workflow complete:', error);
     res.status(500).json({ error: 'Failed to update workflow complete' });
+  }
+});
+
+// ============================================================================
+// Worktree Endpoints
+// ============================================================================
+
+/**
+ * GET /api/tasks/:id/worktree
+ * Get worktree status for a task (branch, commits ahead/behind)
+ */
+router.get('/tasks/:id/worktree', async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const taskId = parseInt(req.params.id, 10);
+
+    if (isNaN(taskId)) {
+      return res.status(400).json({ error: 'Invalid task ID' });
+    }
+
+    // Get task with project info to verify ownership
+    const taskWithProject = tasksDb.getWithProject(taskId);
+
+    if (!taskWithProject) {
+      return res.status(404).json({ error: 'Task not found' });
+    }
+
+    if (taskWithProject.user_id !== userId) {
+      return res.status(404).json({ error: 'Task not found' });
+    }
+
+    const status = await getWorktreeStatus(taskWithProject.repo_folder_path, taskId);
+    res.json(status);
+  } catch (error) {
+    console.error('Error getting worktree status:', error);
+    res.status(500).json({ error: 'Failed to get worktree status' });
+  }
+});
+
+/**
+ * POST /api/tasks/:id/sync
+ * Sync worktree with main branch (merge main into worktree branch)
+ */
+router.post('/tasks/:id/sync', async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const taskId = parseInt(req.params.id, 10);
+
+    if (isNaN(taskId)) {
+      return res.status(400).json({ error: 'Invalid task ID' });
+    }
+
+    // Get task with project info to verify ownership
+    const taskWithProject = tasksDb.getWithProject(taskId);
+
+    if (!taskWithProject) {
+      return res.status(404).json({ error: 'Task not found' });
+    }
+
+    if (taskWithProject.user_id !== userId) {
+      return res.status(404).json({ error: 'Task not found' });
+    }
+
+    const result = await syncWithMain(taskWithProject.repo_folder_path, taskId);
+    res.json(result);
+  } catch (error) {
+    console.error('Error syncing with main:', error);
+    res.status(500).json({ error: 'Failed to sync with main' });
+  }
+});
+
+/**
+ * POST /api/tasks/:id/pull-request
+ * Create a pull request for the task's worktree branch
+ * Body: { title: string, body: string }
+ */
+router.post('/tasks/:id/pull-request', async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const taskId = parseInt(req.params.id, 10);
+
+    if (isNaN(taskId)) {
+      return res.status(400).json({ error: 'Invalid task ID' });
+    }
+
+    // Get task with project info to verify ownership
+    const taskWithProject = tasksDb.getWithProject(taskId);
+
+    if (!taskWithProject) {
+      return res.status(404).json({ error: 'Task not found' });
+    }
+
+    if (taskWithProject.user_id !== userId) {
+      return res.status(404).json({ error: 'Task not found' });
+    }
+
+    const { title, body } = req.body;
+
+    if (!title) {
+      return res.status(400).json({ error: 'PR title is required' });
+    }
+
+    const result = await createPullRequest(
+      taskWithProject.repo_folder_path,
+      taskId,
+      title,
+      body || ''
+    );
+    res.json(result);
+  } catch (error) {
+    console.error('Error creating pull request:', error);
+    res.status(500).json({ error: 'Failed to create pull request' });
+  }
+});
+
+/**
+ * GET /api/tasks/:id/pull-request
+ * Get pull request status for the task's worktree branch
+ */
+router.get('/tasks/:id/pull-request', async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const taskId = parseInt(req.params.id, 10);
+
+    if (isNaN(taskId)) {
+      return res.status(400).json({ error: 'Invalid task ID' });
+    }
+
+    // Get task with project info to verify ownership
+    const taskWithProject = tasksDb.getWithProject(taskId);
+
+    if (!taskWithProject) {
+      return res.status(404).json({ error: 'Task not found' });
+    }
+
+    if (taskWithProject.user_id !== userId) {
+      return res.status(404).json({ error: 'Task not found' });
+    }
+
+    const status = await getPullRequestStatus(taskWithProject.repo_folder_path, taskId);
+    res.json(status);
+  } catch (error) {
+    console.error('Error getting pull request status:', error);
+    res.status(500).json({ error: 'Failed to get pull request status' });
+  }
+});
+
+/**
+ * POST /api/tasks/:id/merge-cleanup
+ * Merge the pull request and clean up the worktree and branch
+ * This performs the full cleanup flow:
+ * 1. Merge the PR via gh CLI
+ * 2. Remove the worktree
+ * 3. Delete the local branch
+ * 4. Checkout main and pull latest
+ */
+router.post('/tasks/:id/merge-cleanup', async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const taskId = parseInt(req.params.id, 10);
+
+    if (isNaN(taskId)) {
+      return res.status(400).json({ error: 'Invalid task ID' });
+    }
+
+    // Get task with project info to verify ownership
+    const taskWithProject = tasksDb.getWithProject(taskId);
+
+    if (!taskWithProject) {
+      return res.status(404).json({ error: 'Task not found' });
+    }
+
+    if (taskWithProject.user_id !== userId) {
+      return res.status(404).json({ error: 'Task not found' });
+    }
+
+    const result = await mergeAndCleanup(taskWithProject.repo_folder_path, taskId);
+    res.json(result);
+  } catch (error) {
+    console.error('Error merging and cleaning up:', error);
+    res.status(500).json({ error: 'Failed to merge and cleanup' });
   }
 });
 

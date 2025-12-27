@@ -262,7 +262,7 @@ describe('BoardView Component', () => {
       fireEvent.click(screen.getByTestId('submit-task'));
 
       await waitFor(() => {
-        expect(createTask).toHaveBeenCalledWith('p1', 'New Task', 'Docs');
+        expect(createTask).toHaveBeenCalledWith('p1', 'New Task', 'Docs', {});
       });
     });
 

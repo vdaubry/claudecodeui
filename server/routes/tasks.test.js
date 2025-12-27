@@ -35,10 +35,34 @@ vi.mock('../services/agentRunner.js', () => ({
   forceCompleteRunningAgents: vi.fn()
 }));
 
+// Mock the worktree service
+vi.mock('../services/worktree.js', () => ({
+  isGitRepository: vi.fn(),
+  createWorktree: vi.fn(),
+  removeWorktree: vi.fn(),
+  worktreeExists: vi.fn(),
+  getWorktreeStatus: vi.fn(),
+  syncWithMain: vi.fn(),
+  createPullRequest: vi.fn(),
+  getPullRequestStatus: vi.fn(),
+  mergeAndCleanup: vi.fn()
+}));
+
 import tasksRoutes from './tasks.js';
 import { projectsDb, tasksDb } from '../database/db.js';
 import { readTaskDoc, writeTaskDoc, deleteTaskDoc } from '../services/documentation.js';
 import { forceCompleteRunningAgents } from '../services/agentRunner.js';
+import {
+  isGitRepository,
+  createWorktree,
+  removeWorktree,
+  worktreeExists,
+  getWorktreeStatus,
+  syncWithMain,
+  createPullRequest,
+  getPullRequestStatus,
+  mergeAndCleanup
+} from '../services/worktree.js';
 
 describe('Tasks Routes - Phase 3', () => {
   let app;
@@ -543,6 +567,419 @@ describe('Tasks Routes - Phase 3', () => {
       expect(response.body.success).toBe(true);
       expect(response.body.workflow_complete).toBe(true);
       expect(response.body.forceCompletedAgents).toBe(1);
+    });
+  });
+
+  // ============================================================================
+  // Worktree Endpoints Tests
+  // ============================================================================
+
+  describe('POST /api/projects/:projectId/tasks (with worktree)', () => {
+    it('should create worktree for git repository projects', async () => {
+      const mockProject = { id: 1, user_id: testUserId, repo_folder_path: '/path/to/repo' };
+      const newTask = { id: 5, projectId: 1, title: 'New Feature' };
+      projectsDb.getById.mockReturnValue(mockProject);
+      tasksDb.create.mockReturnValue(newTask);
+      isGitRepository.mockResolvedValue(true);
+      createWorktree.mockResolvedValue({
+        success: true,
+        worktreePath: '/path/to/repo-worktrees/task-5',
+        branch: 'task/5-new-feature'
+      });
+      writeTaskDoc.mockReturnValue(undefined);
+
+      const response = await request(app)
+        .post('/api/projects/1/tasks')
+        .send({ title: 'New Feature' });
+
+      expect(response.status).toBe(201);
+      expect(isGitRepository).toHaveBeenCalledWith('/path/to/repo');
+      expect(createWorktree).toHaveBeenCalledWith('/path/to/repo', 5, 'New Feature');
+      expect(response.body.worktree_path).toBe('/path/to/repo-worktrees/task-5');
+      expect(response.body.worktree_branch).toBe('task/5-new-feature');
+    });
+
+    it('should skip worktree creation for non-git projects', async () => {
+      const mockProject = { id: 1, user_id: testUserId, repo_folder_path: '/path/to/folder' };
+      const newTask = { id: 5, projectId: 1, title: 'Task' };
+      projectsDb.getById.mockReturnValue(mockProject);
+      tasksDb.create.mockReturnValue(newTask);
+      isGitRepository.mockResolvedValue(false);
+      writeTaskDoc.mockReturnValue(undefined);
+
+      const response = await request(app)
+        .post('/api/projects/1/tasks')
+        .send({ title: 'Task' });
+
+      expect(response.status).toBe(201);
+      expect(createWorktree).not.toHaveBeenCalled();
+    });
+
+    it('should skip worktree creation when skip_worktree is true', async () => {
+      const mockProject = { id: 1, user_id: testUserId, repo_folder_path: '/path/to/repo' };
+      const newTask = { id: 5, projectId: 1, title: 'Task' };
+      projectsDb.getById.mockReturnValue(mockProject);
+      tasksDb.create.mockReturnValue(newTask);
+      isGitRepository.mockResolvedValue(true);
+      writeTaskDoc.mockReturnValue(undefined);
+
+      const response = await request(app)
+        .post('/api/projects/1/tasks')
+        .send({ title: 'Task', skip_worktree: true });
+
+      expect(response.status).toBe(201);
+      expect(createWorktree).not.toHaveBeenCalled();
+    });
+
+    it('should rollback task on worktree creation failure', async () => {
+      const mockProject = { id: 1, user_id: testUserId, repo_folder_path: '/path/to/repo' };
+      const newTask = { id: 5, projectId: 1, title: 'Task' };
+      projectsDb.getById.mockReturnValue(mockProject);
+      tasksDb.create.mockReturnValue(newTask);
+      isGitRepository.mockResolvedValue(true);
+      createWorktree.mockResolvedValue({
+        success: false,
+        error: 'Branch already exists'
+      });
+
+      const response = await request(app)
+        .post('/api/projects/1/tasks')
+        .send({ title: 'Task' });
+
+      expect(response.status).toBe(500);
+      expect(response.body.error).toContain('Failed to create worktree');
+      expect(tasksDb.delete).toHaveBeenCalledWith(5);
+    });
+  });
+
+  describe('DELETE /api/tasks/:id (with worktree)', () => {
+    it('should remove worktree when deleting task', async () => {
+      const mockTaskWithProject = {
+        id: 1,
+        project_id: 1,
+        user_id: testUserId,
+        repo_folder_path: '/path/to/repo'
+      };
+      tasksDb.getWithProject.mockReturnValue(mockTaskWithProject);
+      tasksDb.delete.mockReturnValue(true);
+      deleteTaskDoc.mockReturnValue(true);
+      worktreeExists.mockResolvedValue(true);
+      removeWorktree.mockResolvedValue({ success: true });
+
+      const response = await request(app).delete('/api/tasks/1');
+
+      expect(response.status).toBe(200);
+      expect(worktreeExists).toHaveBeenCalledWith('/path/to/repo', 1);
+      expect(removeWorktree).toHaveBeenCalledWith('/path/to/repo', 1);
+    });
+
+    it('should continue deletion if worktree removal fails', async () => {
+      const mockTaskWithProject = {
+        id: 1,
+        project_id: 1,
+        user_id: testUserId,
+        repo_folder_path: '/path/to/repo'
+      };
+      tasksDb.getWithProject.mockReturnValue(mockTaskWithProject);
+      tasksDb.delete.mockReturnValue(true);
+      deleteTaskDoc.mockReturnValue(true);
+      worktreeExists.mockResolvedValue(true);
+      removeWorktree.mockResolvedValue({ success: false, error: 'Worktree locked' });
+
+      const response = await request(app).delete('/api/tasks/1');
+
+      expect(response.status).toBe(200);
+      expect(response.body).toEqual({ success: true });
+    });
+
+    it('should skip worktree removal if worktree does not exist', async () => {
+      const mockTaskWithProject = {
+        id: 1,
+        project_id: 1,
+        user_id: testUserId,
+        repo_folder_path: '/path/to/repo'
+      };
+      tasksDb.getWithProject.mockReturnValue(mockTaskWithProject);
+      tasksDb.delete.mockReturnValue(true);
+      deleteTaskDoc.mockReturnValue(true);
+      worktreeExists.mockResolvedValue(false);
+
+      const response = await request(app).delete('/api/tasks/1');
+
+      expect(response.status).toBe(200);
+      expect(removeWorktree).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('GET /api/tasks/:id/worktree', () => {
+    it('should return worktree status', async () => {
+      const mockTaskWithProject = {
+        id: 1,
+        project_id: 1,
+        user_id: testUserId,
+        repo_folder_path: '/path/to/repo'
+      };
+      tasksDb.getWithProject.mockReturnValue(mockTaskWithProject);
+      getWorktreeStatus.mockResolvedValue({
+        success: true,
+        branch: 'task/1-feature',
+        ahead: 3,
+        behind: 1,
+        mainBranch: 'main',
+        worktreePath: '/path/to/repo-worktrees/task-1'
+      });
+
+      const response = await request(app).get('/api/tasks/1/worktree');
+
+      expect(response.status).toBe(200);
+      expect(response.body.success).toBe(true);
+      expect(response.body.branch).toBe('task/1-feature');
+      expect(response.body.ahead).toBe(3);
+      expect(response.body.behind).toBe(1);
+    });
+
+    it('should return 404 for non-existent task', async () => {
+      tasksDb.getWithProject.mockReturnValue(undefined);
+
+      const response = await request(app).get('/api/tasks/999/worktree');
+
+      expect(response.status).toBe(404);
+    });
+
+    it('should return 404 for different user task', async () => {
+      tasksDb.getWithProject.mockReturnValue({ id: 1, user_id: 999 });
+
+      const response = await request(app).get('/api/tasks/1/worktree');
+
+      expect(response.status).toBe(404);
+    });
+
+    it('should return 400 for invalid task ID', async () => {
+      const response = await request(app).get('/api/tasks/invalid/worktree');
+
+      expect(response.status).toBe(400);
+      expect(response.body.error).toBe('Invalid task ID');
+    });
+  });
+
+  describe('POST /api/tasks/:id/sync', () => {
+    it('should sync worktree with main', async () => {
+      const mockTaskWithProject = {
+        id: 1,
+        project_id: 1,
+        user_id: testUserId,
+        repo_folder_path: '/path/to/repo'
+      };
+      tasksDb.getWithProject.mockReturnValue(mockTaskWithProject);
+      syncWithMain.mockResolvedValue({ success: true });
+
+      const response = await request(app).post('/api/tasks/1/sync');
+
+      expect(response.status).toBe(200);
+      expect(syncWithMain).toHaveBeenCalledWith('/path/to/repo', 1);
+      expect(response.body.success).toBe(true);
+    });
+
+    it('should return sync error', async () => {
+      const mockTaskWithProject = {
+        id: 1,
+        project_id: 1,
+        user_id: testUserId,
+        repo_folder_path: '/path/to/repo'
+      };
+      tasksDb.getWithProject.mockReturnValue(mockTaskWithProject);
+      syncWithMain.mockResolvedValue({ success: false, error: 'Merge conflict' });
+
+      const response = await request(app).post('/api/tasks/1/sync');
+
+      expect(response.status).toBe(200);
+      expect(response.body.success).toBe(false);
+      expect(response.body.error).toBe('Merge conflict');
+    });
+
+    it('should return 404 for non-existent task', async () => {
+      tasksDb.getWithProject.mockReturnValue(undefined);
+
+      const response = await request(app).post('/api/tasks/999/sync');
+
+      expect(response.status).toBe(404);
+    });
+  });
+
+  describe('POST /api/tasks/:id/pull-request', () => {
+    it('should create pull request', async () => {
+      const mockTaskWithProject = {
+        id: 1,
+        project_id: 1,
+        user_id: testUserId,
+        repo_folder_path: '/path/to/repo'
+      };
+      tasksDb.getWithProject.mockReturnValue(mockTaskWithProject);
+      createPullRequest.mockResolvedValue({
+        success: true,
+        url: 'https://github.com/user/repo/pull/123'
+      });
+
+      const response = await request(app)
+        .post('/api/tasks/1/pull-request')
+        .send({ title: 'Add feature', body: 'Description' });
+
+      expect(response.status).toBe(200);
+      expect(createPullRequest).toHaveBeenCalledWith('/path/to/repo', 1, 'Add feature', 'Description');
+      expect(response.body.success).toBe(true);
+      expect(response.body.url).toBe('https://github.com/user/repo/pull/123');
+    });
+
+    it('should return 400 if title is missing', async () => {
+      const mockTaskWithProject = {
+        id: 1,
+        project_id: 1,
+        user_id: testUserId,
+        repo_folder_path: '/path/to/repo'
+      };
+      tasksDb.getWithProject.mockReturnValue(mockTaskWithProject);
+
+      const response = await request(app)
+        .post('/api/tasks/1/pull-request')
+        .send({ body: 'Description' });
+
+      expect(response.status).toBe(400);
+      expect(response.body.error).toBe('PR title is required');
+    });
+
+    it('should use empty string for missing body', async () => {
+      const mockTaskWithProject = {
+        id: 1,
+        project_id: 1,
+        user_id: testUserId,
+        repo_folder_path: '/path/to/repo'
+      };
+      tasksDb.getWithProject.mockReturnValue(mockTaskWithProject);
+      createPullRequest.mockResolvedValue({ success: true, url: 'https://github.com/...' });
+
+      await request(app)
+        .post('/api/tasks/1/pull-request')
+        .send({ title: 'Title only' });
+
+      expect(createPullRequest).toHaveBeenCalledWith('/path/to/repo', 1, 'Title only', '');
+    });
+
+    it('should return 404 for non-existent task', async () => {
+      tasksDb.getWithProject.mockReturnValue(undefined);
+
+      const response = await request(app)
+        .post('/api/tasks/999/pull-request')
+        .send({ title: 'Title' });
+
+      expect(response.status).toBe(404);
+    });
+  });
+
+  describe('GET /api/tasks/:id/pull-request', () => {
+    it('should return pull request status when PR exists', async () => {
+      const mockTaskWithProject = {
+        id: 1,
+        project_id: 1,
+        user_id: testUserId,
+        repo_folder_path: '/path/to/repo'
+      };
+      tasksDb.getWithProject.mockReturnValue(mockTaskWithProject);
+      getPullRequestStatus.mockResolvedValue({
+        success: true,
+        exists: true,
+        url: 'https://github.com/user/repo/pull/123',
+        state: 'OPEN',
+        mergeable: 'MERGEABLE'
+      });
+
+      const response = await request(app).get('/api/tasks/1/pull-request');
+
+      expect(response.status).toBe(200);
+      expect(response.body.exists).toBe(true);
+      expect(response.body.url).toBe('https://github.com/user/repo/pull/123');
+    });
+
+    it('should return exists:false when no PR', async () => {
+      const mockTaskWithProject = {
+        id: 1,
+        project_id: 1,
+        user_id: testUserId,
+        repo_folder_path: '/path/to/repo'
+      };
+      tasksDb.getWithProject.mockReturnValue(mockTaskWithProject);
+      getPullRequestStatus.mockResolvedValue({ success: true, exists: false });
+
+      const response = await request(app).get('/api/tasks/1/pull-request');
+
+      expect(response.status).toBe(200);
+      expect(response.body.exists).toBe(false);
+    });
+
+    it('should return 404 for non-existent task', async () => {
+      tasksDb.getWithProject.mockReturnValue(undefined);
+
+      const response = await request(app).get('/api/tasks/999/pull-request');
+
+      expect(response.status).toBe(404);
+    });
+  });
+
+  describe('POST /api/tasks/:id/merge-cleanup', () => {
+    it('should merge PR and cleanup worktree', async () => {
+      const mockTaskWithProject = {
+        id: 1,
+        project_id: 1,
+        user_id: testUserId,
+        repo_folder_path: '/path/to/repo'
+      };
+      tasksDb.getWithProject.mockReturnValue(mockTaskWithProject);
+      mergeAndCleanup.mockResolvedValue({ success: true });
+
+      const response = await request(app).post('/api/tasks/1/merge-cleanup');
+
+      expect(response.status).toBe(200);
+      expect(mergeAndCleanup).toHaveBeenCalledWith('/path/to/repo', 1);
+      expect(response.body.success).toBe(true);
+    });
+
+    it('should return error on merge failure', async () => {
+      const mockTaskWithProject = {
+        id: 1,
+        project_id: 1,
+        user_id: testUserId,
+        repo_folder_path: '/path/to/repo'
+      };
+      tasksDb.getWithProject.mockReturnValue(mockTaskWithProject);
+      mergeAndCleanup.mockResolvedValue({ success: false, error: 'PR not mergeable' });
+
+      const response = await request(app).post('/api/tasks/1/merge-cleanup');
+
+      expect(response.status).toBe(200);
+      expect(response.body.success).toBe(false);
+      expect(response.body.error).toBe('PR not mergeable');
+    });
+
+    it('should return 404 for non-existent task', async () => {
+      tasksDb.getWithProject.mockReturnValue(undefined);
+
+      const response = await request(app).post('/api/tasks/999/merge-cleanup');
+
+      expect(response.status).toBe(404);
+    });
+
+    it('should return 404 for different user task', async () => {
+      tasksDb.getWithProject.mockReturnValue({ id: 1, user_id: 999 });
+
+      const response = await request(app).post('/api/tasks/1/merge-cleanup');
+
+      expect(response.status).toBe(404);
+    });
+
+    it('should return 400 for invalid task ID', async () => {
+      const response = await request(app).post('/api/tasks/invalid/merge-cleanup');
+
+      expect(response.status).toBe(400);
+      expect(response.body.error).toBe('Invalid task ID');
     });
   });
 });

@@ -5,6 +5,7 @@ import {
   readProjectDoc,
   writeProjectDoc
 } from '../services/documentation.js';
+import { isGitRepository } from '../services/worktree.js';
 
 const router = express.Router();
 
@@ -213,6 +214,34 @@ router.put('/:id/documentation', (req, res) => {
   } catch (error) {
     console.error('Error writing project documentation:', error);
     res.status(500).json({ error: 'Failed to write project documentation' });
+  }
+});
+
+/**
+ * GET /api/projects/:id/is-git-repo
+ * Check if a project's folder is a git repository
+ * Used by frontend to determine if worktree checkbox should be shown
+ */
+router.get('/:id/is-git-repo', async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const projectId = parseInt(req.params.id, 10);
+
+    if (isNaN(projectId)) {
+      return res.status(400).json({ error: 'Invalid project ID' });
+    }
+
+    const project = projectsDb.getById(projectId, userId);
+
+    if (!project) {
+      return res.status(404).json({ error: 'Project not found' });
+    }
+
+    const isGitRepo = await isGitRepository(project.repo_folder_path);
+    res.json({ isGitRepo });
+  } catch (error) {
+    console.error('Error checking if git repo:', error);
+    res.status(500).json({ error: 'Failed to check if git repo' });
   }
 });
 

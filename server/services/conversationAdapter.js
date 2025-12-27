@@ -13,6 +13,7 @@ import { query } from '@anthropic-ai/claude-agent-sdk';
 import { conversationsDb, tasksDb, agentRunsDb, agentsDb } from '../database/db.js';
 import { notifyClaudeComplete, updateUserBadge } from './notifications.js';
 import { buildAgentContextPrompt } from './documentation.js';
+import { getWorktreePath, worktreeExists } from './worktree.js';
 import { promises as fs } from 'fs';
 import path from 'path';
 import os from 'os';
@@ -412,7 +413,13 @@ async function startNewConversation({
     throw new Error(`${entityLabel} ${entityId} not found`);
   }
 
-  const projectPath = entityWithProject.repo_folder_path;
+  let projectPath = entityWithProject.repo_folder_path;
+
+  // Check for worktree if this is a task conversation
+  if (contextOverrides?.taskId && await worktreeExists(projectPath, contextOverrides.taskId)) {
+    projectPath = getWorktreePath(projectPath, contextOverrides.taskId);
+  }
+
   const resolvedSystemPrompt = resolveCustomSystemPrompt
     ? resolveCustomSystemPrompt(entityWithProject, entityId)
     : customSystemPrompt;
@@ -695,6 +702,11 @@ export async function sendMessage(conversationId, message, options = {}) {
       throw new Error(`Task ${taskId} not found`);
     }
     projectPath = taskWithProject.repo_folder_path;
+
+    // Check for worktree and use it if exists
+    if (await worktreeExists(projectPath, taskId)) {
+      projectPath = getWorktreePath(projectPath, taskId);
+    }
   } else if (agentId) {
     const agentWithProject = agentsDb.getWithProject(agentId);
     if (!agentWithProject) {

@@ -7,7 +7,7 @@
  */
 
 import React, { useMemo } from 'react';
-import { MessageSquare, FileText, Pencil } from 'lucide-react';
+import { MessageSquare, FileText, Pencil, GitBranch } from 'lucide-react';
 import { cn } from '../../lib/utils';
 
 /**
@@ -55,6 +55,7 @@ function BoardTaskCard({
   isLive = false,
   conversationCount = 0,
   docPreview = '',
+  branchName = null,
   onClick,
   onEditClick
 }) {
@@ -112,8 +113,18 @@ function BoardTaskCard({
         {task.title || `Task ${task.id}`}
       </h4>
 
-      {/* Meta row: conversation count + doc preview */}
+      {/* Meta row: branch, conversation count + doc preview */}
       <div className="mt-2 flex flex-col gap-1.5">
+        {/* Branch name */}
+        {branchName && (
+          <div className="flex items-center gap-1.5 text-xs">
+            <GitBranch className="w-3 h-3 text-purple-500" />
+            <span className="text-purple-600 dark:text-purple-400 font-mono truncate max-w-[150px]">
+              {branchName}
+            </span>
+          </div>
+        )}
+
         {/* Conversation count */}
         {conversationCount > 0 && (
           <div className="flex items-center gap-1.5 text-xs text-muted-foreground">

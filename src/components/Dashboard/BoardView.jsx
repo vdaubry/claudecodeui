@@ -73,11 +73,33 @@ function BoardView({ className, project }) {
   // Task form modal state
   const [showTaskForm, setShowTaskForm] = useState(false);
   const [isCreatingTask, setIsCreatingTask] = useState(false);
+  const [isGitRepo, setIsGitRepo] = useState(false);
 
   // Task documentation cache
   const [taskDocs, setTaskDocs] = useState({});
   const [taskConversationCounts, setTaskConversationCounts] = useState({});
   const [isLoadingTaskData, setIsLoadingTaskData] = useState(false);
+
+  // Check if project is a git repo (for worktree option)
+  useEffect(() => {
+    const checkGitRepo = async () => {
+      if (!project) {
+        setIsGitRepo(false);
+        return;
+      }
+      try {
+        const response = await api.projects.isGitRepo(project.id);
+        if (response.ok) {
+          const data = await response.json();
+          setIsGitRepo(data.isGitRepo);
+        }
+      } catch (error) {
+        console.error('Error checking git repo:', error);
+        setIsGitRepo(false);
+      }
+    };
+    checkGitRepo();
+  }, [project]);
 
   // Group tasks by status
   const tasksByStatus = useMemo(() => {
@@ -157,12 +179,16 @@ function BoardView({ className, project }) {
   }, [navigate, project, getTokenParam]);
 
   // Handle task creation
-  const handleCreateTask = useCallback(async ({ title, documentation }) => {
+  const handleCreateTask = useCallback(async ({ title, documentation, skip_worktree }) => {
     if (!project) return { success: false, error: 'No project selected' };
 
     setIsCreatingTask(true);
     try {
-      const result = await createTask(project.id, title, documentation);
+      const options = {};
+      if (skip_worktree !== undefined) {
+        options.skip_worktree = skip_worktree;
+      }
+      const result = await createTask(project.id, title, documentation, options);
       if (result.success) {
         setShowTaskForm(false);
       }
@@ -341,6 +367,7 @@ function BoardView({ className, project }) {
         onSubmit={handleCreateTask}
         projectName={project?.name}
         isSubmitting={isCreatingTask}
+        isGitRepo={isGitRepo}
       />
     </div>
   );

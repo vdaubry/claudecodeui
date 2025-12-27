@@ -242,9 +242,9 @@ export function TaskContextProvider({ children }) {
     }
   }, []);
 
-  const createTask = useCallback(async (projectId, title, documentation = '') => {
+  const createTask = useCallback(async (projectId, title, documentation = '', options = {}) => {
     try {
-      const response = await api.tasks.create(projectId, title);
+      const response = await api.tasks.create(projectId, title, options);
       if (response.ok) {
         const newTask = await response.json();
         setTasks(prev => [newTask, ...prev]);

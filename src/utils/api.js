@@ -76,6 +76,7 @@ export const api = {
         method: 'PUT',
         body: JSON.stringify({ content }),
       }),
+    isGitRepo: (id) => authenticatedFetch(`/api/projects/${id}/is-git-repo`),
   },
 
   // Tasks API
@@ -88,10 +89,10 @@ export const api = {
       return authenticatedFetch(`/api/tasks${queryString ? '?' + queryString : ''}`);
     },
     list: (projectId) => authenticatedFetch(`/api/projects/${projectId}/tasks`),
-    create: (projectId, title) =>
+    create: (projectId, title, options = {}) =>
       authenticatedFetch(`/api/projects/${projectId}/tasks`, {
         method: 'POST',
-        body: JSON.stringify({ title }),
+        body: JSON.stringify({ title, ...options }),
       }),
     get: (id) => authenticatedFetch(`/api/tasks/${id}`),
     update: (id, data) =>
@@ -112,6 +113,22 @@ export const api = {
     cleanupOldCompleted: (projectId, keepCount = 20) =>
       authenticatedFetch(`/api/projects/${projectId}/tasks/cleanup-old-completed?keep=${keepCount}`, {
         method: 'DELETE',
+      }),
+    // Worktree methods (git isolation)
+    getWorktree: (id) => authenticatedFetch(`/api/tasks/${id}/worktree`),
+    syncWorktree: (id) =>
+      authenticatedFetch(`/api/tasks/${id}/sync`, {
+        method: 'POST',
+      }),
+    createPR: (id, title, body) =>
+      authenticatedFetch(`/api/tasks/${id}/pull-request`, {
+        method: 'POST',
+        body: JSON.stringify({ title, body }),
+      }),
+    getPR: (id) => authenticatedFetch(`/api/tasks/${id}/pull-request`),
+    mergeAndCleanup: (id) =>
+      authenticatedFetch(`/api/tasks/${id}/merge-cleanup`, {
+        method: 'POST',
       }),
   },
 

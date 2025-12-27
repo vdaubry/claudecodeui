@@ -6,7 +6,7 @@
  */
 
 import React, { useState, useEffect, useRef } from 'react';
-import { X, FileText } from 'lucide-react';
+import { X, FileText, GitBranch } from 'lucide-react';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Textarea } from './ui/textarea';
@@ -17,10 +17,12 @@ function TaskForm({
   onClose,
   onSubmit,
   projectName,
-  isSubmitting = false
+  isSubmitting = false,
+  isGitRepo = false
 }) {
   const [title, setTitle] = useState('');
   const [documentation, setDocumentation] = useState('');
+  const [createWorktree, setCreateWorktree] = useState(true);
   const [error, setError] = useState(null);
   const documentationRef = useRef(null);
 
@@ -29,6 +31,7 @@ function TaskForm({
     if (isOpen) {
       setTitle('');
       setDocumentation('');
+      setCreateWorktree(true);
       setError(null);
     }
   }, [isOpen]);
@@ -46,7 +49,9 @@ function TaskForm({
     try {
       const result = await onSubmit({
         title: title.trim(),
-        documentation: documentation
+        documentation: documentation,
+        // Only pass skip_worktree if project is a git repo
+        ...(isGitRepo && { skip_worktree: !createWorktree })
       });
 
       if (!result.success) {
@@ -162,6 +167,28 @@ function TaskForm({
               This documentation is saved to <code className="bg-muted px-1 rounded">.claude-ui/tasks/task-{'{id}'}.md</code> and provides context when starting conversations for this task.
             </p>
           </div>
+
+          {/* Worktree option - only show for git repos */}
+          {isGitRepo && (
+            <div className="flex items-start gap-3 p-3 bg-muted/50 rounded-md border border-border">
+              <input
+                type="checkbox"
+                id="create-worktree"
+                checked={createWorktree}
+                onChange={(e) => setCreateWorktree(e.target.checked)}
+                className="mt-0.5 h-4 w-4 rounded border-border text-primary focus:ring-primary"
+              />
+              <div className="flex-1 min-w-0">
+                <label htmlFor="create-worktree" className="flex items-center gap-2 text-sm font-medium text-foreground cursor-pointer">
+                  <GitBranch className="w-4 h-4 text-muted-foreground" />
+                  Create isolated worktree
+                </label>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Creates a separate Git branch and working directory for this task, preventing conflicts with other tasks.
+                </p>
+              </div>
+            </div>
+          )}
 
           {/* Actions */}
           <div className="flex gap-2 pt-2">
