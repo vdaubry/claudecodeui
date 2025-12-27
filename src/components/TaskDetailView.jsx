@@ -90,7 +90,7 @@ function TaskDetailView({
   }, [conversations, onResumeConversation]);
 
   return (
-    <div className={cn('h-full flex flex-col', className)}>
+    <div className={cn('min-h-full md:h-full flex flex-col', className)}>
       {/* Header with breadcrumb */}
       <div className="p-4 border-b border-border">
         {/* Back button and breadcrumb */}
@@ -204,9 +204,9 @@ function TaskDetailView({
       </div>
 
       {/* Content - Split view */}
-      <div className="flex-1 flex flex-col md:flex-row overflow-hidden">
+      <div className="flex-1 flex flex-col md:flex-row overflow-auto md:overflow-hidden">
         {/* Left panel - Conversations */}
-        <div className="w-full md:w-80 lg:w-96 flex flex-col min-h-0 border-b md:border-b-0 md:border-r border-border">
+        <div className="w-full md:w-80 lg:w-96 flex flex-col min-h-0 border-b md:border-b-0 md:border-r border-border flex-shrink-0">
           <ConversationList
             conversations={conversations}
             isLoading={isLoadingConversations}
@@ -219,14 +219,14 @@ function TaskDetailView({
         </div>
 
         {/* Right panel - Documentation and Agents */}
-        <div className="flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden">
+        <div className="flex-1 flex flex-col min-h-0 min-w-0 md:overflow-hidden flex-shrink-0">
           <MarkdownEditor
             content={taskDoc}
             onSave={onSaveTaskDoc}
             onEditClick={onEditDocumentation}
             isLoading={isLoadingDoc}
             placeholder="No task documentation yet. Click Edit to describe what needs to be done."
-            className="flex-1 min-h-0"
+            className="md:flex-1 md:min-h-0"
           />
           <AgentSection
             agentRuns={agentRuns}
@@ -234,6 +234,7 @@ function TaskDetailView({
             onRunAgent={onRunAgent}
             onResumeAgent={handleResumeAgent}
             workflowComplete={task.workflow_complete}
+            className="flex-shrink-0"
           />
         </div>
       </div>
